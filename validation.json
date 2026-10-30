@@ -1,0 +1,13 @@
+{
+  "unchanged_noncode_entries": 3189,
+  "manifest_permissions_resources_unchanged": true,
+  "apk_bytes": 73345381,
+  "apk_sha256": "bd5aaf292eea0961fd45d6c37e683e8ebac7b2645913cdff68e7ac4f2c3a7957",
+  "version": "0.6.0",
+  "status": "v0.6 reported working by the tester; 92 local checks passed",
+  "offline_checks": 92,
+  "verification": "PASS: APK signatures verified; v2=true, v3=true\nPASS: 29148 existing classes preserved; only 4 intended classes changed; runtime classes added: [Lapp/revanced/extension/synccompat/RequestCompat$$ExternalSyntheticLambda0;, Lapp/revanced/extension/synccompat/RequestCompat;, Lapp/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch$$ExternalSyntheticLambda0;, Lapp/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch$$ExternalSyntheticLambda1;, Lapp/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch$$ExternalSyntheticLambda2;, Lapp/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch$1;, Lapp/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch$CommentFetch;, Lapp/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch$CommentResponseException;, Lapp/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch$Diagnostic;, Lapp/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch$HttpStatusException;, Lapp/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch;]\nPASS: original presenter instruction sequence preserved; clicked parent captured before register reuse and attached before enqueue\nPASS: original error reaches diagnostic handler before any parameter overwrite\nPASS: batch response adapter installed\nPASS: signing certificate matches previous delivered APK\n",
+  "phone_ui_validation": "manual user confirmation on 2026-10-30; not exhaustive device or live-service validation",
+  "empty_response_policy": "both HTTP 200, both expected post, both valid comment listings with zero child nodes",
+  "patch_bundle_sha256": "c2651dc0edfe6715ab2f560315e9a3b04b21590ef0e9a933723806c504e6c29b"
+}

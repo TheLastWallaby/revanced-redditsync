@@ -1,0 +1,13 @@
+/build/
+/output/
+/toolchain/
+/local-tools/
+__pycache__/
+*.pyc
+*.apk
+*.keystore
+*.jks
+*.p12
+*.pem
+*.key
+.DS_Store

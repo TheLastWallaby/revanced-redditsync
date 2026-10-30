@@ -1,0 +1,337 @@
+--- v0.5.1/src/extension/app/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch.java
++++ v0.6/src/extension/app/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch.java
+@@ -63,12 +63,19 @@
+         HttpStatusException(int status) { super("HTTP " + status); this.status = status; }
+     }
+ 
++    private static final class CommentFetch {
++        final String json;
++        final boolean verifiedEmpty;
++        CommentFetch(String json, boolean verifiedEmpty) { this.json = json; this.verifiedEmpty = verifiedEmpty; }
++    }
++
+     /** Per-request counters only. No response bodies, URLs, IDs, headers, or accounts are retained. */
+     private static final class Diagnostic {
+         String stage = "initial";
+         int requested, attempted = 1, firstStatus;
+         boolean parentKnown;
+         int firstComments = -1, fallbackComments = -1, firstPostMatch = -1, fallbackPostMatch = -1;
++        int firstRoots = -1, fallbackRoots = -1, firstMore = -1, fallbackMore = -1, exhausted;
+         int missing, invalid, network;
+         final Map<Integer, Integer> http = new TreeMap<>();
+ 
+@@ -90,7 +97,7 @@
+         }
+ 
+         void response(String body, String expectedPost, boolean fallback) {
+-            int count = -1, matches = -1;
++            int count = -1, matches = -1, roots = -1, more = -1;
+             try {
+                 Object value = new JSONTokener(body).nextValue();
+                 JSONObject listing = null;
+@@ -105,22 +112,45 @@
+                 } else if (value instanceof JSONObject && "Listing".equals(((JSONObject) value).optString("kind"))) {
+                     listing = (JSONObject) value;
+                 }
+-                if (listing != null) count = countComments(listing.getJSONObject("data").getJSONArray("children"), 0);
++                if (listing != null) {
++                    JSONArray children = listing.getJSONObject("data").getJSONArray("children");
++                    count = countComments(children, 0);
++                    roots = children.length();
++                    more = countMore(children, 0);
++                }
+             } catch (Exception ignored) { /* Report an unknown shape without exporting its contents. */ }
+-            if (fallback) { fallbackComments = count; fallbackPostMatch = matches; }
+-            else { firstComments = count; firstPostMatch = matches; }
++            if (fallback) { fallbackComments = count; fallbackPostMatch = matches; fallbackRoots = roots; fallbackMore = more; }
++            else { firstComments = count; firstPostMatch = matches; firstRoots = roots; firstMore = more; }
+         }
+ 
+         String format() {
+-            return "Sync comments diagnostic v0.5.1\n"
++            return "Sync comments diagnostic v0.6.0\n"
+                     + "stage=" + stage + "\n"
+                     + "requested=" + requested + " attempted=" + attempted + " parent=" + (parentKnown ? "valid" : "missing") + "\n"
+                     + "first_http=" + firstStatus + "\n"
+                     + "first_comments=" + firstComments + " fallback_comments=" + fallbackComments + "\n"
++                    + "first_roots=" + firstRoots + " fallback_roots=" + fallbackRoots + "\n"
++                    + "first_more=" + firstMore + " fallback_more=" + fallbackMore + " exhausted=" + exhausted + "\n"
+                     + "first_post_match=" + firstPostMatch + " fallback_post_match=" + fallbackPostMatch + "\n"
+                     + "failed_ids: missing=" + missing + " invalid=" + invalid + " network=" + network + "\n"
+                     + "http_failures=" + http;
+         }
++    }
++
++    private static int countMore(JSONArray children, int depth) {
++        if (depth > 64) return 0;
++        int count = 0;
++        for (int i = 0; i < children.length(); i++) {
++            JSONObject thing = children.optJSONObject(i);
++            if (thing == null) continue;
++            if ("more".equals(thing.optString("kind"))) count++;
++            JSONObject data = thing.optJSONObject("data");
++            JSONObject replies = data == null ? null : data.optJSONObject("replies");
++            JSONObject nested = replies == null ? null : replies.optJSONObject("data");
++            JSONArray next = nested == null ? null : nested.optJSONArray("children");
++            if (next != null) count += countMore(next, depth + 1);
++        }
++        return count;
+     }
+ 
+     private static int countComments(JSONArray children, int depth) {
+@@ -150,7 +180,7 @@
+         int status = error instanceof com.android.volley.VolleyError
+                 && ((com.android.volley.VolleyError) error).networkResponse != null
+                 ? ((com.android.volley.VolleyError) error).networkResponse.statusCode : -1;
+-        return "Sync comments diagnostic v0.5.1\nstage=outside_adapter\nhttp=" + status;
++        return "Sync comments diagnostic v0.6.0\nstage=outside_adapter\nhttp=" + status;
+     }
+ 
+     public static String getFailureReason(Throwable error) {
+@@ -237,6 +267,7 @@
+             // Try the canonical comment query once before reporting an unavailable row.
+             JSONArray things = new JSONArray();
+             Set<String> addedIds = new HashSet<>();
++            Set<String> exhausted = new HashSet<>();
+             Map<String, String> defaults = new HashMap<>();
+             String linkId = params.get("link_id");
+             if (linkId != null) defaults.put("link_id", linkId.startsWith("t3_") ? linkId : "t3_" + linkId);
+@@ -251,7 +282,13 @@
+                 try {
+                     String fallback = fetch(getFallbackUrl(url, params, children.get(0)), headers);
+                     diagnostic.response(fallback, linkId, true);
+-                    parentId = addComments(fallback, children.get(0), things, addedIds, defaults);
++                    if (response.statusCode == 200 && diagnostic.parentKnown
++                            && isVerifiedEmpty(firstJson, params) && isVerifiedEmpty(fallback, params)) {
++                        exhausted.add(children.get(0));
++                        diagnostic.exhausted++;
++                    } else {
++                        parentId = addComments(fallback, children.get(0), things, addedIds, defaults);
++                    }
+                 } catch (IOException unavailable) {
+                     diagnostic.failure(unavailable);
+                     firstFailure = new CommentResponseException(3);
+@@ -272,14 +309,20 @@
+             }
+ 
+             diagnostic.attempted = fetchedChildren.size();
+-            List<Future<String>> futures = new ArrayList<>(fetchedChildren.size());
++            List<Future<CommentFetch>> futures = new ArrayList<>(fetchedChildren.size());
+             for (String child : fetchedChildren.subList(1, fetchedChildren.size())) {
+                 futures.add(executor.submit(() -> fetchComment(url, params, child, headers)));
+             }
+ 
+             for (int i = 0; i < futures.size(); i++) {
+                 try {
+-                    addComments(futures.get(i).get(), fetchedChildren.get(i + 1), things, addedIds, defaults);
++                    CommentFetch result = futures.get(i).get();
++                    if (result.verifiedEmpty) {
++                        exhausted.add(fetchedChildren.get(i + 1));
++                        diagnostic.exhausted++;
++                    } else {
++                        addComments(result.json, fetchedChildren.get(i + 1), things, addedIds, defaults);
++                    }
+                 } catch (Exception ex) {
+                     diagnostic.failure(ex);
+                     String child = fetchedChildren.get(i + 1);
+@@ -290,7 +333,7 @@
+             // Decide what is still pending from the returned content, not from the
+             // attempted batch. This retains failed/empty requests and avoids adding
+             // a second retry row for IDs already present in a nested continuation.
+-            things = reconcileMore(things);
++            things = reconcileMore(things, exhausted);
+             Set<String> represented = new HashSet<>();
+             for (int i = 0; i < things.length(); i++) {
+                 JSONObject thing = things.getJSONObject(i);
+@@ -308,11 +351,11 @@
+             // Advance to untouched IDs before retrying IDs already attempted this tap.
+             // This prevents 100 unavailable IDs from hiding all later batches forever.
+             for (String child : children.subList(fetchedChildren.size(), children.size())) {
+-                if (!represented.contains(child)) remainingChildren.add(child);
+-            }
+-            for (String child : fetchedChildren) if (!represented.contains(child)) remainingChildren.add(child);
+-
+-            if (things.length() == 0 && children.size() <= fetchedChildren.size()) {
++                if (!represented.contains(child) && !exhausted.contains(child)) remainingChildren.add(child);
++            }
++            for (String child : fetchedChildren) if (!represented.contains(child) && !exhausted.contains(child)) remainingChildren.add(child);
++
++            if (things.length() == 0 && exhausted.isEmpty() && children.size() <= fetchedChildren.size()) {
+                 diagnostic.stage = "empty_batch";
+                 if (firstFailure != null) throw firstFailure;
+                 throw new CommentResponseException(1);
+@@ -416,14 +459,35 @@
+         return builder.build().toString();
+     }
+ 
+-    private static String fetchComment(String url, Map<String, String> params, String child,
++    private static CommentFetch fetchComment(String url, Map<String, String> params, String child,
+                                        Map<String, String> headers) throws Exception {
+         String json = fetch(getCommentUrl(url, params, child), headers);
+         try {
+             selectComment(json, child, new HashMap<>());
+-            return json;
++            return new CommentFetch(json, false);
+         } catch (Exception missing) {
+-            return fetch(getFallbackUrl(url, params, child), headers);
++            String fallback = fetch(getFallbackUrl(url, params, child), headers);
++            boolean empty = isVerifiedEmpty(json, params) && isVerifiedEmpty(fallback, params);
++            return new CommentFetch(empty ? null : fallback, empty);
++        }
++    }
++
++    /** Empty means no nodes at all, not merely zero t1 objects or a missing focal ID. */
++    private static boolean isVerifiedEmpty(String json, Map<String, String> params) {
++        try {
++            String expected = params.get("link_id");
++            if (expected == null) return false;
++            if (expected.startsWith("t3_")) expected = expected.substring(3);
++            JSONArray thread = new JSONArray(json);
++            if (thread.length() != 2) return false;
++            JSONObject postListing = thread.getJSONObject(0), commentListing = thread.getJSONObject(1);
++            if (!"Listing".equals(postListing.optString("kind")) || !"Listing".equals(commentListing.optString("kind"))) return false;
++            JSONArray posts = postListing.getJSONObject("data").getJSONArray("children");
++            if (posts.length() != 1 || !"t3".equals(posts.getJSONObject(0).optString("kind"))) return false;
++            if (!expected.equals(posts.getJSONObject(0).getJSONObject("data").optString("id"))) return false;
++            return commentListing.getJSONObject("data").getJSONArray("children").length() == 0;
++        } catch (Exception unrecognized) {
++            return false;
+         }
+     }
+ 
+@@ -536,8 +600,9 @@
+     }
+ 
+     /** Remove loaded IDs and overlapping continuations after every tree has arrived. */
+-    private static JSONArray reconcileMore(JSONArray things) throws Exception {
++    private static JSONArray reconcileMore(JSONArray things, Set<String> exhausted) throws Exception {
+         Set<String> loaded = new HashSet<>();
++        loaded.addAll(exhausted);
+         for (int i = 0; i < things.length(); i++) {
+             JSONObject thing = things.getJSONObject(i);
+             if ("t1".equals(thing.optString("kind"))) loaded.add(thing.getJSONObject("data").optString("id"));
+--- v0.5.1/tests/BatchCommentsTest.java
++++ v0.6/tests/BatchCommentsTest.java
+@@ -136,7 +136,7 @@
+ 
+             reset();bodies.put("b",thread());bodies.put("fallback:b",thread());
+             all=things(load(thread(comment("a","t3_post123")),"a,b"));
+-            check(ids(all,"more").equals(Collections.singletonList("b")),"empty successful response retains unresolved ID");
++            check(ids(all,"more").isEmpty(),"two verified empty responses complete an unavailable extra ID");
+             bodies.put("b","malformed");
+             bodies.put("fallback:b","malformed");
+             all=things(load(thread(comment("a","t3_post123")),"a,b"));
+@@ -207,7 +207,7 @@
+             check("t1_a,a,b".equals(originalParams.get("children")),"original parameter map unmodified");
+             check(ids(things(converted),"t1").equals(Arrays.asList("a","b")),"duplicate requested IDs normalized");
+ 
+-            reset();bodies.put("fallback:a",thread());before=calls.get();
++            reset();bodies.put("fallback:a",thread(comment("unrelated","t3_post123")));before=calls.get();
+             all=things(loadWithParent(thread(),"a,b","t3_post123"));
+             check(ids(all,"t1").equals(Collections.singletonList("b")),"unavailable first ID no longer blocks available sibling");
+             check(ids(all,"more").equals(Collections.singletonList("a")),"unavailable first ID remains available for retry");
+@@ -225,15 +225,14 @@
+             all=things(loadWithParent(thread(),"a,b","t3_post123"));
+             check(ids(all,"t1").equals(Collections.singletonList("b")) && ids(all,"more").equals(Collections.singletonList("a")),"first fallback HTTP failure permits remaining batch to load");
+             reset();bodies.put("fallback:a",thread());bodies.put("b",thread());bodies.put("fallback:b",thread());
+-            try { loadWithParent(thread(),"a,b","t3_post123");throw new AssertionError("empty batch must not be treated as completed"); }
+-            catch (RuntimeException ex) { check("comment unavailable".equals(FixLoadMoreCommentsPatch.getFailureReason(ex)),"entirely unavailable final batch remains an error with original row intact"); }
++            check(things(loadWithParent(thread(),"a,b","t3_post123")).length()==0,"fully verified empty final batch uses native empty completion");
+             before=calls.get();
+             try { loadWithParent(thread(),"a,b","bad-parent");throw new AssertionError("invalid parent must not be inferred"); }
+             catch (RuntimeException ex) { check("comment unavailable".equals(FixLoadMoreCommentsPatch.getFailureReason(ex)),"unavailable first comment without valid parent stays conservative"); }
+             check(calls.get()-before==1,"invalid parent starts no sibling requests");
+ 
+             reset();List<String> many=new ArrayList<>();for(int i=0;i<105;i++)many.add("c"+i);
+-            for(int i=0;i<100;i++) { bodies.put("c"+i,thread());bodies.put("fallback:c"+i,thread()); }
++            for(int i=0;i<100;i++) { bodies.put("c"+i,thread(comment("unrelated","t3_post123")));bodies.put("fallback:c"+i,thread(comment("unrelated","t3_post123"))); }
+             all=things(loadWithParent(thread(),String.join(",",many),"t3_post123"));
+             List<String> rotated=ids(all,"more");
+             check(ids(all,"t1").isEmpty() && rotated.size()==105,"unavailable 100-ID batch preserves every pending ID");
+@@ -269,12 +268,15 @@
+                 check(details.contains("requested=2 attempted=1"),"diagnostic shows batch stopped before sibling requests");
+                 check(details.contains("first_comments=0 fallback_comments=0"),"diagnostic counts empty first and fallback listings");
+             }
+-            bodies.put("b",thread());bodies.put("fallback:b",thread());
+-            try { loadWithParent(thread(),"a,b","t3_post123");throw new AssertionError("expected empty-batch diagnostic"); }
++            String pendingA=thread(more("a","t3_post123","a"));
++            bodies.put("fallback:a",pendingA);
++            bodies.put("b",thread(more("b","t3_post123","b")));bodies.put("fallback:b",thread(more("b","t3_post123","b")));
++            try { loadWithParent(pendingA,"a,b","t3_post123");throw new AssertionError("expected empty-batch diagnostic"); }
+             catch (RuntimeException ex) {
+                 String details=FixLoadMoreCommentsPatch.getDiagnosticDetails(new com.android.volley.VolleyError(new RuntimeException("NEVER_EXPORT_WRAPPER",ex)));
+                 check(details.contains("stage=empty_batch") && details.contains("requested=2 attempted=2 parent=valid"),"diagnostic distinguishes fully attempted empty batch");
+                 check(details.contains("missing=2") && details.contains("http_failures={}"),"diagnostic counts unavailable IDs and remains isolated per request");
++                check(details.contains("first_roots=1 fallback_roots=1") && details.contains("first_more=1 fallback_more=1"),"diagnostic distinguishes only-more responses from empty listings");
+                 check(!details.contains("NEVER_EXPORT_WRAPPER"),"wrapper exception messages excluded from report");
+             }
+             reset();statuses.put("fallback:a",503);statuses.put("b",403);
+@@ -304,6 +306,46 @@
+             com.android.volley.VolleyError rawError=new com.android.volley.VolleyError(new NetworkResponse(403,"NEVER_EXPORT_RESPONSE".getBytes(StandardCharsets.UTF_8),Collections.emptyMap(),false,0));
+             String outside=FixLoadMoreCommentsPatch.getDiagnosticDetails(rawError);
+             check(outside.contains("stage=outside_adapter") && outside.contains("http=403") && !outside.contains("NEVER_EXPORT"),"pre-adapter errors report status without response content");
++
++            reset();
++            for(String id:Arrays.asList("a","b","c","d")) { bodies.put(id,thread());bodies.put("fallback:"+id,thread()); }
++            NetworkResponse fourInput=response(thread());byte[] fourBytes=fourInput.data.clone();
++            NetworkResponse four=FixLoadMoreCommentsPatch.getMoreChildrenResponse(fourInput,base,params("a,b,c,d"),headers,"t3_post123");
++            check(things(four).length()==0,"four confirmed empty lookups complete without loading error");
++            check(new JSONObject(new String(four.data,StandardCharsets.UTF_8)).getJSONObject("json").getJSONArray("errors").length()==0,"empty completion uses successful native morechildren envelope");
++            check(four.headers==fourInput.headers && four.networkTimeMs==fourInput.networkTimeMs && Arrays.equals(fourInput.data,fourBytes),"empty completion preserves HTTP metadata and original input");
++
++            reset();bodies.put("fallback:a",thread());statuses.put("b",503);
++            all=things(loadWithParent(thread(),"a,b","t3_post123"));
++            check(ids(all,"t1").isEmpty() && ids(all,"more").equals(Collections.singletonList("b")),"verified empty ID completes while failed HTTP ID stays pending");
++            check("t3_post123".equals(all.getJSONObject(0).getJSONObject("data").getString("parent_id")),"remaining HTTP retry stays under original parent");
++
++            reset();bodies.put("b",thread());bodies.put("fallback:b",thread());
++            all=things(loadWithParent(thread(comment("a","t3_post123",more("b","t1_a","b"))),"a,b","t3_post123"));
++            check(ids(all,"t1").equals(Collections.singletonList("a")) && ids(all,"more").isEmpty(),"confirmed empty ID removed from nested continuation without losing loaded comment");
++
++            reset();List<String> hundredFive=new ArrayList<>();for(int i=0;i<105;i++)hundredFive.add("q"+i);
++            for(int i=0;i<100;i++) { bodies.put("q"+i,thread());bodies.put("fallback:q"+i,thread()); }
++            all=things(loadWithParent(thread(),String.join(",",hundredFive),"t3_post123"));
++            check(ids(all,"more").equals(hundredFive.subList(100,105)),"100 verified empty IDs complete while untouched IDs stay pending");
++            all=things(loadWithParent(thread(comment("q100","t3_post123")),String.join(",",hundredFive.subList(100,105)),"t3_post123"));
++            check(ids(all,"t1").equals(hundredFive.subList(100,105)) && ids(all,"more").isEmpty(),"later available batch loads after empty batch completes");
++
++            reset();bodies.put("fallback:a",thread());
++            List<String> unverified=Arrays.asList(
++                    thread().replace("post123","wrongpost"),
++                    listing(new JSONArray()).toString(),
++                    thread(more("a","t3_post123","a")),
++                    thread(comment("unrelated","t3_post123")),
++                    "malformed",
++                    new JSONArray(thread()).put(new JSONObject()).toString());
++            for(String first:unverified) {
++                try { loadWithParent(first,"a","t3_post123");throw new AssertionError("unverified response must retain original continuation"); }
++                catch(RuntimeException ex) { check(FixLoadMoreCommentsPatch.getFailureReason(ex)!=null,"nonempty, mismatched, incomplete or malformed response never becomes empty completion"); }
++            }
++            NetworkResponse cached=new NetworkResponse(304,thread().getBytes(StandardCharsets.UTF_8),Collections.emptyMap(),true,0);
++            try { FixLoadMoreCommentsPatch.getMoreChildrenResponse(cached,base,params("a"),headers,"t3_post123");throw new AssertionError("304 cannot prove empty completion"); }
++            catch(RuntimeException ex) { check(FixLoadMoreCommentsPatch.getDiagnosticDetails(ex).contains("first_http=304"),"empty completion requires HTTP 200 on both routes"); }
+             System.out.println("PASS: "+checks+" checks with real Volley and loopback HTTP; peak parallel requests="+maximum.get());
+         } finally {
+             server.stop(0);serverThreads.shutdownNow();
+--- v0.5.1/build.py
++++ v0.6/build.py
+@@ -60,10 +60,10 @@
+ run(java, '-XX:-UsePerfData', '-cp', tools / 'r8.jar', 'com.android.tools.r8.D8',
+     '--release', '--min-api', '26', '--lib', java_home,
+     '--classpath', tools / 'revanced-cli.jar', '--output', build / 'dex-patches', build / 'patches.jar')
+-bundle = output / 'sync-gallery-comments-compat-v0.5.1.rvp'
++bundle = output / 'sync-gallery-comments-compat-v0.6.0.rvp'
+ manifest = ('Manifest-Version: 1.0\r\nName: Sync Gallery and Batch Comments Compatibility\r\n'
+             'Description: GitLab comment loader with retry preservation for Sync build 23033\r\n'
+-            'Version: 0.5.1\r\nTimestamp: ' + str(int(time.time()*1000)) + '\r\n'
++            'Version: 0.6.0\r\nTimestamp: ' + str(int(time.time()*1000)) + '\r\n'
+             'Author: ReVanced contributors and local compatibility changes\r\nLicense: GPL-3.0-only\r\n\r\n')
+ with zipfile.ZipFile(bundle, 'w', zipfile.ZIP_DEFLATED) as archive:
+     archive.writestr('META-INF/MANIFEST.MF', manifest)
+@@ -77,5 +77,5 @@
+     if not args.keystore:
+         parser.error('--apk requires your own --keystore')
+     run(java, '-XX:-UsePerfData', '-jar', tools / 'revanced-cli.jar', 'patch', '-p', bundle,
+-        '-b', '-o', output / 'Sync-v23.06.30-gallery-comments-v0.5.1-diagnostic.apk', '-t', build / 'patch-temp',
++        '-b', '-o', output / 'Sync-v23.06.30-gallery-comments-v0.6.apk', '-t', build / 'patch-temp',
+         '--keystore', args.keystore.resolve(), args.apk.resolve())
