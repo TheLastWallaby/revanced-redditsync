@@ -11,14 +11,34 @@ combinations has not been established.
 
 ## Downloads — v0.6.0
 
-- [ReVanced patch bundle (.rvp)](dist/sync-gallery-comments-compat-v0.6.0.rvp?raw=true)
-- [Complete source ZIP](dist/sync-gallery-comments-compat-v0.6.0-source.zip?raw=true)
-- [SHA-256 checksums](dist/SHA256SUMS)
+- [Latest release](https://github.com/TheLastWallaby/revanced-redditsync/releases/latest)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.0/patches.rvp)
+- [Complete source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.0/sync-gallery-comments-compat-v0.6.0-source.zip)
+- [SHA-256 checksums](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.0/SHA256SUMS)
 
 The expanded source is also available in this repository. The ZIP is the
-original v0.6.0 sharing package; the repository README adds these download links.
-The release files contain the patch bundle and source. Supply your own base APK
-and signing key when applying the patches.
+original v0.6.0 sharing package; the repository adds release and remote-bundle
+instructions. `patches.rvp` is byte-for-byte identical to the versioned `.rvp`
+in `dist/`. Supply your own base APK and signing key when applying the patches.
+
+## ReVanced Manager remote bundle
+
+Add this JSON URL as a remote patch bundle:
+
+```
+https://raw.githubusercontent.com/TheLastWallaby/revanced-redditsync/main/bundles/stable.json
+```
+
+In Manager versions with the custom bundle editor, open **Patches**, tap the
+**pencil icon**, choose **Add patches** → **Enter URL**, and paste the JSON URL.
+The metadata points to the latest stable release's `patches.rvp`. You can also
+download that file from Releases and import it as a local patch bundle.
+
+This follows the distribution layout of
+[revanced-rif-fixes](https://github.com/notBrian2/revanced-rif-fixes).
+`bundles/latest.json` is also provided and may include future prereleases.
+Use the Sync base and patch selections described below. The validated patching
+route is the CLI; Manager import and patching still need device verification.
 
 ## Included patches
 
@@ -78,6 +98,8 @@ Supply the CLI's password and alias options if your keystore requires them.
 - `upstream/`: original files from the upstream implementation.
 - `changes-from-v0.5.1.diff`: this version's runtime changes.
 - `validation.json`: recorded checks, output digest and user test status.
+- `bundles/`: ReVanced Manager remote-bundle metadata.
+- `scripts/update_bundle_json.py`: refreshes the metadata from published releases.
 
 Use Java 17, ReVanced CLI 6.0.0 (Patcher 22.0.0), Kotlin compiler 2.4.21,
 R8 8.3.37, JSON-java 20240303, Volley 1.2.1 classes.jar from its AAR, and Android
@@ -92,6 +114,18 @@ python3 build.py --tools /absolute/path/to/tools
 
 Add `--apk /path/to/revanced-base.apk --keystore /path/to/your.keystore` to
 build and sign an APK using the CLI's default key password settings.
+
+## Publishing a release
+
+1. Build and validate the patch, then create a versioned GitHub release.
+2. Attach the `.rvp` as **`patches.rvp`**, along with the complete source ZIP and
+   `SHA256SUMS`. Keep the runtime version and release tag in sync.
+3. Run `python3 scripts/update_bundle_json.py` and commit `bundles/*.json`.
+   The script uses GitHub's public API and requires no token. For an already
+   fetched API response, pass `--releases-json /path/to/releases.json`.
+
+The stable feed follows the newest published regular release with an uploaded
+`patches.rvp`; the latest feed also considers prereleases. Drafts are excluded.
 
 ## Validation
 
