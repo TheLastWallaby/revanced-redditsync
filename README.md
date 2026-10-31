@@ -34,8 +34,6 @@ In Manager versions with the custom bundle editor, open **Patches**, tap the
 The metadata points to the latest stable release's `patches.rvp`. You can also
 download that file from Releases and import it as a local patch bundle.
 
-This follows the distribution layout of
-[revanced-rif-fixes](https://github.com/notBrian2/revanced-rif-fixes).
 `bundles/latest.json` is also provided and may include future prereleases.
 Use the Sync base and patch selections described below. The validated patching
 route is the CLI; Manager import and patching still need device verification.
