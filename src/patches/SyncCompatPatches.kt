@@ -13,6 +13,7 @@ import com.android.tools.smali.dexlib2.iface.instruction.NarrowLiteralInstructio
 import com.android.tools.smali.dexlib2.iface.instruction.Instruction
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.TwoRegisterInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 import app.revanced.com.android.tools.smali.dexlib2.mutable.MutableMethod
 import app.revanced.com.android.tools.smali.dexlib2.mutable.MutableClassDef
 import app.revanced.com.android.tools.smali.dexlib2.mutable.MutableField
@@ -34,6 +35,8 @@ private const val SLINK = "Lapp/revanced/extension/synccompat/SafeSLinks;"
 private const val SLINK_BASE = "Lapp/revanced/extension/shared/fixes/slink/BaseFixSLinksPatch;"
 private const val SLINK_RESULT = "Lapp/revanced/extension/shared/fixes/slink/ResolveResult;"
 private const val MEDIA = "Lapp/revanced/extension/synccompat/CommentMedia;"
+private const val AWARDS = "Lapp/revanced/extension/synccompat/AwardCompat;"
+private const val AWARDS_RESULT = "Lapp/revanced/extension/synccompat/AwardCompat\$Result;"
 
 private val extensionPatch = bytecodePatch {
     extendWith("extensions/synccompat.rve")
@@ -534,5 +537,165 @@ val improveSyncCommentMedia = bytecodePatch(
         // Capture comment image sizes/types while Sync parses the comment; the body is unchanged.
         parse.addInstructions(index + 3,
             "invoke-static/range {v$metadata .. v$metadata}, $MEDIA->rememberMetadata(Lorg/json/JSONObject;)V")
+    }
+}
+
+private const val AWARD = "Lo8/a;"
+private const val SELECTION_ITEM = "Lcom/laurencedawson/reddit_sync/ui/fragment_dialogs/bottom/material_dialogs/base/AbstractSelectionDialogBottomSheet\$h;"
+private const val SHEET_DISMISS = "Lcom/google/android/material/bottomsheet/BottomSheetDialogFragment;->x3()V"
+private const val JSON_OBJECT = "Lorg/json/JSONObject;"
+
+val handleSyncAwardData = bytecodePatch(
+    name = "Sync: handle unavailable award data",
+    description = "Treat missing or changed award metadata as optional: listings stay usable, the awards sheet shows an accurate message for failed, empty or unavailable award data, and offers the item on reddit.com when Reddit doesn't list its awards.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        val model = classes.singleOrNull { it.type == AWARD && it.sourceFile == "Award.java" }
+            ?: throw PatchException("Expected Sync Award model was not found. This patch targets build 23033 only.")
+        layout(listOf("a" to "I", "b" to "Ljava/lang/String;", "c" to "Ljava/lang/String;",
+            "q" to "Ljava/lang/String;", "r" to "Ljava/lang/String;").all { (name, type) ->
+            model.fields.any { it.name == name && it.type == type && AccessFlags.PUBLIC.isSet(it.accessFlags) }
+        } && model.methods.any { it.name == "<init>" && it.parameterTypes.isEmpty() }, "Award model")
+
+        // Awards sheet lookup (y8.c, GET /api/info/?id=). The original threw on any missing field
+        // and reported "Could not load gallery".
+        val request = classes.singleOrNull { it.type == "Ly8/c;" && it.sourceFile == "OAuthAwardsRequest.java" }
+            ?: throw PatchException("Expected Sync OAuthAwardsRequest was not found. This patch targets build 23033 only.")
+        val parse = proxy(request).mutableClass.methods.singleOrNull {
+            it.name == "parseNetworkResponse" && it.parameterTypes == listOf(NETWORK)
+        } ?: throw PatchException("Unsupported awards request parser.")
+        val original = parse.implementation!!.instructions
+        if (original.any { it.methodRef()?.definingClass == AWARDS }) throw PatchException("Award data patch is already installed.")
+        val cache = original.mapNotNull { it.methodRef() }.singleOrNull {
+            it.definingClass == "Ld9/a;" && it.parameterTypes == listOf(NETWORK, "J") && it.returnType == "Lcom/android/volley/Cache\$Entry;"
+        }
+        layout(cache != null && original.any { it.stringValue() == "all_awardings" } &&
+            original.any { it.stringValue() == "Could not load gallery" } &&
+            original.any { it.opcode == Opcode.CONST_WIDE_32 }, "awards request parser")
+        parse.resetBody(5, """
+            invoke-virtual {p0}, Lcom/android/volley/Request;->getUrl()Ljava/lang/String;
+            move-result-object v0
+            invoke-static {p1, v0}, $AWARDS->parseAwards(${NETWORK}Ljava/lang/String;)$AWARDS_RESULT
+            move-result-object v0
+            iget-object v1, v0, $AWARDS_RESULT->error:$VOLLEY_ERROR
+            if-eqz v1, :success
+            invoke-static {v1}, Lcom/android/volley/Response;->error($VOLLEY_ERROR)Lcom/android/volley/Response;
+            move-result-object p1
+            return-object p1
+            :success
+            iget-object v0, v0, $AWARDS_RESULT->awards:[$AWARD
+            const-wide/32 v1, 0x36ee80
+            invoke-static {p1, v1, v2}, $cache
+            move-result-object p1
+            invoke-static {v0, p1}, Lcom/android/volley/Response;->success(Ljava/lang/Object;Lcom/android/volley/Cache${'$'}Entry;)Lcom/android/volley/Response;
+            move-result-object p1
+            return-object p1
+        """.trimIndent())
+
+        // Post and comment awards sheets: accurate error text, and "Open on Reddit" rows.
+        for ((type, source) in listOf("Lt9/g;" to "AwardsCommentAsyncSelectionDialogBottomSheet.java",
+                                      "Lt9/i;" to "AwardsPostAsyncSelectionDialogBottomSheet.java")) {
+            val target = classes.singleOrNull { it.type == type && it.sourceFile == source }
+                ?: throw PatchException("Expected Sync $source was not found.")
+            val sheet = proxy(target).mutableClass
+            val error = sheet.methods.singleOrNull { m ->
+                m.parameterTypes == listOf(VOLLEY_ERROR) && m.returnType == "V" &&
+                    m.implementation?.instructions?.any { it.stringValue() == "Error loading awards" } == true
+            } ?: throw PatchException("Unsupported awards sheet error handler in $source.")
+            val calls = error.implementation!!.instructions.mapNotNull { it.methodRef() }
+            val toast = calls.singleOrNull { it.definingClass == "Lgb/p;" }
+            val ready = calls.singleOrNull { it.definingClass == "Ls9/f;" && it.name == "e4" && it.parameterTypes.isEmpty() }
+            layout(toast != null && ready != null && calls.any { it.toString() == SHEET_DISMISS }, "awards sheet error handler")
+            val show = when (toast!!.parameterTypes) {
+                listOf("Landroid/content/Context;", "Ljava/lang/String;") -> """
+                    invoke-virtual {p0}, Landroidx/fragment/app/Fragment;->B0()Landroidx/fragment/app/FragmentActivity;
+                    move-result-object p1
+                    invoke-static {p1, v0}, $toast
+                """.trimIndent()
+                listOf("Ljava/lang/String;") -> "invoke-static {v0}, $toast"
+                else -> throw PatchException("Unsupported awards sheet toast in $source.")
+            }
+            // The original reuses its error register before reading it; read the message first.
+            error.resetBody(3, """
+                invoke-static {p1}, $AWARDS->errorMessage($VOLLEY_ERROR)Ljava/lang/String;
+                move-result-object v0
+                invoke-virtual {p0}, $ready
+                move-result p1
+                if-eqz p1, :done
+                $show
+                invoke-virtual {p0}, $SHEET_DISMISS
+                :done
+                return-void
+            """.trimIndent())
+            val select = sheet.methods.singleOrNull {
+                it.name == "r0" && it.parameterTypes == listOf(SELECTION_ITEM) && it.returnType == "V"
+            } ?: throw PatchException("Unsupported awards sheet selection handler in $source.")
+            val code = select.implementation!!.instructions
+            layout(select.implementation!!.registerCount >= 4 &&
+                code.any { it.opcode == Opcode.CHECK_CAST && (it as ReferenceInstruction).reference.toString() == AWARD },
+                "awards sheet selection handler")
+            // Rows made by AwardCompat for unlisted awards open the item with Sync's own
+            // "Open in browser" helper; real awards keep the award detail sheet.
+            select.addInstructionsWithLabels(0, """
+                iget-object v0, p1, $SELECTION_ITEM->c:Ljava/lang/Object;
+                invoke-static {v0}, $AWARDS->handoffUrl(Ljava/lang/Object;)Ljava/lang/String;
+                move-result-object v0
+                if-eqz v0, :award
+                invoke-virtual {p0}, Landroidx/fragment/app/Fragment;->B0()Landroidx/fragment/app/FragmentActivity;
+                move-result-object v1
+                invoke-static {v1, v0}, Ly7/a;->X(Landroid/content/Context;Ljava/lang/String;)V
+                invoke-virtual {p0}, $SHEET_DISMISS
+                return-void
+                :award
+                nop
+            """.trimIndent())
+        }
+
+        // Listing parser (c9.c): award entries without icon arrays, or gildings that isn't an
+        // object, threw from the post/comment parse.
+        val parserTarget = classes.singleOrNull { it.type == "Lc9/c;" && it.sourceFile == "PostParserHelper.java" }
+            ?: throw PatchException("Expected Sync PostParserHelper was not found.")
+        val parser = proxy(parserTarget).mutableClass
+        fun sites(key: String, call: String) = parser.methods.flatMap { m ->
+            val code = m.implementation?.instructions ?: return@flatMap emptyList()
+            code.indices.filter { i ->
+                code[i].stringValue() == key && i + 2 < code.size &&
+                    code[i + 1].methodRef()?.let { it.definingClass == JSON_OBJECT && it.name == call } == true
+            }.map { m to it }
+        }
+        val gildings = sites("gildings", "has")
+        if (gildings.size != 1) throw PatchException("Expected one gildings check, found ${gildings.size}.")
+        run {
+            val (method, index) = gildings.single()
+            val code = method.implementation!!.instructions
+            val invoke = code[index + 1] as FiveRegisterInstruction
+            val key = code[index].registerA()!!
+            layout(code[index + 2].opcode == Opcode.MOVE_RESULT && invoke.registerCount == 2 &&
+                invoke.registerD == key && invoke.registerC < 16 && key < 16 &&
+                (index + 3 until minOf(code.size, index + 8)).any { i ->
+                    code[i].methodRef()?.let { it.name == "getJSONObject" } == true
+                }, "gildings check")
+            val result = code[index + 2].registerA()!!
+            method.addInstructions(index + 3, """
+                invoke-static {v${invoke.registerC}, v$key}, $AWARDS->hasObject(${JSON_OBJECT}Ljava/lang/String;)Z
+                move-result v$result
+            """.trimIndent())
+        }
+        val awardings = sites("all_awardings", "optJSONArray")
+        if (awardings.size != 1) throw PatchException("Expected one listing all_awardings read, found ${awardings.size}.")
+        run {
+            val (method, index) = awardings.single()
+            val code = method.implementation!!.instructions
+            layout(code[index + 2].opcode == Opcode.MOVE_RESULT_OBJECT &&
+                code.subList(index, minOf(code.size, index + 40)).any { it.stringValue() == "resized_static_icons" },
+                "listing all_awardings read")
+            val list = code[index + 2].registerA()!!
+            method.addInstructions(index + 3, """
+                invoke-static/range {v$list .. v$list}, $AWARDS->listingAwardings(Lorg/json/JSONArray;)Lorg/json/JSONArray;
+                move-result-object v$list
+            """.trimIndent())
+        }
     }
 }
