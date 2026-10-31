@@ -12,11 +12,11 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Release candidate — v0.6.2-rc.3 inline comment media (issue #8)
+## Release candidate — v0.6.2-rc.4 inline comment media (issue #8)
 
 Adds **Sync: improve inline comment media** for [issue #8](https://github.com/TheLastWallaby/revanced-redditsync/issues/8).
-It ships in the **v0.6.2-rc.3** prerelease for phone testing. rc.1 showed
-pictures correctly; rc.3 sizes Giphy comment GIFs from their file header.
+It ships in the **v0.6.2-rc.4** prerelease for phone testing. rc.1 showed
+pictures correctly; rc.4 draws Reddit `giphy|ID` comment GIFs full size.
 Stable remains v0.6.1 until the candidate is confirmed on a phone.
 
 - Reddit picture links (`preview.redd.it`, `external-preview.redd.it`,
@@ -36,8 +36,10 @@ Stable remains v0.6.1 until the candidate is confirmed on a phone.
   pictures. Detection only adds to Sync's own list and still respects the
   **Inline image previews** setting. Inline-sized pictures also require that
   setting; with it off, links stay links.
-- Giphy links (`media.giphy.com/...`, `giphy.com/gifs/...`) draw inline at
-  their real aspect ratio instead of the small link card. Tapping still opens
+- Reddit comment GIFs (`![gif](giphy|ID)`, which Sync showed as a small
+  100px preview beside the URL) and Giphy links (`media.giphy.com/...`,
+  `giphy.com/gifs/...`) draw inline at their real aspect ratio and the reply
+  width instead of the small preview or link card. Tapping still opens
   the original link. Reddit normally marks comment GIFs
   `{"status": "invalid"}` with no size, so the patch fetches only the
   10-byte GIF header from Giphy's HTTPS CDN in the background (a Range
@@ -243,7 +245,7 @@ with an existing installation.
 1. Set `VERSION` to an unused candidate version, run the required checks and
    merge the tested PR.
 2. Run **Actions → Publish patch release** on `main` with the exact matching tag
-   (for example `v0.6.2-rc.4` for a future candidate). The workflow rebuilds, checks the tested
+   (for example `v0.6.2-rc.5` for a future candidate). The workflow rebuilds, checks the tested
    revision, publishes all four assets and updates the Manager feeds.
 3. Manually run **Build my Sync APK** in the provisioned private repository with
    the same candidate tag. Scheduled builds follow stable releases only.
