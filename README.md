@@ -4,21 +4,19 @@ Unofficial ReVanced compatibility patches for **Sync for Reddit
 v23.06.30-13:39**, version code **23033**, free package
 `com.laurencedawson.reddit_sync`.
 
-**Stable v0.6.1** adds the share-link security fix below. Its runtime code is
-identical to v0.6.1-rc.1, which the tester confirmed working on their phone:
-three Reddit share links, a share link after force-stopping Sync, galleries and
-Load more comments.
+**Stable v0.6.2** adds the inline comment media fix below. Its runtime code is
+identical to v0.6.2-rc.5, which the tester confirmed working on their phone:
+Reddit picture comments, full-size Reddit/Giphy comment GIFs and direct Imgur
+pictures. It keeps v0.6.1's share-link security fix.
 This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Release candidate — v0.6.2-rc.5 inline comment media (issue #8)
+## v0.6.2 inline comment media fix
 
 Adds **Sync: improve inline comment media** for [issue #8](https://github.com/TheLastWallaby/revanced-redditsync/issues/8).
-It ships in the **v0.6.2-rc.5** prerelease for phone testing. rc.4's
-pictures and full-size Reddit/Giphy comment GIFs were confirmed on a phone;
-rc.5 adds direct Imgur pictures. Stable remains v0.6.1 until the candidate is
-confirmed on a phone.
+The tester confirmed the v0.6.2-rc.5 phone checks recorded in
+`validation-phone-tests.json`.
 
 - Reddit picture links (`preview.redd.it`, `external-preview.redd.it`,
   `i.redd.it`) read `width`/`height` in any parameter order. Missing,
@@ -58,9 +56,10 @@ confirmed on a phone.
 - Giphy `id|width|height` markers with bad sizes fall back to Sync's unsized
   Giphy image instead of throwing.
 
-Not covered: inline playback of comment videos. Video links stay tappable and
-open in Sync's existing viewer. Rendering in deeply nested replies, rotation
-and Reddit's current comment payloads still need phone validation.
+Not covered: inline playback of comment videos, including Imgur `.mp4` and
+`.gifv` clips. Video links stay tappable and open in Sync's existing viewer.
+Rotation, very deeply nested replies and the settings-off paths were not
+separately checked on a phone.
 
 ## v0.6.1 share-link security fix
 
@@ -108,12 +107,13 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Stable v0.6.1 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.1)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.1/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.1/sync-gallery-comments-compat-v0.6.1-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.1/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.1/build-info.json)
-- [Archived v0.6.1-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.1-rc.1)
+- [Stable v0.6.2 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.2)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.2/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.2/sync-gallery-comments-compat-v0.6.2-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.2/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.2/build-info.json)
+- [Archived v0.6.2-rc.5 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.2-rc.5)
+- [Previous stable v0.6.1](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.1)
 
 For unpublished changes, download the `patch-bundle-<run>-<attempt>` artifact from
 the PR's passing [CI run](https://github.com/TheLastWallaby/revanced-redditsync/actions/workflows/ci.yml).
@@ -139,7 +139,7 @@ download that file from Releases and import it as a local patch bundle.
 Use the Sync base and patch selections described below. The validated patching
 route is the CLI; Manager import and patching still need device verification.
 
-## Included patches — cumulative v0.6.1
+## Included patches — cumulative v0.6.2
 
 - **Sync: secure Reddit share links** validates share URLs and redirects before
   sending credentials, as described above.
@@ -148,6 +148,9 @@ route is the CLI; Manager import and patching still need device verification.
 - **Sync: load more comments in batches** uses normal comment routes for up to
   100 requested IDs per tap, with eight concurrent additional requests. It
   preserves failed and untouched IDs, parent relationships and nested retries.
+- **Sync: improve inline comment media** draws comment pictures, Reddit/Giphy
+  GIFs and direct Imgur pictures inline at their real aspect ratio within the
+  reply width, as described above.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
@@ -166,12 +169,13 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 2. Use a base that has **none of this bundle's earlier compatibility patches**.
    Do not reapply to an APK already containing any earlier compatibility bundle.
 3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
-   and apply every named patch: three in v0.6.1, four in v0.6.2-rc.1 and later.
-   Check that each reports success.
+   and apply all four named patches (three in v0.6.1). Check that each reports
+   success.
 4. Sign the result with your own keystore. Matching the key used by your current
    installation allows an in-place update.
 
-This bundle adds the gallery/comment fixes and share-link hardening. It expects
+This bundle adds the gallery/comment fixes, share-link hardening and inline
+comment media. It expects
 the existing ReVanced shared Logger class; its source stub is for compilation only. It does not
 supply OAuth configuration or unrelated Sync patches such as RedGifs fixes.
 
@@ -183,7 +187,7 @@ repository, using your own paths for the other files:
 java -jar revanced-cli-6.0.0-all.jar patch \
   -p output/patches.rvp -b \
   --keystore your-signing-key.keystore \
-  -o Sync-v23.06.30-compat-v0.6.1.apk \
+  -o Sync-v23.06.30-compat-v0.6.2.apk \
   Sync-v23.06.30-revanced-base.apk
 ```
 
@@ -252,7 +256,7 @@ with an existing installation.
 1. Set `VERSION` to an unused candidate version, run the required checks and
    merge the tested PR.
 2. Run **Actions → Publish patch release** on `main` with the exact matching tag
-   (for example `v0.6.2-rc.6` for a future candidate). The workflow rebuilds, checks the tested
+   (for example `v0.6.3-rc.1` for a future candidate). The workflow rebuilds, checks the tested
    revision, publishes all four assets and updates the Manager feeds.
 3. Manually run **Build my Sync APK** in the provisioned private repository with
    the same candidate tag. Scheduled builds follow stable releases only.
@@ -285,7 +289,10 @@ That is a manual confirmation for the tested case, not exhaustive Android or
 live-service coverage. The original server response bodies were not captured.
 The v0.6.1-rc.1 candidate additionally passed the reported share-link, cold-start,
 gallery and comment phone checks recorded in `validation-phone-tests.json`.
-Stable v0.6.1 rebuilds the same runtime code under its stable version.
+Stable v0.6.1 rebuilt the same runtime code under its stable version.
+The v0.6.2 candidates passed the tester's picture, Giphy and Imgur comment
+checks recorded in `validation-phone-tests.json`; stable v0.6.2 rebuilds the
+v0.6.2-rc.5 runtime code under its stable version.
 This standalone bundle does not represent a full upstream Gradle build.
 
 ## Sharing and license
