@@ -1,16 +1,41 @@
 {
-  "tested_release": "v0.6.1-rc.1",
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
-  "results": {
-    "three_reddit_share_links": "passed",
-    "share_link_after_force_stop": "passed",
-    "reddit_galleries": "passed",
-    "load_more_comments": "passed"
-  },
-  "promotion": "Stable v0.6.1 uses the same runtime patch and extension source as this tested candidate.",
-  "unverified": [
-    "account-switch behavior",
-    "Android Manager import and patching",
-    "exhaustive Reddit account/post combinations"
+  "releases": [
+    {
+      "stable": "v0.6.2",
+      "tested_release": "v0.6.2-rc.5",
+      "results": {
+        "reddit_picture_comment_inline_full_width_aspect_preserved": "passed (reported on rc.1, retested through rc.5)",
+        "reddit_giphy_comment_gifs_full_size_animated": "passed (reported on rc.4, retested on rc.5)",
+        "direct_imgur_picture_inline": "passed (reported on rc.5)",
+        "imgur_clips_remain_cards": "observed as designed (mp4/gifv are not drawn inline)"
+      },
+      "promotion": "Stable v0.6.2 uses the same runtime patch and extension source as the tested v0.6.2-rc.5 candidate.",
+      "unverified": [
+        "inline video playback (not implemented)",
+        "device rotation and very deeply nested replies",
+        "behaviour with Inline image previews or animated comment images turned off",
+        "regions where Giphy or Imgur block requests",
+        "account-switch behavior",
+        "Android Manager import and patching",
+        "exhaustive Reddit account/post combinations"
+      ]
+    },
+    {
+      "stable": "v0.6.1",
+      "tested_release": "v0.6.1-rc.1",
+      "results": {
+        "three_reddit_share_links": "passed",
+        "share_link_after_force_stop": "passed",
+        "reddit_galleries": "passed",
+        "load_more_comments": "passed"
+      },
+      "promotion": "Stable v0.6.1 uses the same runtime patch and extension source as this tested candidate.",
+      "unverified": [
+        "account-switch behavior",
+        "Android Manager import and patching",
+        "exhaustive Reddit account/post combinations"
+      ]
+    }
   ]
 }
