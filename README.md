@@ -36,8 +36,10 @@ Stable remains v0.6.1 until the candidate is confirmed on a phone.
   pictures. Detection only adds to Sync's own list and still respects the
   **Inline image previews** setting. Inline-sized pictures also require that
   setting; with it off, links stay links.
-- Giphy links (`media.giphy.com/...`, `giphy.com/gifs/...`) draw inline at
-  their real aspect ratio instead of the small link card. Tapping still opens
+- Reddit comment GIFs (`![gif](giphy|ID)`, which Sync showed as a small
+  100px preview beside the URL) and Giphy links (`media.giphy.com/...`,
+  `giphy.com/gifs/...`) draw inline at their real aspect ratio and the reply
+  width instead of the small preview or link card. Tapping still opens
   the original link. Reddit normally marks comment GIFs
   `{"status": "invalid"}` with no size, so the patch fetches only the
   10-byte GIF header from Giphy's HTTPS CDN in the background (a Range

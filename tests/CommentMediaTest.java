@@ -355,12 +355,40 @@ public final class CommentMediaTest {
             none(CommentMedia.inlineImageSize(render, 1000, 0f, true), "first draw keeps the card");
             check(waitFor(() -> CommentMedia.inlineImageSize(render, 1000, 0f, true) != null), "next draw is sized");
 
+            // Sync's ![gif](giphy|ID) img marker: width handed over by the converter's caller.
+            CommentMedia.setImageWidth(0);
+            none(CommentMedia.giphyInlineSize("GIFOK1"), "no reply width keeps the small preview");
+            CommentMedia.setImageWidth(1000);
+            box(CommentMedia.giphyInlineSize("GIFOK1", 1000, 0f), 1000, 563, "known marker drawn full width");
+            box(CommentMedia.giphyInlineSize("GIFOK1", 400, 2.75f), 400, 225, "marker fits a nested reply");
+            check(CommentMedia.giphyInlineSize("GIFOK1") != null, "public marker entry point sizes");
+            check(CommentMedia.giphyMediaUrl("GIFOK1").equals(CommentMedia.giphyDisplayUrl("GIFOK1")), "marker draws the GIF file");
+            for (String bad : new String[] {"", "a/b", "../x", "abc|def", null}) {
+                none(CommentMedia.giphyInlineSize(bad), "invalid marker ID keeps the preview: " + bad);
+            }
+            none(CommentMedia.giphyInlineSize("MARK1", 1000, 0f), "unknown marker keeps the preview first");
+            check(waitFor(() -> CommentMedia.giphyInlineSize("MARK1", 1000, 0f) != null), "marker sized on the next draw");
+            check(hits.get("MARK1").get() == 1, "marker probed once");
+            int[] otherWidth = {-1};
+            Thread other = new Thread(() -> otherWidth[0] = CommentMedia.imageWidth());
+            other.start();
+            other.join();
+            check(otherWidth[0] == 0, "reply width is per thread");
+            CommentMedia.rememberMetadata(new JSONObject().put("giphy|META1", new JSONObject().put("status", "valid")
+                    .put("e", "AnimatedImage").put("m", "image/gif")
+                    .put("s", new JSONObject().put("x", 200).put("y", 100).put("gif", "https://external-preview.redd.it/m.gif?width=200&s=1"))));
+            check("https://external-preview.redd.it/m.gif?width=200&s=1".equals(CommentMedia.giphyDisplayUrl("META1")),
+                    "Reddit's rendition preferred when valid");
+            check(!hits.containsKey("META1"), "valid metadata needs no probe");
+
             // Settings off: nothing is requested.
             CommentMedia.settingsOverride = Boolean.FALSE;
             CommentMedia.rememberMetadata(new JSONObject().put("giphy|NOPE1", new JSONObject().put("status", "invalid")));
             none(CommentMedia.inlineImageSize("https://media.giphy.com/media/NOPE2/giphy.gif", 1000, 0f, true), "no probe when off");
+            none(CommentMedia.giphyInlineSize("GIFOK1", 1000, 0f), "settings off keeps the small preview");
+            none(CommentMedia.giphyInlineSize("NOPE3", 1000, 0f), "settings off: no marker probe");
             Thread.sleep(300);
-            check(!hits.containsKey("NOPE1") && !hits.containsKey("NOPE2"), "settings off sends no requests");
+            check(!hits.containsKey("NOPE1") && !hits.containsKey("NOPE2") && !hits.containsKey("NOPE3"), "settings off sends no requests");
 
             // Outside Sync, settings cannot be read, so probing is off.
             CommentMedia.settingsOverride = null;

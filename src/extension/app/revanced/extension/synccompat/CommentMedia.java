@@ -239,11 +239,72 @@ public final class CommentMedia {
     /** Validated Giphy ID from a media_metadata key such as giphy|ID or giphy|ID|downsized. */
     static String giphyKeyId(String key) {
         String[] parts = key.split("\\|");
-        if (parts.length < 2 || parts[1].isEmpty() || parts[1].length() > 64) return null;
-        for (int i = 0; i < parts[1].length(); i++) {
-            if (!Character.isLetterOrDigit(parts[1].charAt(i))) return null;
+        return parts.length < 2 ? null : validGiphyId(parts[1]);
+    }
+
+    static String validGiphyId(String id) {
+        if (id == null || id.isEmpty() || id.length() > 64) return null;
+        for (int i = 0; i < id.length(); i++) {
+            if (!Character.isLetterOrDigit(id.charAt(i))) return null;
         }
-        return parts[1];
+        return id;
+    }
+
+    // ------------------------------------------- Giphy <img> markers (giphy|ID)
+
+    /**
+     * Sync turns ![gif](giphy|ID) into an img tag whose static handler has no reply width.
+     * Its caller records the converter's width here just before handing over the tag.
+     */
+    private static final ThreadLocal<int[]> IMAGE_WIDTH = new ThreadLocal<>();
+
+    public static void setImageWidth(int width) {
+        int[] holder = IMAGE_WIDTH.get();
+        if (holder == null) IMAGE_WIDTH.set(holder = new int[1]);
+        holder[0] = width;
+    }
+
+    static int imageWidth() {
+        int[] holder = IMAGE_WIDTH.get();
+        return holder == null ? 0 : holder[0];
+    }
+
+    /**
+     * Full-size box for Sync's unsized Giphy marker, or null to keep its small preview.
+     * An unknown size queues a header probe so the next draw can be full size.
+     */
+    static int[] giphyInlineSize(String value, int maxWidth, float density) {
+        String id = validGiphyId(value);
+        if (id == null || maxWidth <= 0 || !probesAllowed()) return null;
+        Metadata metadata;
+        synchronized (METADATA) {
+            metadata = METADATA.get(GIPHY_KEY + id);
+        }
+        if (metadata == null) {
+            requestGiphySize(id);
+            return null;
+        }
+        return fitBox(metadata.width, metadata.height, maxWidth, density);
+    }
+
+    /** Called from Sync's Giphy marker handler (nc.d.a); never throws. */
+    public static int[] giphyInlineSize(String id) {
+        try {
+            return giphyInlineSize(id, imageWidth(), density());
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** GIF to draw and open for a sized Giphy marker: Reddit's rendition or Giphy's original. */
+    public static String giphyDisplayUrl(String id) {
+        String valid = validGiphyId(id);
+        if (valid == null) return id;
+        synchronized (METADATA) {
+            Metadata metadata = METADATA.get(GIPHY_KEY + valid);
+            if (metadata != null && metadata.display != null) return metadata.display;
+        }
+        return giphyMediaUrl(valid);
     }
 
     // ------------------------------------------------------------- Giphy size probe

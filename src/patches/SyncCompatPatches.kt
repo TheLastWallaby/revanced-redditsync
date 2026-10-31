@@ -462,6 +462,61 @@ val improveSyncCommentMedia = bytecodePatch(
             """.trimIndent(), ExternalLabel("end", end))
         }
 
+        // Reddit comment GIFs arrive as ![gif](giphy|ID). Sync renders that as an img tag and draws
+        // a 100px-tall 100.gif preview in nc.d.a, whose static handler has no reply width. Record
+        // the converter's width just before the img handler, then draw full size once the size is known.
+        val start = method("q", listOf("Ljava/lang/String;", "Lorg/xml/sax/Attributes;"))
+        run {
+            val code = start.implementation!!.instructions
+            val img = code.singleIndex("img tag handler call") { i ->
+                code[i].methodRef()?.let { it.definingClass == "Lnc/d;" && it.name == "y" } == true
+            }
+            layout(img > 0 && code[img - 1].opcode == Opcode.IGET_OBJECT &&
+                ((code[img - 1] as ReferenceInstruction).reference as FieldReference).name == "c", "img tag handler call")
+            start.addInstructions(img, """
+                iget-object v0, p0, Lnc/d;->d:Lnc/a;
+                iget v0, v0, Lnc/a;->e:I
+                invoke-static {v0}, $MEDIA->setImageWidth(I)V
+            """.trimIndent())
+        }
+        val giphyMarker = converter.methods.singleOrNull {
+            it.name == "a" && it.parameterTypes == listOf("Loc/c;", "Ljava/lang/String;") && it.returnType == "V"
+        } ?: throw PatchException("Unsupported comment HTML converter method: a")
+        run {
+            val code = giphyMarker.implementation!!.instructions
+            layout(code.firstOrNull()?.opcode == Opcode.NEW_INSTANCE &&
+                code.any { it.stringValue() == "https://media.giphy.com/media/" } &&
+                code.any { it.stringValue() == "/100.gif" }, "unsized Giphy marker")
+            giphyMarker.addInstructionsWithLabels(0, """
+                invoke-static {p1}, $MEDIA->giphyInlineSize(Ljava/lang/String;)[I
+                move-result-object v0
+                if-eqz v0, :preview
+                invoke-static {p1}, $MEDIA->giphyDisplayUrl(Ljava/lang/String;)Ljava/lang/String;
+                move-result-object p1
+                const/4 v1, 0x0
+                aget v1, v0, v1
+                const/4 v2, 0x1
+                aget v2, v0, v2
+                new-instance v0, Lnb/c;
+                invoke-direct {v0, p1, v1, v2}, Lnb/c;-><init>(Ljava/lang/String;II)V
+                const/4 v1, 0x2
+                new-array v1, v1, [Ljava/lang/Object;
+                const/4 v2, 0x0
+                aput-object v0, v1, v2
+                new-instance v0, Lmb/d;
+                invoke-direct {v0, p1}, Lmb/d;-><init>(Ljava/lang/String;)V
+                const/4 v2, 0x1
+                aput-object v0, v1, v2
+                const-string v0, "￼"
+                invoke-virtual {p0, v0, v1}, Loc/c;->c(Ljava/lang/String;[Ljava/lang/Object;)V
+                const-string v0, "\n"
+                invoke-virtual {p0, v0}, Loc/c;->b(Ljava/lang/CharSequence;)V
+                return-void
+                :preview
+                nop
+            """.trimIndent())
+        }
+
         val parserTarget = classes.singleOrNull { it.type == "Lc9/c;" && it.sourceFile == "PostParserHelper.java" }
             ?: throw PatchException("Expected Sync PostParserHelper was not found.")
         val parser = proxy(parserTarget).mutableClass
