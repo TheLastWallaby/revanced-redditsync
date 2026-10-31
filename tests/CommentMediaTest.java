@@ -116,19 +116,19 @@ public final class CommentMediaTest {
         // Signed preview URLs: dimensions in any order; the URL itself is never rebuilt.
         String ordered = "https://preview.redd.it/abc123.png?width=1280&height=720&format=png&auto=webp&" + SIG;
         String reordered = "https://preview.redd.it/abc123.png?" + SIG + "&height=720&auto=webp&width=1280&format=png";
-        box(CommentMedia.inlineImageSize(ordered, 1000, 0f), 1000, 563, "ordered dimensions");
-        box(CommentMedia.inlineImageSize(reordered, 1000, 0f), 1000, 563, "reordered dimensions");
-        box(CommentMedia.inlineImageSize("https://preview.redd.it/abc123.webp?height=720&amp;width=1280&amp;" + SIG, 1000, 0f),
+        box(CommentMedia.inlineImageSize(ordered, 1000, 0f, true), 1000, 563, "ordered dimensions");
+        box(CommentMedia.inlineImageSize(reordered, 1000, 0f, true), 1000, 563, "reordered dimensions");
+        box(CommentMedia.inlineImageSize("https://preview.redd.it/abc123.webp?height=720&amp;width=1280&amp;" + SIG, 1000, 0f, true),
                 1000, 563, "escaped WebP preview");
-        none(CommentMedia.inlineImageSize("https://preview.redd.it/abc123.png?width=1280&height=7x0&" + SIG, 1000, 0f),
+        none(CommentMedia.inlineImageSize("https://preview.redd.it/abc123.png?width=1280&height=7x0&" + SIG, 1000, 0f, true),
                 "non-numeric height falls back");
-        none(CommentMedia.inlineImageSize("https://preview.redd.it/abc123.png?width=640&format=png&" + SIG, 1000, 0f),
+        none(CommentMedia.inlineImageSize("https://preview.redd.it/abc123.png?width=640&format=png&" + SIG, 1000, 0f, true),
                 "missing height and no metadata falls back");
-        none(CommentMedia.inlineImageSize("https://preview.redd.it/abc123.gif?width=640&height=480&format=mp4&" + SIG, 1000, 0f),
+        none(CommentMedia.inlineImageSize("https://preview.redd.it/abc123.gif?width=640&height=480&format=mp4&" + SIG, 1000, 0f, true),
                 "video rendition is not drawn as a picture");
-        none(CommentMedia.inlineImageSize("https://example.com/a.png?width=640&height=480", 1000, 0f),
+        none(CommentMedia.inlineImageSize("https://example.com/a.png?width=640&height=480", 1000, 0f, true),
                 "non-Reddit dimensions are not trusted");
-        none(CommentMedia.inlineImageSize(ordered, 0, 0f), "unmeasured reply falls back");
+        none(CommentMedia.inlineImageSize(ordered, 0, 0f, true), "unmeasured reply falls back");
 
         // media_metadata supplies type and source size when the link lacks them.
         JSONObject metadata = new JSONObject()
@@ -147,24 +147,70 @@ public final class CommentMediaTest {
         CommentMedia.rememberMetadata(metadata);
         CommentMedia.rememberMetadata(null);
         String titled = "https://preview.redd.it/my-photo-v0-k2m9zq.webp?width=640&format=pjpg&auto=webp&" + SIG;
-        box(CommentMedia.inlineImageSize(titled, 1000, 0f), 1000, 1250, "metadata size for titled preview");
-        box(CommentMedia.inlineImageSize("https://i.redd.it/k2m9zq.webp", 400, 0f), 400, 500, "metadata size for i.redd.it");
+        box(CommentMedia.inlineImageSize(titled, 1000, 0f, true), 1000, 1250, "metadata size for titled preview");
+        box(CommentMedia.inlineImageSize("https://i.redd.it/k2m9zq.webp", 400, 0f, true), 400, 500, "metadata size for i.redd.it");
         check(CommentMedia.isInlineImage("https://i.redd.it/k2m9zq"), "metadata MIME identifies extensionless image");
-        none(CommentMedia.inlineImageSize("https://i.redd.it/vid123", 1000, 0f), "video metadata is not cached as a picture");
-        none(CommentMedia.inlineImageSize("https://i.redd.it/fail01.png", 1000, 0f), "failed metadata ignored");
-        none(CommentMedia.inlineImageSize("https://i.redd.it/bad002.png", 1000, 0f), "malformed metadata ignored");
+        none(CommentMedia.inlineImageSize("https://i.redd.it/vid123", 1000, 0f, true), "video metadata is not cached as a picture");
+        none(CommentMedia.inlineImageSize("https://i.redd.it/fail01.png", 1000, 0f, true), "failed metadata ignored");
+        none(CommentMedia.inlineImageSize("https://i.redd.it/bad002.png", 1000, 0f, true), "malformed metadata ignored");
         // Explicit link dimensions win over cached metadata.
-        box(CommentMedia.inlineImageSize("https://preview.redd.it/k2m9zq.webp?width=200&height=100&" + SIG, 1000, 0f),
+        box(CommentMedia.inlineImageSize("https://preview.redd.it/k2m9zq.webp?width=200&height=100&" + SIG, 1000, 0f, true),
                 1000, 500, "explicit dimensions win");
         for (int i = 0; i < CommentMedia.CACHE_SIZE + 10; i++) {
             CommentMedia.rememberMetadata(new JSONObject().put("fill" + i, new JSONObject().put("e", "Image")
                     .put("m", "image/png").put("s", new JSONObject().put("x", 10).put("y", 10))));
         }
-        none(CommentMedia.inlineImageSize("https://i.redd.it/k2m9zq.webp", 400, 0f), "metadata cache is bounded");
-        box(CommentMedia.inlineImageSize("https://i.redd.it/fill" + (CommentMedia.CACHE_SIZE + 9) + ".png", 400, 0f),
+        none(CommentMedia.inlineImageSize("https://i.redd.it/k2m9zq.webp", 400, 0f, true), "metadata cache is bounded");
+        box(CommentMedia.inlineImageSize("https://i.redd.it/fill" + (CommentMedia.CACHE_SIZE + 9) + ".png", 400, 0f, true),
                 400, 400, "recent metadata retained");
-        box(CommentMedia.inlineImageSize("https://i.redd.it/fill" + (CommentMedia.CACHE_SIZE + 9) + ".png", 400, 3f),
+        box(CommentMedia.inlineImageSize("https://i.redd.it/fill" + (CommentMedia.CACHE_SIZE + 9) + ".png", 400, 3f, true),
                 30, 30, "small metadata image not stretched");
+
+        // Giphy links: IDs from every URL form, case preserved.
+        check("hlYFdKaA7Emi".equals(CommentMedia.giphyId(CommentMedia.parse("https://media.giphy.com/media/hlYFdKaA7Emi/giphy.gif"))), "media URL ID");
+        check("hlYFdKaA7Emi".equals(CommentMedia.giphyId(CommentMedia.parse("https://media3.giphy.com/media/v1.Y2lkPTc5/hlYFdKaA7Emi/giphy-downsized.gif?cid=1&rid=x"))), "versioned media URL ID");
+        check("hlYFdKaA7Emi".equals(CommentMedia.giphyId(CommentMedia.parse("https://i.giphy.com/hlYFdKaA7Emi.webp"))), "i.giphy.com ID");
+        check("hlYFdKaA7Emi".equals(CommentMedia.giphyId(CommentMedia.parse("https://giphy.com/gifs/captain-insano-hlYFdKaA7Emi"))), "page URL ID");
+        check(CommentMedia.giphyId(CommentMedia.parse("https://giphy.com/")) == null, "bare Giphy host");
+        check(CommentMedia.giphyId(CommentMedia.parse("https://notgiphy.com/media/abc/giphy.gif")) == null, "lookalike host");
+        check(CommentMedia.giphyId(CommentMedia.parse("https://giphy.com.evil.example/media/abc/giphy.gif")) == null, "suffix host");
+        check(CommentMedia.giphyId(CommentMedia.parse("https://media.giphy.com/media/a%2Fb/giphy.gif")) == null, "encoded ID rejected");
+
+        String giphyLink = "https://media.giphy.com/media/hlYFdKaA7Emi/giphy.gif";
+        String giphyPage = "https://giphy.com/gifs/captain-insano-hlYFdKaA7Emi";
+        String rendition = "https://media2.giphy.com/media/v1.Y2lk/hlYFdKaA7Emi/giphy-downsized.gif?cid=73&rid=giphy-downsized.gif";
+        none(CommentMedia.inlineImageSize(giphyLink, 1000, 0f, true), "Giphy without metadata keeps Sync's card");
+        check(giphyLink.equals(CommentMedia.displayUrl(giphyLink)), "unknown Giphy draws the link itself");
+        CommentMedia.rememberMetadata(new JSONObject()
+                .put("giphy|hlYFdKaA7Emi|downsized", new JSONObject().put("status", "valid").put("e", "AnimatedImage")
+                        .put("m", "image/gif").put("ext", "https://giphy.com/gifs/hlYFdKaA7Emi")
+                        .put("s", new JSONObject().put("x", 480).put("y", 270).put("gif", rendition)
+                                .put("mp4", "https://media2.giphy.com/media/v1.Y2lk/hlYFdKaA7Emi/giphy-downsized.mp4"))
+                        .put("id", "giphy|hlYFdKaA7Emi|downsized"))
+                .put("giphy|evil01", new JSONObject().put("e", "AnimatedImage").put("m", "image/gif")
+                        .put("s", new JSONObject().put("x", 100).put("y", 100).put("gif", "http://tracker.example/x.gif")))
+                .put("giphy|", new JSONObject().put("e", "AnimatedImage")
+                        .put("s", new JSONObject().put("x", 100).put("y", 100))));
+        box(CommentMedia.inlineImageSize(giphyLink, 1000, 0f, true), 1000, 563, "Giphy link sized from metadata");
+        box(CommentMedia.inlineImageSize(giphyLink, 400, 2.75f, true), 400, 225, "Giphy fits a nested reply");
+        box(CommentMedia.inlineImageSize(giphyLink, 1080, 1.5f, true), 720, 405, "Giphy not stretched past native size");
+        none(CommentMedia.inlineImageSize(giphyLink, 1000, 0f, false), "animated images off keeps Sync's card");
+        none(CommentMedia.inlineImageSize("https://i.redd.it/anim.gif", 1000, 0f, false), "Reddit GIF honours animated setting");
+        check(rendition.equals(CommentMedia.displayUrl(giphyLink)), "draws Reddit's downsized rendition");
+        check(rendition.equals(CommentMedia.displayUrl(giphyPage)), "page link draws the rendition");
+        box(CommentMedia.inlineImageSize(giphyPage, 1000, 0f, true), 1000, 563, "page link sized via rendition");
+        check(CommentMedia.isInlineImage(giphyPage), "page link with metadata is an image");
+        String other = "https://media.giphy.com/media/evil01/giphy.gif";
+        check(other.equals(CommentMedia.displayUrl(other)), "untrusted rendition URL ignored");
+        box(CommentMedia.inlineImageSize(other, 300, 0f, true), 300, 300, "media file draws itself");
+        none(CommentMedia.inlineImageSize("https://giphy.com/gifs/title-evil01", 300, 0f, true),
+                "page link without a trusted rendition keeps the card");
+        check(CommentMedia.trustedRendition("https://external-preview.redd.it/a.gif?width=1&s=2") != null, "Reddit rendition allowed");
+        check(CommentMedia.trustedRendition("http://media.giphy.com/media/a/giphy.gif") == null, "plain HTTP rendition rejected");
+        check(CommentMedia.trustedRendition("javascript:alert(1)") == null, "script rendition rejected");
+        check(CommentMedia.trustedRendition(null) == null, "missing rendition");
+        check("https://i.redd.it/k.png".equals(CommentMedia.displayUrl("https://i.redd.it/k.png")), "Reddit pictures draw their own URL");
+        check(CommentMedia.displayUrl(null) == null, "null display URL");
 
         // Giphy id|width|height markers from Sync's media_metadata pass.
         check(CommentMedia.hasGiphySize(new String[] {"abc", "480", "270"}), "sized Giphy");
@@ -176,8 +222,8 @@ public final class CommentMediaTest {
         check(!CommentMedia.hasGiphySize(null), "missing Giphy marker");
 
         // Public entry points never throw, even without Android display metrics.
-        check(CommentMedia.inlineImageSize((String) null, 100) == null, "null URL");
-        check(CommentMedia.inlineImageSize(ordered, 1000) != null, "JVM without display metrics still sizes");
+        check(CommentMedia.inlineImageSize((String) null, 100, true) == null, "null URL");
+        check(CommentMedia.inlineImageSize(ordered, 1000, true) != null, "JVM without display metrics still sizes");
 
         CommentMedia.clearMetadata();
         System.out.println("PASS: " + checks + " comment media checks (offline; no device rendering)");

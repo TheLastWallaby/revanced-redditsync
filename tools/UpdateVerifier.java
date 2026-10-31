@@ -154,9 +154,10 @@ public class UpdateVerifier {
     String media="Lapp/revanced/extension/synccompat/CommentMedia;->";
     if(calls(converter,"e",media+"inlineImageSize(")!=1)throw new AssertionError("Comment image sizing hook missing");
     if(calls(converter,"e",media+"inlineImageOr(")!=1)throw new AssertionError("Comment image format hook missing");
+    if(calls(converter,"e",media+"displayUrl(")!=1)throw new AssertionError("Comment image display URL hook missing");
     if(calls(converter,"y",media+"hasGiphySize(")!=1)throw new AssertionError("Giphy size guard missing");
     if(calls(parser,"a",media+"rememberMetadata(")!=1)throw new AssertionError("Comment media_metadata hook missing");
-    System.out.println("PASS: comment media sizing, format, Giphy and media_metadata hooks installed once each");
+    System.out.println("PASS: comment media sizing, display URL, format, Giphy and media_metadata hooks installed once each");
   }
   public static void main(String[] args) throws Exception {
     var result=new ApkVerifier.Builder(new File(args[1])).build().verify();

@@ -354,7 +354,7 @@ private fun layout(valid: Boolean, what: String) {
 
 val improveSyncCommentMedia = bytecodePatch(
     name = "Sync: improve inline comment media",
-    description = "Size Reddit comment pictures from URL parameters in any order or from media_metadata, preserving aspect ratio, reply width and signed links; inline WebP and other parsed picture formats; keep malformed Giphy markers usable.",
+    description = "Size Reddit comment pictures from URL parameters in any order or from media_metadata, preserving aspect ratio, reply width and signed links; draw Giphy links inline from media_metadata; inline WebP and other parsed picture formats; keep malformed Giphy markers usable.",
 ) {
     compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
     dependsOn(extensionPatch)
@@ -405,23 +405,28 @@ val improveSyncCommentMedia = bytecodePatch(
             val fallback = code[preview + 4].branchTarget()
             layout(fallback.methodRef()?.let { it.definingClass == SETTINGS && it.name == "x" } == true, "comment link fallback")
             // Replace the old preview branch (integer parsing and "&height" slicing) with a parsed,
-            // validated size. Unknown sizes take Sync's normal link and inline-preview path.
+            // validated size. Giphy links sized by media_metadata draw inline when animated images
+            // are enabled. Unknown sizes take Sync's normal link, preview card and inline-preview path.
+            // The span draws displayUrl (Reddit's Giphy rendition) while the tap target stays the link.
             link.addInstructionsWithLabels(preview + 4, """
                 invoke-static {}, $SETTINGS->x()$SETTINGS_VALUES
                 move-result-object v4
+                iget-boolean v10, v4, $SETTINGS_VALUES->commentsAnimatedImages:Z
                 iget-boolean v4, v4, $SETTINGS_VALUES->inlineImagePreviews:Z
                 if-eqz v4, :fallback
                 iget v4, p1, Lnc/a;->e:I
-                invoke-static {v2, v4}, $MEDIA->inlineImageSize(Ljava/lang/String;I)[I
+                invoke-static {v2, v4, v10}, $MEDIA->inlineImageSize(Ljava/lang/String;IZ)[I
                 move-result-object v4
                 if-eqz v4, :fallback
+                invoke-static {v2}, $MEDIA->displayUrl(Ljava/lang/String;)Ljava/lang/String;
+                move-result-object v3
                 invoke-virtual {p0, v0}, Loc/c;->r(Loc/c${'$'}a;)Ljava/lang/String;
                 invoke-virtual {p0, v0}, Loc/c;->q(Loc/c${'$'}a;)V
                 aget v10, v4, v8
                 aget v11, v4, v9
                 new-array v4, v7, [Ljava/lang/Object;
                 new-instance v1, Lnb/c;
-                invoke-direct {v1, v2, v10, v11}, Lnb/c;-><init>(Ljava/lang/String;II)V
+                invoke-direct {v1, v3, v10, v11}, Lnb/c;-><init>(Ljava/lang/String;II)V
                 aput-object v1, v4, v8
                 new-instance v1, Lmb/d;
                 invoke-direct {v1, v2}, Lmb/d;-><init>(Ljava/lang/String;)V
