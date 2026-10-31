@@ -11,7 +11,7 @@
         "saved_gallery_position": "reported pass for check 3: close and reopen to check the saved position"
       },
       "gallery_test_post": "https://www.reddit.com/r/test/comments/1viyq6w/gif_gallery/",
-      "promotion": "Prepared stable v0.6.9 uses the same runtime patch and extension source as the phone-tested v0.6.9-rc.1 candidate. Stable publication awaits explicit authorization; candidate assets remain immutable.",
+      "promotion": "Stable v0.6.9 uses the same runtime patch and extension source as the phone-tested v0.6.9-rc.1 candidate. The tester confirmed all three supplied checks and the owner authorized stable publication. Candidate assets remain immutable.",
       "unverified": [
         "live gallery JSON, exact per-item results and whether missing/failed/unsupported metadata was present in this post",
         "crosspost galleries and matching-parent media fallback on a phone",
