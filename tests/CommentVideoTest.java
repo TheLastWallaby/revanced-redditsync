@@ -86,6 +86,17 @@ public final class CommentVideoTest {
                 return false;
             }
         }
+        final AtomicInteger fitted = new AtomicInteger();
+        @Override public boolean makeFitted(File poster, File out, int width, int height) {
+            fitted.incrementAndGet();
+            if (!poster.isFile()) return false;
+            try {
+                Files.write(out.toPath(), new byte[] {(byte) 0xff, (byte) 0xd8, (byte) width, (byte) height});
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
         /** Runs inline; the app posts to Sync's main thread. */
         @Override public void post(Runnable runnable) { runnable.run(); }
         @Override public int[] makePoster(File video, File poster, int nativeWidth) {
@@ -282,7 +293,7 @@ public final class CommentVideoTest {
         check(CommentVideo.posterSize("https://example.com/a.png", 1000) == null, "non-video link ignored");
         check(CommentVideo.posterSize(link, 0) == null && CommentVideo.posterSize(link, -5) == null, "no reply width");
         check(CommentVideo.posterSize(null, 1000) == null, "null link");
-        check(CommentVideo.posterUrl(null).isEmpty(), "posterUrl never returns null");
+        check(CommentVideo.posterUrl(null, 100, 100).isEmpty(), "posterUrl never returns null");
 
         // A poster saved by an earlier session is used without any network request.
         File directory = new File(root, "disk");
@@ -293,7 +304,8 @@ public final class CommentVideoTest {
         int[] box = CommentVideo.posterSize("https://v.redd.it/bbbbb22222", 1000);
         check(box != null && box[0] == 1000 && box[1] == 563, "disk poster sized: " + Arrays.toString(box));
         check(new File(directory, "bbbbb22222.jpg").getAbsolutePath().equals(
-                CommentVideo.posterUrl("https://reddit.com/link/x1234/video/bbbbb22222/player")), "posterUrl is the file path");
+                CommentVideo.posterUrl("https://reddit.com/link/x1234/video/bbbbb22222/player", 1000, 563)),
+                "posterUrl is the file path");
         // Small native size is not stretched past its density-scaled width (220 * 2 = 440).
         Files.write(new File(directory, "ccccc33333.jpg").toPath(), new byte[] {1});
         platform.diskSize = new int[] {220, 220};
@@ -312,7 +324,7 @@ public final class CommentVideoTest {
         platform.directory = null;
         check(CommentVideo.posterSize("https://v.redd.it/fffff66666", 1000) == null, "no cache directory");
         check(!CommentVideo.generate("fffff66666"), "generate without directory fails");
-        check(CommentVideo.posterUrl("https://v.redd.it/fffff66666").equals("https://v.redd.it/fffff66666"),
+        check(CommentVideo.posterUrl("https://v.redd.it/fffff66666", 100, 100).equals("https://v.redd.it/fffff66666"),
                 "posterUrl falls back to the link");
     }
 
@@ -468,6 +480,13 @@ public final class CommentVideoTest {
                 "extreme shapes have no placeholder");
         check(CommentVideo.placeholderDimensions(0, 1) == null, "empty shape");
         check("placeholder-480x270".equals(CommentVideo.placeholderKey(640, 360)), "same shape, same placeholder");
+        check("abc12-fit-720x720".equals(CommentVideo.fittedKey("abc12", 1000, 1000)), "fitted key");
+        check(CommentVideo.sameShape(720, 405, 1000, 563) && !CommentVideo.sameShape(720, 405, 1000, 1000)
+                && !CommentVideo.sameShape(0, 1, 1, 1), "shape comparison");
+        check(Arrays.equals(new int[] {0, 157, 720, 562}, CommentVideo.fitRect(720, 405, 720, 720)),
+                "wide frame letterboxed: " + Arrays.toString(CommentVideo.fitRect(720, 405, 720, 720)));
+        check(Arrays.equals(new int[] {246, 0, 474, 405}, CommentVideo.fitRect(405, 720, 720, 405)),
+                "tall frame pillarboxed: " + Arrays.toString(CommentVideo.fitRect(405, 720, 720, 405)));
 
         // media_metadata parsing, with previews off so nothing is fetched.
         platform.previews = false;
@@ -497,6 +516,7 @@ public final class CommentVideoTest {
         AtomicInteger metaRequests = new AtomicInteger();
         AtomicInteger failRequests = new AtomicInteger();
         CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch releaseDefault = new CountDownLatch(1);
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", exchange -> {
             String path = exchange.getRequestURI().getPath();
@@ -510,7 +530,14 @@ public final class CommentVideoTest {
                     Thread.currentThread().interrupt();
                 }
                 body = REDDIT_MPD.getBytes(StandardCharsets.UTF_8);
-            } else if (path.equals("/meta12345/CMAF_360.mp4")) {
+            } else if (path.equals("/def12345/DASHPlaylist.mpd")) {
+                try {
+                    releaseDefault.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                body = REDDIT_MPD.getBytes(StandardCharsets.UTF_8);
+            } else if (path.equals("/meta12345/CMAF_360.mp4") || path.equals("/def12345/CMAF_360.mp4")) {
                 body = new byte[] {1, 2, 3};
             } else {
                 if (path.equals("/fail12345/DASHPlaylist.mpd")) failRequests.incrementAndGet();
@@ -545,36 +572,38 @@ public final class CommentVideoTest {
             check(box != null && box[0] == 960 && box[1] == 540, "box reserved from metadata: " + Arrays.toString(box));
             String posterPath = new File(directory, "meta12345.jpg").getAbsolutePath();
             String placeholderPath = new File(directory, "placeholder-480x270.jpg").getAbsolutePath();
-            check(posterPath.equals(CommentVideo.posterUrl(link)), "before any file, the span gets the poster path");
+            check(posterPath.equals(CommentVideo.posterUrl(link, 960, 540)), "before any file, the span gets the poster path");
 
             // Drawing the span queues the placeholder and loads it in place.
             FakeSpan span = new FakeSpan();
-            CommentVideo.track(span, link);
+            CommentVideo.track(span, link, 960, 540);
             check(waitFor(() -> placeholderPath.equals(span.last())), "placeholder loaded into the span: " + span.loads);
             check(new File(placeholderPath).isFile(), "placeholder saved");
-            check(placeholderPath.equals(CommentVideo.posterUrl(link)), "later spans start with the placeholder");
+            check(placeholderPath.equals(CommentVideo.posterUrl(link, 960, 540)), "later spans start with the placeholder");
             check(platform.placeholders.get() == 1, "one placeholder drawn");
 
             // The poster replaces the placeholder in the same span.
             release.countDown();
             check(waitFor(() -> posterPath.equals(span.last())), "poster loaded into the span: " + span.loads);
-            check(posterPath.equals(CommentVideo.posterUrl(link)), "poster path after it is ready");
+            check(posterPath.equals(CommentVideo.posterUrl(link, 960, 540)), "poster path after it is ready");
             box = CommentVideo.posterSize(link, 1000);
             check(box != null && box[0] == 960 && box[1] == 540, "poster keeps the reserved shape");
             int loads = span.loads.size();
 
-            // A span drawn after the poster is ready loads it at once; earlier spans are released.
+            // A span drawn after the poster is ready starts with it and is not tracked; earlier spans are released.
             FakeSpan late = new FakeSpan();
-            CommentVideo.track(late, link);
-            check(posterPath.equals(late.last()), "late span loads the poster");
+            CommentVideo.track(late, link, 960, 540);
+            check(late.loads.isEmpty(), "late span already had the poster: " + late.loads);
             check(span.loads.size() == loads, "finished spans are not reloaded");
 
             // Failure: the span keeps the placeholder (dark frame with play badge), never a missing poster.
             CommentVideo.rememberMetadata(video("fail12345", 640, 360));
             String failLink = "https://v.redd.it/fail12345";
-            check(placeholderPath.equals(CommentVideo.posterUrl(failLink)), "same-shaped placeholder reused");
+            int[] failBox = CommentVideo.posterSize(failLink, 1000);
+            check(failBox != null && failBox[0] == 1000 && failBox[1] == 563, "fail box: " + Arrays.toString(failBox));
+            check(placeholderPath.equals(CommentVideo.posterUrl(failLink, 1000, 563)), "same-shaped placeholder reused");
             FakeSpan failed = new FakeSpan();
-            CommentVideo.track(failed, failLink);
+            CommentVideo.track(failed, failLink, 1000, 563);
             check(waitFor(() -> failRequests.get() == 1), "failing poster attempted");
             Thread.sleep(200);
             for (String path : failed.loads) check(placeholderPath.equals(path), "failed video keeps the placeholder: " + failed.loads);
@@ -586,11 +615,12 @@ public final class CommentVideoTest {
             FakeSpan[] spans = new FakeSpan[CommentVideo.MAX_WAITING_SPANS + 3];
             for (int i = 0; i < spans.length; i++) {
                 spans[i] = new FakeSpan();
-                CommentVideo.track(spans[i], "https://v.redd.it/many12345");
+                CommentVideo.track(spans[i], "https://v.redd.it/many12345", 844, 1500);
             }
-            CommentVideo.track(new Object(), "https://v.redd.it/many12345");
-            CommentVideo.track(null, "https://v.redd.it/many12345");
-            CommentVideo.track(new FakeSpan(), "https://example.com/not-a-video");
+            CommentVideo.track(new Object(), "https://v.redd.it/many12345", 844, 1500);
+            CommentVideo.track(null, "https://v.redd.it/many12345", 844, 1500);
+            CommentVideo.track(new FakeSpan(), "https://example.com/not-a-video", 844, 1500);
+            CommentVideo.track(new FakeSpan(), "https://v.redd.it/many12345", 0, 1500);
             String tall = new File(directory, "placeholder-480x853.jpg").getAbsolutePath();
             check(waitFor(() -> tall.equals(spans[0].last())), "tall placeholder loaded");
             int loaded = 0;
@@ -605,12 +635,39 @@ public final class CommentVideoTest {
             platform.placeholderWorks = false;
             CommentVideo.rememberMetadata(video("odd123456", 300, 100));
             FakeSpan odd = new FakeSpan();
-            CommentVideo.track(odd, "https://v.redd.it/odd123456");
+            CommentVideo.track(odd, "https://v.redd.it/odd123456", 600, 200);
             Thread.sleep(300);
             check(odd.loads.isEmpty(), "no load without a placeholder or poster: " + odd.loads);
             platform.placeholderWorks = true;
+
+            // No size in media_metadata: the first draw reserves the default square box.
+            CommentVideo.clear();
+            platform.posterSize = new int[] {720, 405};
+            String square = "https://reddit.com/link/p1234/video/def12345/player";
+            box = CommentVideo.posterSize(square, 1000);
+            check(box != null && box[0] == 1000 && box[1] == 1000, "default square box: " + Arrays.toString(box));
+            String defPoster = new File(directory, "def12345.jpg").getAbsolutePath();
+            String squarePlaceholder = new File(directory, "placeholder-480x480.jpg").getAbsolutePath();
+            String fittedPath = new File(directory, "def12345-fit-720x720.jpg").getAbsolutePath();
+            check(defPoster.equals(CommentVideo.posterUrl(square, 1000, 1000)), "nothing ready yet");
+            FakeSpan first = new FakeSpan();
+            CommentVideo.track(first, square, 1000, 1000);
+            check(waitFor(() -> squarePlaceholder.equals(first.loads.isEmpty() ? null : first.loads.get(0))),
+                    "square placeholder first: " + first.loads);
+            releaseDefault.countDown();
+            check(waitFor(() -> fittedPath.equals(first.last())), "poster fitted into the square box: " + first.loads);
+            check(platform.fitted.get() == 1, "one fitted image");
+            check(!first.loads.contains(defPoster), "a wide poster is never stretched into the square box");
+            check(fittedPath.equals(CommentVideo.posterUrl(square, 1000, 1000)), "square boxes reuse the fitted image");
+            box = CommentVideo.posterSize(square, 1000);
+            check(box != null && box[0] == 1000 && box[1] == 563, "later draws use the real shape: " + Arrays.toString(box));
+            check(defPoster.equals(CommentVideo.posterUrl(square, 1000, 563)), "real-shape box gets the poster");
+            FakeSpan fresh = new FakeSpan();
+            CommentVideo.track(fresh, square, 1000, 563);
+            check(fresh.loads.isEmpty(), "real-shape span already final");
         } finally {
             release.countDown();
+            releaseDefault.countDown();
             server.stop(0);
             serverThreads.shutdownNow();
             CommentVideo.videoBase = "http://127.0.0.1:9/unused/";

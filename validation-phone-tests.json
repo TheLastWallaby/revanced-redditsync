@@ -3,6 +3,19 @@
   "releases": [
     {
       "stable": null,
+      "tested_release": "v0.6.4-rc.2",
+      "results": {
+        "first_display": "still showed the link first for a few seconds; the reserved box needs the video size, which Reddit's comment media_metadata evidently did not supply"
+      },
+      "promotion": "Not promoted; superseded by v0.6.4-rc.3 (default square box when the size is unknown).",
+      "unverified": [
+        "contents of Reddit's comment media_metadata for videos (JSON blocked to this tooling)",
+        "Inline image previews off",
+        "regression spot-checks of comment pictures, GIFs, share links and load more comments"
+      ]
+    },
+    {
+      "stable": null,
       "tested_release": "v0.6.4-rc.1",
       "results": {
         "comment_video_link_opens_in_sync_video_viewer": "passed (reported; no browser redirect or 404 page)",
