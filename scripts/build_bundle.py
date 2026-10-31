@@ -12,6 +12,32 @@ from scripts.release_artifacts import git, package_release, verify_bundle, versi
 
 ROOT = Path(__file__).resolve().parents[1]
 
+def discover_java_tests(directory):
+    """Return launchable class names, including packages declared in test sources."""
+    tests = []
+    for test in sorted(Path(directory).rglob("*Test.java")):
+        source = test.read_text()
+        # Comments must not supply a fake main method or package declaration.
+        source = re.sub(r"/\*.*?\*/|//[^\n]*", "", source, flags=re.DOTALL)
+        if not re.search(r"public\s+static\s+void\s+main\s*\(", source):
+            continue
+        package = re.search(r"(?m)^\s*package\s+([\w$]+(?:\s*\.\s*[\w$]+)*)\s*;", source)
+        prefix = re.sub(r"\s+", "", package[1]) + "." if package else ""
+        tests.append(prefix + test.stem)
+    return tests
+
+
+def run_java_tests(directory, java, classpath):
+    tests = discover_java_tests(directory)
+    if not tests:
+        raise SystemExit("No Java test suites were discovered")
+    for name in tests:
+        print("Running Java suite: " + name, flush=True)
+        subprocess.run([str(java), "-XX:-UsePerfData", "-cp", str(classpath), name],
+                       cwd=ROOT, check=True)
+    return tests
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tools", type=Path, default=ROOT / "toolchain")
@@ -60,13 +86,7 @@ def main():
         *sorted((ROOT / "src/extension").rglob("*.java")))
     test_cp = cp(build / "stubs", build / "extension", tools / "volley.jar", tools / "json.jar", tools / "android.jar")
     run(*javac, "-cp", test_cp, "-d", build / "tests", *sorted((ROOT / "tests").rglob("*.java")))
-    tests = []
-    for test in sorted((ROOT / "tests").glob("*Test.java")):
-        if re.search(r"public\s+static\s+void\s+main\s*\(", test.read_text()):
-            tests.append(test.stem)
-            run(java, "-XX:-UsePerfData", "-cp", cp(build / "tests", test_cp), test.stem)
-    if not tests:
-        raise SystemExit("No Java test suites were discovered")
+    tests = run_java_tests(ROOT / "tests", java, cp(build / "tests", test_cp))
     jar(build / "stubs", build / "stubs.jar")
     jar(build / "extension", build / "extension.jar")
     run(java, "-XX:-UsePerfData", "-cp", tools / "r8.jar", "com.android.tools.r8.D8",

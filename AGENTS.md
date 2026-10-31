@@ -11,7 +11,7 @@ This repository distributes a cumulative ReVanced patch bundle for the free Sync
   being changed. Do not assume code presence proves live Reddit functionality.
 - Run: python3 -m unittest discover -s tests -p 'test_*.py' -v
 - Run: python3 build.py --bootstrap
-  This installs the locked tools, executes every top-level Java *Test.java main,
+  This installs the locked tools, executes Java *Test.java mains under tests/,
   compiles both DEX files, validates the RVP and loads it with ReVanced CLI.
   Confirm every intended suite actually ran. Package-declared suites must execute
   by fully qualified class name; extend discovery and its regression coverage if

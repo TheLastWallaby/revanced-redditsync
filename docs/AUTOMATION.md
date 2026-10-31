@@ -1,7 +1,7 @@
 # Build and update workflow
 
 Each fix is a separate pull request. CI runs the infrastructure tests, every
-executable top-level Java test suite, both compilers, bundle validation, and an
+executable Java test suite under tests/, both compilers, bundle validation, and an
 actual ReVanced CLI bundle-load check. Its downloadable artifact contains
 `patches.rvp`, a source ZIP, `SHA256SUMS`, and `build-info.json`.
 
@@ -123,8 +123,10 @@ failed or unverified update.
 
 - Update toolchain versions and their actual verified hashes together in
   `toolchain.lock.json`. Cached tools are rechecked before reuse.
-- Keep Java test mains under `tests/*Test.java` or extend discovery when adding
-  another test layout. Python infrastructure tests use `tests/test_*.py`.
+- Java test mains are discovered recursively under `tests/**/*Test.java`.
+  Package declarations determine the fully qualified launch names, which are
+  recorded in `build-info.json`; extend discovery for other test layouts.
+  Python infrastructure tests use `tests/test_*.py`.
 - Public workflow permissions are read-only except release publishing and feed
   updates. No private signing secrets are passed to public builds.
 - If main requires pull requests for all changes, let the feed updater submit a

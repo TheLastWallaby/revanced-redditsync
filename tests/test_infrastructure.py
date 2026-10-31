@@ -3,6 +3,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -10,6 +11,7 @@ from unittest.mock import patch
 import zipfile
 
 from scripts import bootstrap_toolchain as tools
+from scripts.build_bundle import discover_java_tests, run_java_tests
 from scripts.check_release import check_sums
 from scripts.release_artifacts import package_release, verify_bundle, version, write_zip
 from scripts.setup_private_builder import scaffold
@@ -20,6 +22,42 @@ personal = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(personal)
 
 class InfrastructureTests(unittest.TestCase):
+    def test_java_discovery_executes_packaged_and_default_package_suites(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sources, classes = root / "sources", root / "classes"
+            sources.mkdir()
+            classes.mkdir()
+            # A top-level source can declare a package, as SafeSLinksTest does.
+            for name, package in [("PackagedTest", "package fixture . security;"),
+                                  ("DefaultTest", "")]:
+                marker = root / (name + ".ran")
+                (sources / (name + ".java")).write_text(
+                    "/* package misleading.comment; */\n" + package + "\n"
+                    f"public class {name} {{ public static void main(String[] args) throws Exception {{\n"
+                    f"java.nio.file.Files.write(java.nio.file.Paths.get({json.dumps(str(marker))}), new byte[] {{1}});\n"
+                    "}}\n")
+            nested = sources / "nested"
+            nested.mkdir()
+            (nested / "HelperTest.java").write_text(
+                "// public static void main(String[] args) {}\nclass HelperTest {}\n")
+            java = Path(shutil.which("java")).resolve()
+            subprocess.run([str(java), "-m", "jdk.compiler/com.sun.tools.javac.Main",
+                            "-d", str(classes), *map(str, sources.rglob("*.java"))], check=True)
+            self.assertEqual(run_java_tests(sources, java, classes),
+                             ["DefaultTest", "fixture.security.PackagedTest"])
+            self.assertTrue((root / "PackagedTest.ran").is_file())
+            self.assertTrue((root / "DefaultTest.ran").is_file())
+
+    def test_security_suite_is_discovered_with_its_package(self):
+        self.assertIn("app.revanced.extension.synccompat.SafeSLinksTest",
+                      discover_java_tests(ROOT / "tests"))
+
+    def test_java_runner_rejects_an_empty_test_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(SystemExit, "No Java test suites"):
+                run_java_tests(temporary, "java", temporary)
+
     def test_checksum_mismatch_never_installs_tool(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
