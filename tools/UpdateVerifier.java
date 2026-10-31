@@ -68,9 +68,13 @@ public class UpdateVerifier {
     StringBuilder out=new StringBuilder();
     List<Method> methods=new ArrayList<>();c.getMethods().forEach(methods::add);
     methods.sort(Comparator.comparing(Object::toString));
-    for(Method m:methods) {
+    for(Method m:methods)out.append(body(m));
+    return out.toString();
+  }
+  static String body(Method m) {
+      StringBuilder out=new StringBuilder();
       out.append(m).append(m.getAccessFlags());
-      var body=m.getImplementation();if(body==null)continue;
+      var body=m.getImplementation();if(body==null)return out.toString();
       out.append(body.getRegisterCount());
       for(Instruction i:body.getInstructions()) {
         out.append(i.getOpcode());
@@ -96,8 +100,46 @@ public class UpdateVerifier {
         out.append(t.getStartCodeAddress()).append(',').append(t.getCodeUnitCount());
         for(var h:t.getExceptionHandlers())out.append(h.getExceptionType()).append(',').append(h.getHandlerCodeAddress());
       }
-    }
     return out.toString();
+  }
+  static void checkShareLinks(ClassDef before,ClassDef after) {
+    Set<String> replaced=Set.of("resolveLink","getHttpURLConnection","lambda$resolveLink$4");
+    Map<String,Method> original=new HashMap<>();
+    before.getMethods().forEach(m->original.put(m.toString(),m));
+    int changes=0;
+    for(Method m:after.getMethods()) {
+      Method previous=original.remove(m.toString());
+      if(previous==null)throw new AssertionError("Unexpected inherited resolver method added");
+      if(!replaced.contains(m.getName())) {
+        if(!body(previous).equals(body(m)))throw new AssertionError("Token/pending-link lifecycle changed: "+m.getName());
+        continue;
+      }
+      changes++;
+      String helper=m.getName().equals("resolveLink")?"isShareLink":
+          m.getName().equals("getHttpURLConnection")?"openConnection":"resolveOrBypass";
+      boolean delegated=false;
+      List<Instruction> instructions=new ArrayList<>();m.getImplementation().getInstructions().forEach(instructions::add);
+      for(Instruction instruction:instructions) {
+        if(!(instruction instanceof ReferenceInstruction))continue;
+        String ref=((ReferenceInstruction)instruction).getReference().toString();
+        if(ref.startsWith("Lapp/revanced/extension/shared/Logger;"))throw new AssertionError("Resolver still logs URL-bearing input");
+        if(ref.startsWith("Lapp/revanced/extension/synccompat/SafeSLinks;->"+helper+"(")) {
+          var registers=(FiveRegisterInstruction)instruction;
+          if(m.getName().equals("resolveLink") &&
+              (instruction!=instructions.get(0) || registers.getRegisterC()!=4 || instructions.get(2).getOpcode()!=Opcode.IF_EQZ)) {
+            throw new AssertionError("Share-link validation must precede all resolver side effects");
+          }
+          if(m.getName().equals("getHttpURLConnection") && (registers.getRegisterC()!=1 || registers.getRegisterD()!=2))
+            throw new AssertionError("Wrong URL/token at transport guard");
+          if(m.getName().equals("lambda$resolveLink$4") && (registers.getRegisterC()!=4 || registers.getRegisterD()!=0))
+            throw new AssertionError("Wrong URL/token at background resolver");
+          delegated=true;
+        }
+      }
+      if(!delegated)throw new AssertionError("Share-link guard missing: "+m.getName());
+    }
+    if(!original.isEmpty() || changes!=3)throw new AssertionError("Unexpected inherited resolver layout");
+    System.out.println("PASS: share-link entry, transport and worker hardened; token/pending-link lifecycle preserved; no URL-bearing resolver logging");
   }
   public static void main(String[] args) throws Exception {
     var result=new ApkVerifier.Builder(new File(args[1])).build().verify();
@@ -109,8 +151,10 @@ public class UpdateVerifier {
     if(!after.keySet().containsAll(before.keySet()))throw new AssertionError("Existing class removed");
     List<String> changed=new ArrayList<>();
     for(String type:before.keySet())if(!body(before.get(type)).equals(body(after.get(type))))changed.add(type);
-    if(!new TreeSet<>(changed).equals(new TreeSet<>(List.of("Ly8/q;","Ly8/f;","Lya/d$f;","Lya/d;"))))throw new AssertionError("Unexpected changed code: "+changed);
-    System.out.println("PASS: "+before.size()+" existing classes preserved; only 4 intended classes changed; runtime classes added: "+newClasses+"");
+    String slink="Lapp/revanced/extension/shared/fixes/slink/BaseFixSLinksPatch;";
+    if(!new TreeSet<>(changed).equals(new TreeSet<>(List.of("Ly8/q;","Ly8/f;","Lya/d$f;","Lya/d;",slink))))throw new AssertionError("Unexpected changed code: "+changed);
+    System.out.println("PASS: "+before.size()+" existing classes preserved; only 5 intended classes changed; runtime classes added: "+newClasses+"");
+    checkShareLinks(before.get(slink),after.get(slink));
     checkPresenter(before.get("Lya/d;"),after.get("Lya/d;"));
     ClassDef error=after.get("Lya/d$f;");
     for(Method m:error.getMethods())if(m.getName().equals("onErrorResponse")) {
@@ -135,7 +179,7 @@ public class UpdateVerifier {
       if(!adapted)throw new AssertionError("Thread response adapter missing");
     }
     System.out.println("PASS: batch response adapter installed");
-    if(args.length>2) {
+    if(args.length>2 && !args[2].equals("-")) {
       var previous=new ApkVerifier.Builder(new File(args[2])).build().verify();
       if(!previous.isVerified() || !java.util.Arrays.equals(previous.getSignerCertificates().get(0).getEncoded(),
           result.getSignerCertificates().get(0).getEncoded()))throw new AssertionError("Update signing certificate differs");

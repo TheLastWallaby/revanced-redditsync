@@ -21,6 +21,9 @@ private const val EXT = "Lapp/revanced/extension/synccompat/RequestCompat;"
 private const val BATCH = "Lapp/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch;"
 private const val NETWORK = "Lcom/android/volley/NetworkResponse;"
 private const val VOLLEY_ERROR = "Lcom/android/volley/VolleyError;"
+private const val SLINK = "Lapp/revanced/extension/synccompat/SafeSLinks;"
+private const val SLINK_BASE = "Lapp/revanced/extension/shared/fixes/slink/BaseFixSLinksPatch;"
+private const val SLINK_RESULT = "Lapp/revanced/extension/shared/fixes/slink/ResolveResult;"
 
 private val extensionPatch = bytecodePatch {
     extendWith("extensions/synccompat.rve")
@@ -39,6 +42,100 @@ private fun MutableClassDef.addOverride(name: String, returns: String, registers
         AccessFlags.PUBLIC.value, emptySet(), emptySet(), null))
     method.resetBody(registers, code)
     methods.add(method)
+}
+
+val secureSyncShareLinks = bytecodePatch(
+    name = "Sync: secure Reddit share links",
+    description = "Validate HTTPS Reddit origins and share paths before authentication; validate redirects and drop credentials across origins.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        val target = classes.singleOrNull { it.type == SLINK_BASE }
+            ?: throw PatchException("Expected inherited ReVanced share-link resolver was not found. Use the supported ReVanced-patched Sync 23033 base.")
+        val clazz = proxy(target).mutableClass
+        fun method(name: String, parameters: List<String>, returns: String): MutableMethod =
+            clazz.methods.singleOrNull { it.name == name && it.parameterTypes == parameters && it.returnType == returns }
+                ?: throw PatchException("Unsupported inherited share-link resolver method: $name")
+        val resolve = method("resolveLink", listOf("Ljava/lang/String;"), SLINK_RESULT)
+        if (resolve.implementation?.instructions?.any {
+            it is ReferenceInstruction && it.reference.toString().startsWith(SLINK)
+        } == true) throw PatchException("Share-link security patch is already installed.")
+        val connection = method("getHttpURLConnection", listOf("Ljava/lang/String;", "Ljava/lang/String;"), "Ljava/net/HttpURLConnection;")
+        val worker = method("lambda\$resolveLink\$4", listOf("Ljava/lang/String;", "Landroid/content/Context;"), "V")
+        // Reuse the inherited Runnable and token/pending-URL lifecycle. Fail on another base layout.
+        val runnable = classes.singleOrNull { c ->
+            c.superclass == "Ljava/lang/Object;" && c.interfaces.contains("Ljava/lang/Runnable;") &&
+                c.methods.any { it.name == "<init>" && it.parameterTypes == listOf(SLINK_BASE, "Ljava/lang/String;", "Landroid/content/Context;") }
+        } ?: throw PatchException("Expected inherited share-link background task was not found.")
+        for ((name, type) in listOf("accessToken" to "Ljava/lang/String;", "webViewActivityClass" to "Ljava/lang/Class;")) {
+            if (clazz.fields.none { it.name == name && it.type == type }) {
+                throw PatchException("Unsupported inherited share-link resolver field: $name")
+            }
+        }
+        resolve.resetBody(5, """
+            invoke-static {p1}, $SLINK->isShareLink(Ljava/lang/String;)Z
+            move-result v0
+            if-eqz v0, :continue
+            invoke-static {}, Lapp/revanced/extension/shared/Utils;->getContext()Landroid/content/Context;
+            move-result-object v0
+            if-eqz v0, :continue
+            invoke-static {p1}, $SLINK->isBypass(Ljava/lang/String;)Z
+            move-result v1
+            if-eqz v1, :normal
+            invoke-direct {p0, v0, p1}, $SLINK_BASE->openInAppBrowser(Landroid/content/Context;Ljava/lang/String;)V
+            goto :handled
+            :normal
+            iget-object v1, p0, $SLINK_BASE->accessToken:Ljava/lang/String;
+            if-nez v1, :background
+            invoke-virtual {v0}, Landroid/content/Context;->getPackageManager()Landroid/content/pm/PackageManager;
+            move-result-object v1
+            invoke-virtual {v0}, Landroid/content/Context;->getPackageName()Ljava/lang/String;
+            move-result-object v2
+            invoke-virtual {v1, v2}, Landroid/content/pm/PackageManager;->getLaunchIntentForPackage(Ljava/lang/String;)Landroid/content/Intent;
+            move-result-object v1
+            if-eqz v1, :continue
+            invoke-virtual {v0, v1}, Landroid/content/Context;->startActivity(Landroid/content/Intent;)V
+            sget-object v0, $SLINK_RESULT->ACCESS_TOKEN_START:$SLINK_RESULT
+            return-object v0
+            :background
+            new-instance v1, ${runnable.type}
+            invoke-direct {v1, p0, p1, v0}, ${runnable.type}-><init>(${SLINK_BASE}Ljava/lang/String;Landroid/content/Context;)V
+            invoke-static {v1}, Lapp/revanced/extension/shared/Utils;->runOnBackgroundThread(Ljava/lang/Runnable;)V
+            :handled
+            sget-object v0, $SLINK_RESULT->DO_NOTHING:$SLINK_RESULT
+            return-object v0
+            :continue
+            sget-object v0, $SLINK_RESULT->CONTINUE:$SLINK_RESULT
+            return-object v0
+        """.trimIndent())
+        // Guard the original transport entry point, including any inherited synthetic bridge.
+        connection.resetBody(3, """
+            invoke-static {p1, p2}, $SLINK->openConnection(Ljava/lang/String;Ljava/lang/String;)Ljava/net/HttpURLConnection;
+            move-result-object p1
+            return-object p1
+        """.trimIndent())
+        // Replace the URL-logging worker with validated resolution and the original package-scoped intent.
+        worker.resetBody(6, """
+            iget-object v0, p0, $SLINK_BASE->accessToken:Ljava/lang/String;
+            invoke-static {p1, v0}, $SLINK->resolveOrBypass(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+            move-result-object v0
+            if-eqz v0, :done
+            invoke-static {v0}, Landroid/net/Uri;->parse(Ljava/lang/String;)Landroid/net/Uri;
+            move-result-object v0
+            new-instance v1, Landroid/content/Intent;
+            const-string v2, "android.intent.action.VIEW"
+            invoke-direct {v1, v2, v0}, Landroid/content/Intent;-><init>(Ljava/lang/String;Landroid/net/Uri;)V
+            invoke-virtual {p2}, Landroid/content/Context;->getPackageName()Ljava/lang/String;
+            move-result-object v0
+            invoke-virtual {v1, v0}, Landroid/content/Intent;->setPackage(Ljava/lang/String;)Landroid/content/Intent;
+            const v0, 0x10000000
+            invoke-virtual {v1, v0}, Landroid/content/Intent;->setFlags(I)Landroid/content/Intent;
+            invoke-virtual {p2, v1}, Landroid/content/Context;->startActivity(Landroid/content/Intent;)V
+            :done
+            return-void
+        """.trimIndent())
+    }
 }
 
 val fixSyncGalleries = bytecodePatch(

@@ -4,10 +4,54 @@ Unofficial ReVanced compatibility patches for **Sync for Reddit
 v23.06.30-13:39**, version code **23033**, free package
 `com.laurencedawson.reddit_sync`.
 
-This is the v0.6 patch code used in the APK reported working by its tester.
-It is a community/local bundle rather than an official ReVanced release.
+The published v0.6 patch code was reported working by its tester. The source
+now also prepares v0.6.1 with the share-link security fix described below.
+This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
+
+## Development — v0.6.1 share-link security fix
+
+Adds **Sync: secure Reddit share links** for [issue #1](https://github.com/TheLastWallaby/revanced-redditsync/issues/1).
+The inherited ReVanced `/s/` resolver now parses the actual URI before any
+authentication or account-startup action. It accepts only HTTPS, the default
+port or explicit `443`, no user-info, and a complete `/r/<subreddit>/s/<token>`
+path with an optional trailing slash, query and fragment. Allowed hosts are
+exactly `reddit.com`, `www.reddit.com`, `old.reddit.com`, `new.reddit.com`,
+`sh.reddit.com`, `m.reddit.com` and `np.reddit.com`.
+
+Redirects are handled explicitly, with at most five HEAD requests. Every
+destination must pass the same origin validation. Authorization is permanently
+dropped after a hop to another origin, including another allowed Reddit host.
+Relative redirects work; a validated final post URL is handed to Sync without
+another authenticated request. Failures keep the existing `#bypass` browser
+fallback for the validated original share URL. The new resolver does not log
+URLs, tokens, headers, account data or transport exception details.
+
+The existing token setter and pending-link lifecycle are preserved. The patch
+requires the inherited ReVanced resolver from the supported base; it reports
+an error if that layout is missing or the security patch is already installed.
+CLI 6.0.0 can still save an APK after a patch error: use only output for which
+all three named patches report success.
+
+Build with the tools below to produce
+`output/sync-gallery-comments-compat-v0.6.1.rvp`. A tested candidate is also in
+`dist/sync-gallery-comments-compat-v0.6.1.rvp`, with its own `.sha256` file.
+Use a clean ReVanced-patched Sync 23033 free base with none of this repository's
+compatibility patches, and apply all **three** named patches. Do not layer the
+complete bundle over an existing v0.6 APK.
+
+Validation: 746 stub-transport security checks and all 92 existing
+Volley/loopback checks pass. The candidate was applied using CLI 6.0.0 / Patcher
+22.0.0 to the supported base. APK verification preserves all 29,148 existing
+classes, changes only the four existing compatibility targets plus the
+inherited share-link resolver, and leaves all 3,116 non-code entries identical.
+The test APK uses a disposable test signing key. Live account resolution,
+cold-start/account-switch UI, Android Manager and phone testing remain
+unverified. See `validation-share-links.json` for the recorded evidence.
+
+The published downloads and Manager feeds below still point to v0.6.0 until a
+new release is published.
 
 ## Downloads — v0.6.0
 
@@ -38,7 +82,7 @@ download that file from Releases and import it as a local patch bundle.
 Use the Sync base and patch selections described below. The validated patching
 route is the CLI; Manager import and patching still need device verification.
 
-## Included patches
+## Included patches — published v0.6.0
 
 - **Sync: fix Reddit galleries** loads native Reddit galleries through the
   comment-page endpoint and adapts the post listing for Sync's existing parser.
@@ -56,7 +100,7 @@ The loading-details dialog remains available on failures. Its Copy details
 button exports fixed labels, numeric counts and statuses, excluding account
 tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 
-## Apply the RVP
+## Apply the published v0.6.0 RVP
 
 1. Select a **ReVanced-patched Sync 23033 free APK** with your usual OAuth/client
    configuration and the ReVanced shared extension already present.
@@ -96,6 +140,7 @@ Supply the CLI's password and alias options if your keystore requires them.
 - `upstream/`: original files from the upstream implementation.
 - `changes-from-v0.5.1.diff`: this version's runtime changes.
 - `validation.json`: recorded checks, output digest and user test status.
+- `validation-share-links.json`: v0.6.1 security checks and APK verification.
 - `bundles/`: ReVanced Manager remote-bundle metadata.
 - `scripts/update_bundle_json.py`: refreshes the metadata from published releases.
 
@@ -112,6 +157,18 @@ python3 build.py --tools /absolute/path/to/tools
 
 Add `--apk /path/to/revanced-base.apk --keystore /path/to/your.keystore` to
 build and sign an APK using the CLI's default key password settings.
+
+To inspect a locally built v0.6.1 test APK, compile `tools/UpdateVerifier.java`
+with `revanced-cli.jar` on the classpath, then run:
+
+```sh
+java -cp verifier-classes:/path/to/tools/revanced-cli.jar UpdateVerifier \
+  /path/to/revanced-base.apk /path/to/patched.apk - build/dex-extension/classes.dex
+```
+
+Replace `-` with a previous APK path to additionally require a matching signing
+certificate. A disposable-key smoke APK cannot establish update compatibility
+with an existing installation.
 
 ## Publishing a release
 

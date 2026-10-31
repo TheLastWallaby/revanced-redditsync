@@ -1,0 +1,40 @@
+{
+  "version": "0.6.1",
+  "issue": 1,
+  "status": "candidate built and verified locally; not yet device- or live-account-tested",
+  "share_link_security_checks": 746,
+  "existing_volley_loopback_checks": 92,
+  "security_transport": "stub HttpURLConnection recording destinations and Authorization; no real token or live Reddit request",
+  "toolchain": {
+    "java": "17",
+    "revanced_cli": "6.0.0",
+    "patcher": "22.0.0",
+    "kotlin": "2.4.21",
+    "r8": "8.3.37",
+    "volley": "1.2.1",
+    "json_java": "20240303",
+    "android_compile_signatures": "4.1.1.4"
+  },
+  "base_apk_sha256": "5f64361515b3780fd8baa9546b5f135fdf34ad4c4b346b0ee366a93208273e58",
+  "patch_bundle_sha256": "0c288485358a3c10e125aa2282cf6f838ad1207bbf4087aace27d933b0f0ebba",
+  "smoke_apk_sha256": "e9fa74007245a3ddd2651c8433d8de18eb9c6983c51e48a24d3eb700a987b36e",
+  "smoke_apk_signing": "disposable local test key; no installation/update signing claim",
+  "existing_classes_preserved": 29148,
+  "changed_existing_classes": [
+    "Ly8/q;",
+    "Ly8/f;",
+    "Lya/d$f;",
+    "Lya/d;",
+    "Lapp/revanced/extension/shared/fixes/slink/BaseFixSLinksPatch;"
+  ],
+  "unchanged_noncode_entries": 3116,
+  "manifest_permissions_resources_unchanged": true,
+  "verification": "PASS: APK signatures verified; v2=true, v3=true\nPASS: 29148 existing classes preserved; only 5 intended classes changed; runtime classes added: [Lapp/revanced/extension/synccompat/RequestCompat$$ExternalSyntheticLambda0;, Lapp/revanced/extension/synccompat/RequestCompat;, Lapp/revanced/extension/synccompat/SafeSLinks$$ExternalSyntheticLambda0;, Lapp/revanced/extension/synccompat/SafeSLinks$ConnectionFactory;, Lapp/revanced/extension/synccompat/SafeSLinks;, Lapp/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch$$ExternalSyntheticLambda0;, Lapp/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch$$ExternalSyntheticLambda1;, Lapp/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch$$ExternalSyntheticLambda2;, Lapp/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch$1;, Lapp/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch$CommentFetch;, Lapp/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch$CommentResponseException;, Lapp/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch$Diagnostic;, Lapp/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch$HttpStatusException;, Lapp/revanced/extension/syncforreddit/FixLoadMoreCommentsPatch;]\nPASS: share-link entry, transport and worker hardened; token/pending-link lifecycle preserved; no URL-bearing resolver logging\nPASS: original presenter instruction sequence preserved; clicked parent captured before register reuse and attached before enqueue\nPASS: original error reaches diagnostic handler before any parameter overwrite\nPASS: batch response adapter installed\n",
+  "unverified": [
+    "live Reddit share resolution",
+    "cold-start and account-switch UI",
+    "Android Manager import and patching",
+    "phone behavior"
+  ],
+  "reapplication_guard": "PASS: patch reports already-installed error; CLI 6.0.0 still saves output after a patch error, so that output was discarded"
+}
