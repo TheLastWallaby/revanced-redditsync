@@ -66,6 +66,18 @@ public final class CommentVideoTest {
         volatile File directory;
         volatile int[] posterSize = {720, 405};
         volatile int[] diskSize;
+        volatile int[] stillSize;
+        final AtomicInteger stillPosters = new AtomicInteger();
+        @Override public int[] makeStillPoster(File source, File poster) {
+            stillPosters.incrementAndGet();
+            if (stillSize == null) return null;
+            try {
+                Files.write(poster.toPath(), new byte[] {(byte) 0xff, (byte) 0xd8, 1, 2, 3});
+                return stillSize;
+            } catch (Exception e) {
+                return null;
+            }
+        }
         final AtomicInteger posters = new AtomicInteger();
         volatile long lastVideoBytes = -1;
         volatile int lastNativeWidth = -1;
@@ -571,7 +583,12 @@ public final class CommentVideoTest {
             check(box != null && box[0] == 960 && box[1] == 540, "box reserved from metadata: " + Arrays.toString(box));
             String posterPath = new File(directory, "meta12345.jpg").getAbsolutePath();
             String placeholderPath = new File(directory, "placeholder-480x270.jpg").getAbsolutePath();
-            check(posterPath.equals(CommentVideo.posterUrl(link, 960, 540)), "before any file, the span gets the poster path");
+            String loadingPath = CommentVideo.posterUrl(link, 960, 540);
+            check(new File(loadingPath).isFile() && loadingPath.endsWith(CommentVideo.LOADING_FILE),
+                    "first span gets a ready image, never the missing future poster");
+            java.awt.image.BufferedImage loading = javax.imageio.ImageIO.read(new File(loadingPath));
+            check(loading != null && loading.getWidth() == 1 && loading.getHeight() == 1
+                    && loading.getRGB(0, 0) == 0xff202020, "loading PNG is a valid opaque neutral pixel");
 
             // Drawing the span queues the placeholder and loads it in place.
             FakeSpan span = new FakeSpan();
@@ -580,6 +597,10 @@ public final class CommentVideoTest {
             check(new File(placeholderPath).isFile(), "placeholder saved");
             check(placeholderPath.equals(CommentVideo.posterUrl(link, 960, 540)), "later spans start with the placeholder");
             check(platform.placeholders.get() == 1, "one placeholder drawn");
+            int placeholderLoads = span.loads.size();
+            CommentVideo.reload("meta12345");
+            CommentVideo.reload("meta12345");
+            check(span.loads.size() == placeholderLoads, "unchanged placeholders are not loaded repeatedly");
 
             // The poster replaces the placeholder in the same span.
             release.countDown();
@@ -629,7 +650,7 @@ public final class CommentVideoTest {
             CommentVideo.load(new Object(), "x");
             CommentVideo.load("not a span", "x");
 
-            // A placeholder that cannot be drawn leaves Sync's own loading image.
+            // A failed shaped placeholder does not replace the neutral first image.
             CommentVideo.clear();
             platform.placeholderWorks = false;
             CommentVideo.rememberMetadata(video("odd123456", 300, 100));
@@ -648,7 +669,7 @@ public final class CommentVideoTest {
             String defPoster = new File(directory, "def12345.jpg").getAbsolutePath();
             String squarePlaceholder = new File(directory, "placeholder-480x480.jpg").getAbsolutePath();
             String fittedPath = new File(directory, "def12345-fit-720x720.jpg").getAbsolutePath();
-            check(defPoster.equals(CommentVideo.posterUrl(square, 1000, 1000)), "nothing ready yet");
+            check(loadingPath.equals(CommentVideo.posterUrl(square, 1000, 1000)), "neutral image reused for unknown shapes");
             FakeSpan first = new FakeSpan();
             CommentVideo.track(first, square, 1000, 1000);
             check(waitFor(() -> squarePlaceholder.equals(first.loads.isEmpty() ? null : first.loads.get(0))),

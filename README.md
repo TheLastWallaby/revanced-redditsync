@@ -12,21 +12,29 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Release candidate — v0.6.5-rc.1 Imgur comment video previews (issue #23)
+## Release candidate — v0.6.5-rc.2 Imgur comment video previews (issue #23)
 
 Extends **Sync: show comment video previews** to direct Imgur `.mp4` and `.gifv`
 links on `i.imgur.com`, `imgur.com` and `www.imgur.com`, using the same
 poster-and-play-button option as Reddit comment videos. It ships in the
-[v0.6.5-rc.1 prerelease](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.5-rc.1)
+[v0.6.5-rc.2 prerelease](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.5-rc.2)
 for phone testing; stable v0.6.4 contains only the Reddit part.
 
 - With **Inline image previews** on, the comment reserves a placeholder box and
   loads a still frame into it. The frame keeps its aspect ratio, with dark bars
   when the reserved box has another shape. Later draws use the decoded shape.
-- A background worker reads at most the first 2 MB of the clip's HTTPS MP4 from
-  `i.imgur.com`, with no redirects, cookies or authorization. It uses Android's
-  frame decoder and the existing bounded poster cache. It does not fetch GIF
-  renditions or Imgur website HTML. Case-sensitive Imgur IDs have separate cache
+- **Cleaner loading (rc.2).** The first image load gets a ready, opaque neutral
+  PNG, then the shaped play placeholder and poster. It no longer points Glide at
+  a poster file that does not exist yet, and unchanged placeholders are not
+  repeatedly loaded. The shared neutral image is 69 bytes, written atomically
+  once before its first use; shaped images are still drawn in the background.
+- A background worker first requests the clip's small WebP still from
+  `i.imgur.com` (complete images only, at most 256 KB). Android decodes a bounded
+  first frame, adds the play badge and caches it. Missing, oversized or invalid
+  stills fall back to rc.1's first 2 MB of the MP4 and video-frame decoder.
+  HTTP 429 stops that job instead of immediately requesting another rendition.
+  Requests use no redirects, cookies or authorization. The patch does not fetch
+  GIF renditions or Imgur website HTML. Case-sensitive Imgur IDs have separate cache
   keys from Reddit videos; `.mp4` and `.gifv` share a poster for the same ID.
 - The original link, query and fragment remain the tap target, using Sync's
   existing viewer. Albums, page-only links and other unsupported URLs keep their
@@ -37,8 +45,10 @@ for phone testing; stable v0.6.4 contains only the Reddit part.
   playback. Playing the video still requires a tap.
 
 Loopback tests exercise the actual URL, download, cache, sizing and span-update
-logic with a fake Android frame decoder. Imgur frame decoding, taps and the
-settings-off path still need phone validation. Retest a Reddit comment video,
+logic with fake Android image/video decoders. The tester reported rc.1 working,
+but a messy placeholder appeared for several seconds before the frame. rc.2's
+loading transition and still-image decoding need phone validation; taps and the
+settings-off path were not separately confirmed. Retest a Reddit comment video,
 comment pictures/GIFs, share links and load more comments on that build.
 
 ## v0.6.4 comment video previews
