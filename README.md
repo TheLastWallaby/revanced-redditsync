@@ -88,6 +88,22 @@ Supply the CLI's password and alias options if your keystore requires them.
 
 ## Source and building
 
+Automated builds and release publishing are described in
+[Build and update workflow](docs/AUTOMATION.md). Pull requests produce a downloadable
+cumulative `patches.rvp`, source ZIP, checksums and build information. A separate
+private builder can produce your signed app updates using your prepared base and
+original signing key.
+
+For a fresh local/Codex environment with Java 17, Python 3.12 and curl:
+
+```sh
+python3 -m unittest discover -s tests -p 'test_*.py' -v
+python3 build.py --bootstrap
+```
+
+`toolchain.lock.json` pins and verifies downloads. `VERSION` controls release
+versioning. The manual `--tools` route below remains available.
+
 - `src/patches/SyncCompatPatches.kt`: standalone ReVanced patch hooks.
 - `src/extension/`: the Java runtime helpers.
 - `src/stubs/`: compile-only shared Logger signatures, excluded from the APK.

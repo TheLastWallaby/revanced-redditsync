@@ -11,3 +11,4 @@ __pycache__/
 *.pem
 *.key
 .DS_Store
+/private-builder/output/
