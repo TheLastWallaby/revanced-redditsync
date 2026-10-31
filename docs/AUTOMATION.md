@@ -14,22 +14,57 @@ new bundles over an APK containing earlier compatibility patches.
    and validation evidence, not just source edits.
 2. Check the PR's CI result and merge the accepted change. Device/live Reddit
    checks remain separate from automated build checks.
-3. Set `VERSION` to the intended next release in the release-preparation change.
+3. For a new fix awaiting phone testing, set `VERSION` to an unused release
+   candidate, such as `0.6.1-rc.1`, in the release-preparation change.
    Open **Actions → Publish patch release → Run workflow**, use `main`, and enter
-   the matching version tag, for example `v0.6.1`.
+   the matching version tag, for example `v0.6.1-rc.1`.
 4. The workflow rebuilds and tests the exact revision, creates its version tag if
    needed, publishes the four release assets, and refreshes both Manager feeds.
-5. A provisioned private builder checks twice an hour and makes your signed APK
-   available under its private **Releases** page. You can also run **Build my Sync
-   APK** manually to check immediately or choose a specific release.
-6. Install that APK as an update and test the changed feature. Keep the previous
+5. In `TheLastWallaby/revanced-redditsync-personal`, manually run **Actions → Build
+   my Sync APK → Run workflow** from its trusted default branch. Enter the exact
+   candidate tag in `tag`; keep `force` false for the first build. Scheduled runs
+   check twice an hour for stable releases and will not pick up this candidate.
+6. Check the private build's patch-step logs: **every selected named patch must
+   report success**. Then check `verification.json` for the original signing
+   identity, preserved classes and unchanged resources/manifest. The build also
+   checks the configured base checksum. CLI 6.0.0 can save/sign an APK after a
+   patch error; a saved file, successful process exit, green workflow or valid
+   signature alone does not establish patch success. The current verifier checks
+   the APK's structure and identity, not the success of every patch.
+7. Install that APK as an update and test the changed feature. Keep the previous
    working APK for recovery. Reporting a fix as device-tested still needs an
    actual phone test.
+8. After the user confirms the candidate works and stable publication is
+   authorized, set `VERSION` to the stable version, rerun the checks, merge the
+   release-preparation change and publish the matching stable tag. This is a new
+   build, not a rename of the candidate. The scheduled private builder will pick
+   up the stable release; a manual run with its exact tag can build it immediately.
 
 Existing version tags and releases are never replaced. A prerelease version such
 as `0.7.0-rc.1` updates the `latest` feed; it does not replace the stable feed.
 The private builder follows stable releases automatically; a manual run can
 select a prerelease.
+
+## AI agent completion criteria
+
+Read `AGENTS.md` and this document at the start of a task. An issue fix must
+produce a cumulative RVP and evidence that the intended tests executed; compiling
+a test class alone is insufficient. Tests with a Java package declaration need
+fully qualified class names when launched. Extend discovery if adding a layout
+the current runner cannot execute.
+
+A fix request normally ends at the PR with passing checks and a downloadable
+bundle. When the user also requests merging, a candidate release or a private APK,
+complete those authorized steps without asking for duplicate permission. Finish
+that handoff with links to the PR, passing CI run, candidate release, private build
+run and private APK download, and a short phone-test checklist. If a step is
+blocked, name the exact remaining step and preserve completed work. Keep private
+APK links and signing/build inputs out of public PRs and release notes.
+
+Use the CI/release artifacts (`patches.rvp`, source ZIP, `SHA256SUMS`,
+`build-info.json`) rather than old `dist/` candidates. Keep source-only, automated
+build, patch-application, signing and phone-test evidence distinct. Instructions
+and template maintenance do not require a new patch version or release.
 
 ## Local or Codex environment
 
@@ -98,3 +133,32 @@ failed or unverified update.
   APK verifier with a narrow reviewed allowance before personal builds accept it.
 - GitHub Actions checks compilation and fixtures, not Reddit account capability
   or Android UI behavior. Preserve this distinction in release notes.
+
+### Keep the private repository and template aligned
+
+The private repository is provisioned once; it does not automatically pull later
+template changes. Keep a root `AGENTS.md` in both repositories. The public file
+governs patch development; the private file governs building signed personal APKs.
+
+| Public source | Private repository destination |
+|---|---|
+| `private-builder/AGENTS.md` | `AGENTS.md` |
+| `private-builder/README.md` | `README.md` |
+| `private-builder/build-apk.yml` | `.github/workflows/build-apk.yml` |
+| `private-builder/build_apk.py` | `build_apk.py` |
+| `scripts/bootstrap_toolchain.py` | `bootstrap_toolchain.py` |
+| `tools/VerifyPersonalApk.java` | `VerifyPersonalApk.java` |
+| `toolchain.lock.json` | `toolchain.lock.json` |
+
+Use `python3 scripts/setup_private_builder.py --export /path/to/fresh-template`
+to prepare files for comparison without creating a repository or changing its
+secrets/releases. Inspect the deployed files and copy only intended updates,
+preserving private customizations. Do not use the provisioning command to update
+an existing builder. Its original signing secrets and `build-inputs` assets stay
+in place. For public template changes, run the infrastructure tests and build;
+for deployed executable/workflow changes, also verify a private workflow run.
+Documentation-only changes do not require signing another APK.
+
+An agent without private-repository access must report that limitation; a template
+update is not evidence that the deployed private builder was updated. Do not copy
+private inputs into the public repository to work around access problems.

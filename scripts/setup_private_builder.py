@@ -26,6 +26,7 @@ def scaffold(destination):
     for source, target in [
         ("private-builder/build-apk.yml", ".github/workflows/build-apk.yml"),
         ("private-builder/build_apk.py", "build_apk.py"),
+        ("private-builder/AGENTS.md", "AGENTS.md"),
         ("private-builder/README.md", "README.md"),
         ("scripts/bootstrap_toolchain.py", "bootstrap_toolchain.py"),
         ("tools/VerifyPersonalApk.java", "VerifyPersonalApk.java"),
