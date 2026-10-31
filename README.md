@@ -37,11 +37,15 @@ the candidate is confirmed on a phone.
   **Inline image previews** setting. Inline-sized pictures also require that
   setting; with it off, links stay links.
 - Giphy links (`media.giphy.com/...`, `giphy.com/gifs/...`) draw inline at
-  their real aspect ratio when the comment's `media_metadata` describes them,
-  using Reddit's downsized rendition, instead of the small link card. Tapping
-  still opens the original link. This requires the animated-images setting,
-  which now also governs Reddit-hosted GIFs. Without metadata, for example
-  comments reloaded from Sync's cache, the card remains.
+  their real aspect ratio instead of the small link card. Tapping still opens
+  the original link. Reddit normally marks comment GIFs
+  `{"status": "invalid"}` with no size, so the patch fetches only the
+  10-byte GIF header from Giphy's HTTPS CDN in the background (a Range
+  request with no cookies or credentials, two at a time, once per GIF per app
+  session) to learn the size. A GIF first seen while drawing appears inline
+  on its next redraw. Probing and inline GIFs only happen while both **Inline
+  image previews** and animated comment images are on; the animated setting
+  now also governs Reddit-hosted GIFs. If a probe fails, the card remains.
 - Giphy `id|width|height` markers with bad sizes fall back to Sync's unsized
   Giphy image instead of throwing.
 

@@ -1,6 +1,13 @@
 package app.revanced.extension.synccompat;
 
+import com.sun.net.httpserver.HttpServer;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.json.JSONObject;
 
 /** Offline checks for comment media format, size and fallback decisions. */
@@ -24,6 +31,9 @@ public final class CommentMediaTest {
 
     public static void main(String[] args) throws Exception {
         CommentMedia.clearMetadata();
+        // Offline sections must never probe the network.
+        CommentMedia.settingsOverride = Boolean.FALSE;
+        CommentMedia.giphyMediaBase = "http://127.0.0.1:9/unused/";
 
         // Dimension parsing: only positive bounded decimal integers.
         check(CommentMedia.dimension("640") == 640, "plain dimension");
@@ -225,7 +235,140 @@ public final class CommentMediaTest {
         check(CommentMedia.inlineImageSize((String) null, 100, true) == null, "null URL");
         check(CommentMedia.inlineImageSize(ordered, 1000, true) != null, "JVM without display metrics still sizes");
 
+        probeChecks();
+
         CommentMedia.clearMetadata();
-        System.out.println("PASS: " + checks + " comment media checks (offline; no device rendering)");
+        System.out.println("PASS: " + checks + " comment media checks (loopback GIF probes; no device rendering)");
+    }
+
+    private static byte[] gif(String version, int width, int height, int extra) {
+        byte[] bytes = new byte[10 + extra];
+        System.arraycopy(("GIF" + version).getBytes(StandardCharsets.US_ASCII), 0, bytes, 0, 6);
+        bytes[6] = (byte) width;
+        bytes[7] = (byte) (width >> 8);
+        bytes[8] = (byte) height;
+        bytes[9] = (byte) (height >> 8);
+        return bytes;
+    }
+
+    private static boolean waitFor(java.util.function.BooleanSupplier condition) throws InterruptedException {
+        for (int i = 0; i < 100; i++) {
+            if (condition.getAsBoolean()) return true;
+            Thread.sleep(50);
+        }
+        return condition.getAsBoolean();
+    }
+
+    /** Real HTTP against a loopback server; no Giphy or Reddit requests. */
+    private static void probeChecks() throws Exception {
+        // Header parsing.
+        check(Arrays.equals(CommentMedia.gifSize(gif("89a", 480, 270, 0)), new int[] {480, 270}), "GIF89a header");
+        check(Arrays.equals(CommentMedia.gifSize(gif("87a", 65535, 1, 0)), new int[] {65535, 1}), "GIF87a little-endian maximum");
+        check(CommentMedia.gifSize(gif("88a", 10, 10, 0)) == null, "unknown GIF version");
+        check(CommentMedia.gifSize(gif("89a", 0, 10, 0)) == null, "zero width");
+        check(CommentMedia.gifSize(new byte[] {'G', 'I', 'F'}) == null, "short header");
+        check(CommentMedia.gifSize(null) == null, "missing header");
+        byte[] png = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0};
+        check(CommentMedia.gifSize(png) == null, "PNG is not a GIF");
+        check("abc".equals(CommentMedia.giphyKeyId("giphy|abc")) && "abc".equals(CommentMedia.giphyKeyId("giphy|abc|downsized")),
+                "media_metadata Giphy keys");
+        check(CommentMedia.giphyKeyId("giphy|") == null && CommentMedia.giphyKeyId("giphy|a/b") == null, "bad Giphy keys");
+
+        Map<String, AtomicInteger> hits = new ConcurrentHashMap<>();
+        Map<String, String> ranges = new ConcurrentHashMap<>();
+        AtomicInteger credentialed = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.setExecutor(Executors.newCachedThreadPool(runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setDaemon(true);
+            return thread;
+        }));
+        server.createContext("/media/", exchange -> {
+            String[] parts = exchange.getRequestURI().getPath().split("/");
+            String id = parts.length > 2 ? parts[2] : "";
+            hits.computeIfAbsent(id, k -> new AtomicInteger()).incrementAndGet();
+            String range = exchange.getRequestHeaders().getFirst("Range");
+            if (range != null) ranges.put(id, range);
+            if (exchange.getRequestHeaders().containsKey("Cookie") || exchange.getRequestHeaders().containsKey("Authorization")) {
+                credentialed.incrementAndGet();
+            }
+            int status = 206;
+            byte[] body;
+            switch (id) {
+                case "FULL1": status = 200; body = gif("87a", 320, 240, 5000); break;
+                case "PNG1": body = png; break;
+                case "ZERO1": body = gif("89a", 0, 0, 0); break;
+                case "SHORT1": body = new byte[] {'G', 'I', 'F', '8', '9'}; break;
+                case "MISSING1": status = 404; body = new byte[0]; break;
+                case "SLOW1":
+                    try { Thread.sleep(CommentMedia.PROBE_TIMEOUT_MS + 1500); } catch (InterruptedException ignored) { }
+                    body = gif("89a", 10, 10, 0); break;
+                default: body = gif("89a", 480, 270, 0);
+            }
+            exchange.sendResponseHeaders(status, body.length == 0 ? -1 : body.length);
+            if (body.length > 0) exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            CommentMedia.giphyMediaBase = "http://127.0.0.1:" + server.getAddress().getPort() + "/media/";
+            CommentMedia.clearProbes();
+
+            // Direct probes.
+            check(CommentMedia.probeGiphy("GIFOK1"), "partial-content probe");
+            check("bytes=0-9".equals(ranges.get("GIFOK1")), "only the 10-byte header is requested");
+            box(CommentMedia.inlineImageSize("https://media.giphy.com/media/GIFOK1/giphy.gif", 1000, 0f, true),
+                    1000, 563, "probed Giphy sized");
+            box(CommentMedia.inlineImageSize("https://giphy.com/gifs/some-title-GIFOK1", 400, 0f, true),
+                    400, 225, "probed Giphy page link sized");
+            check(CommentMedia.giphyMediaUrl("GIFOK1").equals(CommentMedia.displayUrl("https://giphy.com/gifs/some-title-GIFOK1")),
+                    "page link draws the GIF file");
+            none(CommentMedia.inlineImageSize("https://media.giphy.com/media/GIFOK1/giphy.gif", 1000, 0f, false),
+                    "animated setting off still keeps the card");
+            check(CommentMedia.probeGiphy("FULL1"), "server ignoring Range still sized from the first bytes");
+            box(CommentMedia.inlineImageSize("https://media.giphy.com/media/FULL1/giphy.gif", 1000, 0f, true),
+                    1000, 750, "full-response probe sized");
+            for (String bad : new String[] {"PNG1", "ZERO1", "SHORT1", "MISSING1", "SLOW1"}) {
+                check(!CommentMedia.probeGiphy(bad), "failed probe: " + bad);
+                none(CommentMedia.inlineImageSize("https://media.giphy.com/media/" + bad + "/giphy.gif", 1000, 0f, true),
+                        "failed probe keeps the card: " + bad);
+            }
+            check(credentialed.get() == 0, "probes send no cookies or authorization");
+
+            // Failures and successes are not probed again.
+            CommentMedia.settingsOverride = Boolean.TRUE;
+            int before = hits.get("PNG1").get() + hits.get("GIFOK1").get();
+            CommentMedia.requestGiphySize("PNG1");
+            CommentMedia.requestGiphySize("GIFOK1");
+            Thread.sleep(300);
+            check(hits.get("PNG1").get() + hits.get("GIFOK1").get() == before, "known results are not re-probed");
+
+            // media_metadata marks comment GIFs invalid: probe in the background, once.
+            JSONObject invalid = new JSONObject().put("giphy|ASYNC1", new JSONObject().put("status", "invalid"));
+            for (int i = 0; i < 5; i++) CommentMedia.rememberMetadata(invalid);
+            check(waitFor(() -> CommentMedia.inlineImageSize("https://media.giphy.com/media/ASYNC1/giphy.gif", 1000, 0f, true) != null),
+                    "background probe completes");
+            check(hits.get("ASYNC1").get() == 1, "concurrent requests for one GIF are de-duplicated: " + hits.get("ASYNC1"));
+
+            // A GIF first seen while drawing is probed for the next bind.
+            String render = "https://giphy.com/gifs/title-RENDER1";
+            none(CommentMedia.inlineImageSize(render, 1000, 0f, true), "first draw keeps the card");
+            check(waitFor(() -> CommentMedia.inlineImageSize(render, 1000, 0f, true) != null), "next draw is sized");
+
+            // Settings off: nothing is requested.
+            CommentMedia.settingsOverride = Boolean.FALSE;
+            CommentMedia.rememberMetadata(new JSONObject().put("giphy|NOPE1", new JSONObject().put("status", "invalid")));
+            none(CommentMedia.inlineImageSize("https://media.giphy.com/media/NOPE2/giphy.gif", 1000, 0f, true), "no probe when off");
+            Thread.sleep(300);
+            check(!hits.containsKey("NOPE1") && !hits.containsKey("NOPE2"), "settings off sends no requests");
+
+            // Outside Sync, settings cannot be read, so probing is off.
+            CommentMedia.settingsOverride = null;
+            check(!CommentMedia.probesAllowed(), "unknown settings disable probing");
+        } finally {
+            server.stop(0);
+            CommentMedia.settingsOverride = Boolean.FALSE;
+            CommentMedia.clearProbes();
+        }
     }
 }
