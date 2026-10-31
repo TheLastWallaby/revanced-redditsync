@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-10-31T06:47:13",
-  "description": "## What's Changed\n* Improve inline comment media sizing and formats (#8) by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/17\n* Draw Giphy comment links inline from media_metadata (#8) by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/18\n* Size Giphy comment GIFs from their file header (#8) by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/19\n* Draw Reddit giphy|ID comment GIFs full size (#8) by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/20\n* Draw direct Imgur pictures inline at their real size (#8) by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/21\n* Promote phone-tested inline comment media fixes to stable v0.6.2 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/22\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.1...v0.6.2",
-  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.2/patches.rvp",
+  "created_at": "2026-10-31T14:13:21",
+  "description": "## What's Changed\n* Handle unavailable award metadata gracefully (#11) by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/24\n* Promote award data handling to stable v0.6.3 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/25\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.2...v0.6.3",
+  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.3/patches.rvp",
   "signature_download_url": "N/A",
-  "version": "v0.6.2"
+  "version": "v0.6.3"
 }
