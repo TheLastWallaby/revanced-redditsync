@@ -2,6 +2,24 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.6.4",
+      "tested_release": "v0.6.4-rc.3",
+      "results": {
+        "candidate_installed_and_used": "reported working; tester approved stable promotion",
+        "comment_video_default_box_then_frame": "passed (reported 'Good' after rc.3; rc.1 and rc.2 had shown the link first)",
+        "comment_video_tap_opens_sync_viewer": "passed (reported on rc.1, unchanged since)"
+      },
+      "promotion": "Stable v0.6.4 uses the same runtime patch and extension source as the tested v0.6.4-rc.3 candidate.",
+      "unverified": [
+        "Inline image previews off (link stays a link, tap still opens the video)",
+        "regression spot-checks of comment pictures, GIFs, share links and load more comments",
+        "non-square videos fitted with dark bars in the first box",
+        "contents of Reddit's comment media_metadata for videos (JSON blocked to this tooling)",
+        "account-switch behavior",
+        "Android Manager import and patching"
+      ]
+    },
+    {
       "stable": null,
       "tested_release": "v0.6.4-rc.2",
       "results": {

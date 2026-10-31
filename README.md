@@ -4,24 +4,24 @@ Unofficial ReVanced compatibility patches for **Sync for Reddit
 v23.06.30-13:39**, version code **23033**, free package
 `com.laurencedawson.reddit_sync`.
 
-**Stable v0.6.3** adds the award data fix below. Its runtime code is identical
-to v0.6.3-rc.1, which the tester ran on their phone before approving this
-release. It keeps v0.6.2's inline comment media and v0.6.1's share-link
-security fixes.
+**Stable v0.6.4** adds the comment video previews below. Its runtime code is
+identical to v0.6.4-rc.3, which the tester confirmed working on their phone
+before approving this release. It keeps v0.6.3's award data, v0.6.2's inline
+comment media and v0.6.1's share-link security fixes.
 This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Release candidate — v0.6.4-rc.3 comment video previews (issue #23)
+## v0.6.4 comment video previews
 
 Adds **Sync: show comment video previews**, the poster-frame part of
 [issue #23](https://github.com/TheLastWallaby/revanced-redditsync/issues/23).
-It ships in the **v0.6.4-rc.3** prerelease for phone testing. Stable remains
-v0.6.3 until the candidate is confirmed on a phone. On the tester's phone,
-v0.6.4-rc.1 and rc.2 showed the preview and opened the video, but a video
-comment still showed as a link for a few seconds first. rc.2's reserved box
-needed the video's size from Reddit's comment data, which evidently isn't
-there for these comments. rc.3 reserves a box without it.
+The tester's phone notes for the v0.6.4 candidates are recorded in
+`validation-phone-tests.json`. rc.1 and rc.2 showed the preview and opened the
+video, but a video comment still showed as a link for a few seconds first:
+rc.2's reserved box needed the video's size from Reddit's comment data, which
+evidently isn't there for these comments. rc.3, which became this release,
+reserves a box without it.
 
 Reddit writes videos posted in comments as
 `https://reddit.com/link/<post>/video/<media>/player`. Sync 23033 sends that
@@ -59,12 +59,13 @@ post that doesn't exist), which Sync opened as an empty comments page showing
   stretched. Later draws of the same video use its real shape.
 - Videos don't play inline. Imgur clips (`.mp4`, `.gifv`) are unchanged.
 
-Verified on a phone with rc.1 and rc.2: frame extraction, the inline preview
-and the tap into Sync's video viewer. Not yet verified: the default square box
-and the in-place swap from placeholder to frame. Reddit's comment JSON couldn't
-be read directly here (blocked without the app), so whether `media_metadata`
-ever carries a comment video's size is unknown; when it does, that shape is
-used instead of the square.
+Verified on the tester's phone: frame extraction, the inline preview, the tap
+into Sync's video viewer and, on rc.3, the default box with the frame loading
+into it. Not exercised on a phone: Inline image previews off, and regression
+spot-checks of comment pictures, GIFs, share links and load more comments.
+Reddit's comment JSON couldn't be read directly here (blocked without the
+app), so whether `media_metadata` ever carries a comment video's size is
+unknown; when it does, that shape is used instead of the square.
 
 ## v0.6.3 award data fix
 
@@ -205,13 +206,13 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Stable v0.6.3 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.3)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.3/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.3/sync-gallery-comments-compat-v0.6.3-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.3/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.3/build-info.json)
-- [Archived v0.6.3-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.3-rc.1)
-- [Previous stable v0.6.2](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.2)
+- [Stable v0.6.4 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.4)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.4/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.4/sync-gallery-comments-compat-v0.6.4-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.4/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.4/build-info.json)
+- [Archived v0.6.4-rc.3 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.4-rc.3)
+- [Previous stable v0.6.3](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.3)
 
 For unpublished changes, download the `patch-bundle-<run>-<attempt>` artifact from
 the PR's passing [CI run](https://github.com/TheLastWallaby/revanced-redditsync/actions/workflows/ci.yml).
@@ -237,7 +238,7 @@ download that file from Releases and import it as a local patch bundle.
 Use the Sync base and patch selections described below. The validated patching
 route is the CLI; Manager import and patching still need device verification.
 
-## Included patches — cumulative v0.6.3
+## Included patches — cumulative v0.6.4
 
 - **Sync: secure Reddit share links** validates share URLs and redirects before
   sending credentials, as described above.
@@ -252,7 +253,7 @@ route is the CLI; Manager import and patching still need device verification.
 - **Sync: handle unavailable award data** keeps listings usable when
   award fields are missing and gives the awards sheet accurate messages and an
   Open on Reddit row, as described above.
-- **Sync: show comment video previews** (v0.6.4-rc.3 candidate) opens Reddit comment video
+- **Sync: show comment video previews** opens Reddit comment video
   links in Sync's video viewer and draws them as a still frame with a play
   button, as described above.
 
@@ -273,13 +274,13 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 2. Use a base that has **none of this bundle's earlier compatibility patches**.
    Do not reapply to an APK already containing any earlier compatibility bundle.
 3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
-   and apply all five named patches (four in v0.6.2, three in v0.6.1; six in
-   the v0.6.4 candidates, which add the comment video patch). Check that each reports success.
+   and apply all six named patches (five in v0.6.3, four in v0.6.2, three in
+   v0.6.1). Check that each reports success.
 4. Sign the result with your own keystore. Matching the key used by your current
    installation allows an in-place update.
 
 This bundle adds the gallery/comment fixes, share-link hardening, inline
-comment media and award data handling. It expects
+comment media, award data handling and comment video previews. It expects
 the existing ReVanced shared Logger class; its source stub is for compilation only. It does not
 supply OAuth configuration or unrelated Sync patches such as RedGifs fixes.
 
@@ -291,7 +292,7 @@ repository, using your own paths for the other files:
 java -jar revanced-cli-6.0.0-all.jar patch \
   -p output/patches.rvp -b \
   --keystore your-signing-key.keystore \
-  -o Sync-v23.06.30-compat-v0.6.3.apk \
+  -o Sync-v23.06.30-compat-v0.6.4.apk \
   Sync-v23.06.30-revanced-base.apk
 ```
 
@@ -399,7 +400,9 @@ The v0.6.2 candidates passed the tester's picture, Giphy and Imgur comment
 checks recorded in `validation-phone-tests.json`; stable v0.6.2 rebuilt the
 v0.6.2-rc.5 runtime code under its stable version. Stable v0.6.3 rebuilds the
 v0.6.3-rc.1 runtime code, which the tester ran on their phone before approving
-it; see `validation-phone-tests.json` for what was and wasn't exercised.
+it; see `validation-phone-tests.json` for what was and wasn't exercised. Stable
+v0.6.4 rebuilds the v0.6.4-rc.3 runtime code, which the tester confirmed on
+their phone before approving it.
 This standalone bundle does not represent a full upstream Gradle build.
 
 ## Sharing and license
