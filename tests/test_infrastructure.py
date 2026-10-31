@@ -13,6 +13,7 @@ import zipfile
 from scripts import bootstrap_toolchain as tools
 from scripts.build_bundle import discover_java_tests, run_java_tests
 from scripts.check_release import check_sums
+from scripts.inspect_base import verify_base
 from scripts.release_artifacts import package_release, verify_bundle, version, write_zip
 from scripts.setup_private_builder import scaffold
 
@@ -60,6 +61,29 @@ class InfrastructureTests(unittest.TestCase):
     def test_media_proxy_suite_is_discovered_with_its_package(self):
         self.assertIn("app.revanced.extension.synccompat.MediaProxyCompatTest",
                       discover_java_tests(ROOT / "tests"))
+
+    def test_base_inspection_checks_checksum_and_unpatched_base(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            base, inputs = root / "base.apk", root / "inputs.json"
+            with zipfile.ZipFile(base, "w") as apk:
+                apk.writestr("classes.dex", b"dex\n035\0Lcom/laurencedawson/reddit_sync/Main;")
+                apk.writestr("classes2.dex", b"dex\n035\0Ly8/f;")
+                apk.writestr("res/raw.dex", b"not a class file")
+            digest = hashlib.sha256(base.read_bytes()).hexdigest()
+            inputs.write_text(json.dumps({"base_apk_sha256": digest}))
+            self.assertEqual(verify_base(base, inputs), ["classes.dex", "classes2.dex"])
+            inputs.write_text(json.dumps({"base_apk_sha256": "0" * 64}))
+            with self.assertRaisesRegex(ValueError, "checksum differs"):
+                verify_base(base, inputs)
+            inputs.write_text(json.dumps({"base_apk_sha256": ""}))
+            with self.assertRaisesRegex(ValueError, "no base APK checksum"):
+                verify_base(base, inputs)
+            with zipfile.ZipFile(base, "w") as apk:
+                apk.writestr("classes.dex", b"dex\n035\0Lapp/revanced/extension/synccompat/RequestCompat;")
+            inputs.write_text(json.dumps({"base_apk_sha256": hashlib.sha256(base.read_bytes()).hexdigest()}))
+            with self.assertRaisesRegex(ValueError, "already contains"):
+                verify_base(base, inputs)
 
     def test_markdown_patch_suite_is_discovered(self):
         self.assertIn("MarkdownPatchTest", discover_java_tests(ROOT / "tests"))
@@ -183,9 +207,13 @@ class InfrastructureTests(unittest.TestCase):
             bundle = output / "patches.rvp"
             bundle.write_bytes(b"bundle")
             (output / "private.apk").write_bytes(b"not for sharing")
+            # Base disassembly is excluded even when a checkout lacks the ignore rule.
+            (root / "local-inspect/smali/classes/d9").mkdir(parents=True)
+            (root / "local-inspect/smali/classes/d9/d.smali").write_text(".class public Ld9/d;\n")
             artifacts = package_release(root, output, bundle, 1_700_000_000, ["ExampleTest"])
             with zipfile.ZipFile(artifacts[1]) as archive:
                 self.assertFalse(any("private.apk" in n for n in archive.namelist()))
+                self.assertFalse(any(n.startswith("local-inspect") or "smali" in n for n in archive.namelist()))
             (root / "accidental.keystore").write_bytes(b"dummy fixture, not a real key")
             with self.assertRaisesRegex(ValueError, "Private input"):
                 package_release(root, output, bundle, 1_700_000_000, ["ExampleTest"])

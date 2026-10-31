@@ -48,7 +48,7 @@ def package_release(root, output, bundle, epoch, test_classes):
     current = version(root)
     commit = git("rev-parse", "HEAD", root=root)
     tracked = git("ls-files", "--cached", "--others", "--exclude-standard", root=root).splitlines()
-    excluded = {"dist", "build", "output", "toolchain", "local-tools", ".git"}
+    excluded = {"dist", "build", "output", "toolchain", "local-tools", "local-inspect", ".git"}
     private_suffixes = {".apk", ".keystore", ".jks", ".p12", ".pem", ".key"}
     entries = {}
     for name in tracked:

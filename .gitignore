@@ -2,6 +2,7 @@
 /output/
 /toolchain/
 /local-tools/
+/local-inspect/
 __pycache__/
 *.pyc
 *.apk
