@@ -12,11 +12,12 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Unreleased: comment video previews
+## Release candidate — v0.6.4-rc.1 comment video previews (issue #23)
 
 Adds **Sync: show comment video previews**, the poster-frame part of
 [issue #23](https://github.com/TheLastWallaby/revanced-redditsync/issues/23).
-It is not in a release yet and has not been tested on a phone.
+It ships in the **v0.6.4-rc.1** prerelease for phone testing. Stable remains
+v0.6.3 until the candidate is confirmed on a phone.
 
 Reddit writes videos posted in comments as
 `https://reddit.com/link/<post>/video/<media>/player`. Sync 23033 sends that
@@ -232,7 +233,7 @@ route is the CLI; Manager import and patching still need device verification.
 - **Sync: handle unavailable award data** keeps listings usable when
   award fields are missing and gives the awards sheet accurate messages and an
   Open on Reddit row, as described above.
-- **Sync: show comment video previews** (unreleased) opens Reddit comment video
+- **Sync: show comment video previews** (v0.6.4-rc.1 candidate) opens Reddit comment video
   links in Sync's video viewer and draws them as a still frame with a play
   button, as described above.
 
@@ -253,8 +254,8 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 2. Use a base that has **none of this bundle's earlier compatibility patches**.
    Do not reapply to an APK already containing any earlier compatibility bundle.
 3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
-   and apply all five named patches (four in v0.6.2, three in v0.6.1; builds
-   from main after v0.6.3 have six). Check that each reports success.
+   and apply all five named patches (four in v0.6.2, three in v0.6.1; six in
+   v0.6.4-rc.1, which adds the comment video patch). Check that each reports success.
 4. Sign the result with your own keystore. Matching the key used by your current
    installation allows an in-place update.
 
@@ -341,7 +342,7 @@ with an existing installation.
 1. Set `VERSION` to an unused candidate version, run the required checks and
    merge the tested PR.
 2. Run **Actions → Publish patch release** on `main` with the exact matching tag
-   (for example `v0.6.4-rc.1` for a future candidate). The workflow rebuilds, checks the tested
+   (for example `v0.6.4-rc.2` for a future candidate). The workflow rebuilds, checks the tested
    revision, publishes all four assets and updates the Manager feeds.
 3. Manually run **Build my Sync APK** in the provisioned private repository with
    the same candidate tag. Scheduled builds follow stable releases only.
