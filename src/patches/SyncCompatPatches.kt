@@ -544,7 +544,7 @@ private const val VIDEO = "Lapp/revanced/extension/synccompat/CommentVideo;"
 
 val showSyncCommentVideoPreviews = bytecodePatch(
     name = "Sync: show comment video previews",
-    description = "Draw Reddit-hosted comment videos as a still frame with a play button at their aspect ratio within the reply width, and open reddit.com/link/.../video/... links in Sync's video viewer instead of a browser redirect to a missing post.",
+    description = "Draw Reddit-hosted and Imgur MP4/gifv comment videos as a still frame with a play button within the reply width, and open reddit.com/link/.../video/... links in Sync's video viewer instead of a browser redirect to a missing post.",
 ) {
     compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
     dependsOn(extensionPatch)

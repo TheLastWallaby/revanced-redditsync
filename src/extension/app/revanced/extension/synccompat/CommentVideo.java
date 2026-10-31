@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
 import org.json.JSONObject;
 
 /**
- * Still-frame previews for Reddit-hosted videos in comments.
+ * Still-frame previews for Reddit-hosted and Imgur videos in comments.
  *
  * Reddit writes comment videos as https://reddit.com/link/POST/video/MEDIA/player. Sync 23033
  * sends that link to a browser, where Reddit redirects it to a placeholder post that does not
@@ -41,10 +41,13 @@ import org.json.JSONObject;
  * Posters are queued as soon as Sync parses a comment's media_metadata. When that metadata gives
  * the video's size, the comment reserves the box at once with a placeholder (a dark frame with
  * the play badge), and the poster is loaded into the same span when it is ready.
+ * Imgur MP4/gifv links use the same spans and bounded decoder, fetching the canonical HTTPS MP4
+ * directly. Their case-sensitive IDs are namespaced separately from Reddit's IDs. Neither
+ * source plays automatically; animated-image and autoplay preferences never start motion here.
  */
 public final class CommentVideo {
     static final int MAX_MANIFEST_BYTES = 256 * 1024;
-    /** Only the start of the rendition is fetched; Reddit's fragmented MP4 has a frame near the start. */
+    /** Only the start of the clip is fetched; undecodable/truncated files keep their link. */
     static final int MAX_VIDEO_BYTES = 2 * 1024 * 1024;
     /** Smallest rendition whose short side reaches this is used for the poster. */
     static final int MIN_POSTER_SIDE = 360;
@@ -59,9 +62,14 @@ public final class CommentVideo {
             "reddit.com", "www.reddit.com", "old.reddit.com", "new.reddit.com",
             "m.reddit.com", "np.reddit.com", "sh.reddit.com"));
     private static final String VIDEO_HOST = "v.redd.it";
+    private static final Set<String> IMGUR_HOSTS = new HashSet<>(Arrays.asList(
+            "i.imgur.com", "imgur.com", "www.imgur.com"));
+    private static final String IMGUR_KEY = "imgur-";
 
-    /** Tests point this at a loopback server; the app always uses Reddit's HTTPS video host. */
+    /** Tests point this at loopback; Reddit requests always use its fixed HTTPS video host. */
     static String videoBase = "https://v.redd.it/";
+    /** Tests replace this with loopback; never derived from a comment's authority or query. */
+    static String imgurBase = "https://i.imgur.com/";
     /** Android access (settings, cache directory, frame decoding); tests supply a fake. */
     static Platform platform = new AndroidPlatform();
 
@@ -145,13 +153,23 @@ public final class CommentVideo {
 
     // ------------------------------------------------------------------ links
 
-    /** Media ID for reddit.com/link/POST/video/MEDIA[/player] or v.redd.it/MEDIA, otherwise null. */
+    /** Cache key for a Reddit video or a direct Imgur MP4/gifv clip, otherwise null. */
     static String mediaId(String href) {
         CommentMedia.Url url = CommentMedia.parse(href);
         if (url == null) return null;
         String[] parts = segments(url.path);
         if (parts == null) return null;
         if (url.host.equals(VIDEO_HOST)) return parts.length == 1 ? validId(parts[0]) : null;
+        if (IMGUR_HOSTS.contains(url.host)) {
+            if (parts.length != 1) return null;
+            int dot = parts[0].lastIndexOf('.');
+            if (dot < 0) return null;
+            String extension = parts[0].substring(dot + 1);
+            if (!extension.equalsIgnoreCase("mp4") && !extension.equalsIgnoreCase("gifv")) return null;
+            String id = parts[0].substring(0, dot);
+            // validId checks safe ASCII and length, but its lowercase return is Reddit-specific.
+            return validId(id) == null ? null : IMGUR_KEY + id;
+        }
         if (!REDDIT_HOSTS.contains(url.host)) return null;
         if (parts.length != 4 && parts.length != 5) return null;
         if (!parts[0].equals("link") || !parts[2].equals("video")) return null;
@@ -181,7 +199,7 @@ public final class CommentVideo {
         return id.toLowerCase(Locale.ROOT);
     }
 
-    /** True for a Reddit comment video link. Called from Sync's comment HTML converter; never throws. */
+    /** True for a supported comment video link. Called from Sync's HTML converter; never throws. */
     public static boolean isVideoLink(String href) {
         try {
             return mediaId(href) != null;
@@ -198,7 +216,7 @@ public final class CommentVideo {
     public static String tapUrl(String url) {
         try {
             CommentMedia.Url parsed = CommentMedia.parse(url);
-            if (parsed == null || parsed.host.equals(VIDEO_HOST)) return url;
+            if (parsed == null || !REDDIT_HOSTS.contains(parsed.host)) return url;
             String id = mediaId(url);
             return id == null ? url : "https://" + VIDEO_HOST + "/" + id;
         } catch (RuntimeException e) {
@@ -598,7 +616,7 @@ public final class CommentVideo {
         }
     }
 
-    /** Fetches the manifest and the start of one rendition, then saves the poster. Never logs. */
+    /** Fetches the start of the Imgur MP4 or one Reddit rendition, then saves the poster. Never logs. */
     static boolean generate(String id) {
         boolean made = false;
         File video = null;
@@ -608,18 +626,27 @@ public final class CommentVideo {
             if (directory != null && (directory.isDirectory() || directory.mkdirs())) {
                 video = new File(directory, id + ".part");
                 temp = new File(directory, id + ".tmp");
-                String manifest = fetchText(videoBase + id + "/DASHPlaylist.mpd", MAX_MANIFEST_BYTES);
-                List<Rendition> renditions = manifest == null ? null : renditions(manifest);
-                Rendition pick = renditions == null ? null : choose(renditions);
-                if (pick != null) {
-                    // The manifest gives the shape even when media_metadata did not.
-                    Rendition full = largest(renditions);
-                    synchronized (LOCK) {
-                        if (!VIDEO_SIZES.containsKey(id)) VIDEO_SIZES.put(id, new int[] {full.width, full.height});
+                String target = null;
+                int nativeWidth = 0;
+                if (id.startsWith(IMGUR_KEY)) {
+                    // Use gifv's MP4 rendition directly, without downloading its HTML or a GIF.
+                    target = imgurBase + id.substring(IMGUR_KEY.length()) + ".mp4";
+                } else {
+                    String manifest = fetchText(videoBase + id + "/DASHPlaylist.mpd", MAX_MANIFEST_BYTES);
+                    List<Rendition> renditions = manifest == null ? null : renditions(manifest);
+                    Rendition pick = renditions == null ? null : choose(renditions);
+                    if (pick != null) {
+                        // The manifest gives the shape even when media_metadata did not.
+                        Rendition full = largest(renditions);
+                        nativeWidth = full.width;
+                        synchronized (LOCK) {
+                            if (!VIDEO_SIZES.containsKey(id)) VIDEO_SIZES.put(id, new int[] {full.width, full.height});
+                        }
+                        target = videoBase + id + "/" + pick.base;
                     }
                 }
-                if (pick != null && download(videoBase + id + "/" + pick.base, video, MAX_VIDEO_BYTES)) {
-                    int[] size = validSize(platform.makePoster(video, temp, largest(renditions).width));
+                if (target != null && download(target, video, MAX_VIDEO_BYTES)) {
+                    int[] size = validSize(platform.makePoster(video, temp, nativeWidth));
                     File poster = new File(directory, id + ".jpg");
                     if (size != null && temp.isFile() && (!poster.exists() || poster.delete()) && temp.renameTo(poster)) {
                         synchronized (LOCK) {
