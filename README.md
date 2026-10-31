@@ -15,7 +15,7 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Gallery resilience (issue #6, unreleased)
+## v0.6.9-rc.1 gallery resilience (issue #6)
 
 Extends **Sync: fix Reddit galleries**. A missing, failed, processing or unsupported
 media entry now leaves an unavailable slot while the other items remain usable.
@@ -42,7 +42,8 @@ types and loopback HTTP. `GalleryPatchTest` applies the production patch to the
 original Sync 23033 parser/model fixtures and checks hook installation, cache
 handling, duplicate/layout rejection, branches, register bounds/types and DEX serialization.
 Android gallery rendering, authenticated Reddit responses and expired media on
-a phone remain unverified. This change does not publish a release or change VERSION.
+a phone remain unverified. This candidate is for phone testing; stable remains
+v0.6.8 until those checks pass and stable publication is authorized.
 
 ## v0.6.8 bounded "load more comments" requests (issue #3)
 
