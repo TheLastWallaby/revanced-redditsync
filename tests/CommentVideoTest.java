@@ -11,7 +11,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
+import org.json.JSONObject;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -70,6 +74,20 @@ public final class CommentVideoTest {
         @Override public File posterDirectory() { return directory; }
         @Override public int[] imageSize(File poster) { return diskSize; }
         @Override public float density() { return 2f; }
+        final AtomicInteger placeholders = new AtomicInteger();
+        volatile boolean placeholderWorks = true;
+        @Override public boolean makePlaceholder(File placeholder, int width, int height) {
+            placeholders.incrementAndGet();
+            if (!placeholderWorks) return false;
+            try {
+                Files.write(placeholder.toPath(), new byte[] {(byte) 0xff, (byte) 0xd8, (byte) width, (byte) height});
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+        /** Runs inline; the app posts to Sync's main thread. */
+        @Override public void post(Runnable runnable) { runnable.run(); }
         @Override public int[] makePoster(File video, File poster, int nativeWidth) {
             posters.incrementAndGet();
             lastVideoBytes = video.length();
@@ -96,6 +114,7 @@ public final class CommentVideoTest {
             drawing();
             settingsAndFallbacks(platform, root);
             loopback(platform, root);
+            placeholders(platform, root);
             pruning(root);
         } finally {
             deleteTree(root);
@@ -397,7 +416,8 @@ public final class CommentVideoTest {
 
             // Background path: first draw queues the poster, a later draw shows it.
             String asyncLink = "https://www.reddit.com/link/q1234/video/async1234/player";
-            check(CommentVideo.posterSize(asyncLink, 600) == null, "first draw keeps the link");
+            // Without media_metadata the first draw keeps the link unless the manifest already answered.
+            CommentVideo.posterSize(asyncLink, 600);
             int[] ready = null;
             for (int i = 0; i < 100 && ready == null; i++) {
                 Thread.sleep(50);
@@ -410,6 +430,191 @@ public final class CommentVideoTest {
             server.stop(0);
             serverThreads.shutdownNow();
             CommentVideo.videoBase = "http://127.0.0.1:9/unused/";
+        }
+    }
+
+    // ------------------------------------------------- metadata and placeholders
+
+    /** Stands in for Sync's inline image span with the method the patch adds. */
+    public static final class FakeSpan {
+        final List<String> loads = new CopyOnWriteArrayList<>();
+        public void syncCompatLoad(String path) { loads.add(path); }
+        String last() { return loads.isEmpty() ? null : loads.get(loads.size() - 1); }
+    }
+
+    private static boolean waitFor(BooleanSupplier condition) throws InterruptedException {
+        for (int i = 0; i < 100; i++) {
+            if (condition.getAsBoolean()) return true;
+            Thread.sleep(50);
+        }
+        return condition.getAsBoolean();
+    }
+
+    private static JSONObject video(String id, int width, int height) {
+        return new JSONObject().put(id, new JSONObject().put("status", "valid").put("e", "RedditVideo")
+                .put("x", width).put("y", height));
+    }
+
+    private static void placeholders(FakePlatform platform, File root) throws Exception {
+        CommentVideo.clear();
+        File directory = new File(root, "placeholders");
+        platform.directory = directory;
+        platform.posterSize = new int[] {480, 270};
+
+        // Shapes and keys.
+        check(Arrays.equals(new int[] {480, 270}, CommentVideo.placeholderDimensions(1920, 1080)), "16:9 placeholder");
+        check(Arrays.equals(new int[] {480, 853}, CommentVideo.placeholderDimensions(1080, 1920)), "9:16 placeholder");
+        check(CommentVideo.placeholderDimensions(100, 5) == null && CommentVideo.placeholderDimensions(5, 100) == null,
+                "extreme shapes have no placeholder");
+        check(CommentVideo.placeholderDimensions(0, 1) == null, "empty shape");
+        check("placeholder-480x270".equals(CommentVideo.placeholderKey(640, 360)), "same shape, same placeholder");
+
+        // media_metadata parsing, with previews off so nothing is fetched.
+        platform.previews = false;
+        JSONObject metadata = new JSONObject()
+                .put("meta12345", new JSONObject().put("status", "valid").put("e", "RedditVideo").put("x", 480).put("y", 270)
+                        .put("id", "meta12345").put("isGif", false)
+                        .put("dashUrl", "https://v.redd.it/link/abc/asset/meta12345/DASHPlaylist.mpd"))
+                .put("source1234", new JSONObject().put("status", "valid").put("e", "RedditVideo")
+                        .put("s", new JSONObject().put("x", 1080).put("y", 1920)).put("id", "SOURCE1234"))
+                .put("keyonly12", new JSONObject().put("e", "RedditVideo").put("x", 640).put("y", 360))
+                .put("failed123", new JSONObject().put("status", "failed").put("e", "RedditVideo").put("x", 640).put("y", 360))
+                .put("image1234", new JSONObject().put("status", "valid").put("e", "Image")
+                        .put("s", new JSONObject().put("x", 640).put("y", 360)))
+                .put("badid", new JSONObject().put("e", "RedditVideo").put("x", 640).put("y", 360).put("id", "bad-id!"))
+                .put("nosize123", new JSONObject().put("status", "valid").put("e", "RedditVideo"))
+                .put("zero12345", new JSONObject().put("status", "valid").put("e", "RedditVideo").put("x", 0).put("y", 360))
+                .put("text", "not an object");
+        CommentVideo.rememberMetadata(metadata);
+        CommentVideo.rememberMetadata(null);
+        check(Arrays.equals(new int[] {480, 270}, CommentVideo.videoSize("meta12345")), "x/y size recorded");
+        check(Arrays.equals(new int[] {1080, 1920}, CommentVideo.videoSize("source1234")), "s.x/s.y size, ID lowercased");
+        check(Arrays.equals(new int[] {640, 360}, CommentVideo.videoSize("keyonly12")), "ID from the key");
+        for (String id : new String[] {"failed123", "image1234", "badid", "nosize123", "zero12345"}) {
+            check(CommentVideo.videoSize(id) == null, "no size for " + id);
+        }
+
+        AtomicInteger metaRequests = new AtomicInteger();
+        AtomicInteger failRequests = new AtomicInteger();
+        CountDownLatch release = new CountDownLatch(1);
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            String path = exchange.getRequestURI().getPath();
+            byte[] body;
+            int status = 200;
+            if (path.equals("/meta12345/DASHPlaylist.mpd")) {
+                metaRequests.incrementAndGet();
+                try {
+                    release.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                body = REDDIT_MPD.getBytes(StandardCharsets.UTF_8);
+            } else if (path.equals("/meta12345/CMAF_360.mp4")) {
+                body = new byte[] {1, 2, 3};
+            } else {
+                if (path.equals("/fail12345/DASHPlaylist.mpd")) failRequests.incrementAndGet();
+                status = 404;
+                body = new byte[] {'x'};
+            }
+            exchange.sendResponseHeaders(status, body.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(body);
+            }
+        });
+        ExecutorService serverThreads = Executors.newFixedThreadPool(4, runnable -> {
+            Thread thread = new Thread(runnable, "comment-video-placeholder-server");
+            thread.setDaemon(true);
+            return thread;
+        });
+        server.setExecutor(serverThreads);
+        server.start();
+        try {
+            CommentVideo.videoBase = "http://127.0.0.1:" + server.getAddress().getPort() + "/";
+            Thread.sleep(200);
+            check(metaRequests.get() == 0, "previews off: metadata does not prefetch");
+
+            // Previews on: parsing the comment prefetches the poster.
+            platform.previews = true;
+            CommentVideo.rememberMetadata(video("meta12345", 480, 270));
+            check(waitFor(() -> metaRequests.get() == 1), "metadata prefetches the poster");
+
+            // The box is reserved before the poster exists.
+            String link = "https://reddit.com/link/p1234/video/meta12345/player";
+            int[] box = CommentVideo.posterSize(link, 1000);
+            check(box != null && box[0] == 960 && box[1] == 540, "box reserved from metadata: " + Arrays.toString(box));
+            String posterPath = new File(directory, "meta12345.jpg").getAbsolutePath();
+            String placeholderPath = new File(directory, "placeholder-480x270.jpg").getAbsolutePath();
+            check(posterPath.equals(CommentVideo.posterUrl(link)), "before any file, the span gets the poster path");
+
+            // Drawing the span queues the placeholder and loads it in place.
+            FakeSpan span = new FakeSpan();
+            CommentVideo.track(span, link);
+            check(waitFor(() -> placeholderPath.equals(span.last())), "placeholder loaded into the span: " + span.loads);
+            check(new File(placeholderPath).isFile(), "placeholder saved");
+            check(placeholderPath.equals(CommentVideo.posterUrl(link)), "later spans start with the placeholder");
+            check(platform.placeholders.get() == 1, "one placeholder drawn");
+
+            // The poster replaces the placeholder in the same span.
+            release.countDown();
+            check(waitFor(() -> posterPath.equals(span.last())), "poster loaded into the span: " + span.loads);
+            check(posterPath.equals(CommentVideo.posterUrl(link)), "poster path after it is ready");
+            box = CommentVideo.posterSize(link, 1000);
+            check(box != null && box[0] == 960 && box[1] == 540, "poster keeps the reserved shape");
+            int loads = span.loads.size();
+
+            // A span drawn after the poster is ready loads it at once; earlier spans are released.
+            FakeSpan late = new FakeSpan();
+            CommentVideo.track(late, link);
+            check(posterPath.equals(late.last()), "late span loads the poster");
+            check(span.loads.size() == loads, "finished spans are not reloaded");
+
+            // Failure: the span keeps the placeholder (dark frame with play badge), never a missing poster.
+            CommentVideo.rememberMetadata(video("fail12345", 640, 360));
+            String failLink = "https://v.redd.it/fail12345";
+            check(placeholderPath.equals(CommentVideo.posterUrl(failLink)), "same-shaped placeholder reused");
+            FakeSpan failed = new FakeSpan();
+            CommentVideo.track(failed, failLink);
+            check(waitFor(() -> failRequests.get() == 1), "failing poster attempted");
+            Thread.sleep(200);
+            for (String path : failed.loads) check(placeholderPath.equals(path), "failed video keeps the placeholder: " + failed.loads);
+            check(platform.placeholders.get() == 1, "placeholder not redrawn for the same shape");
+            check(CommentVideo.posterSize(failLink, 1000) != null, "failed video keeps its reserved box");
+
+            // Waiting spans are capped, and spans without the load method are ignored.
+            CommentVideo.rememberMetadata(video("many12345", 1080, 1920));
+            FakeSpan[] spans = new FakeSpan[CommentVideo.MAX_WAITING_SPANS + 3];
+            for (int i = 0; i < spans.length; i++) {
+                spans[i] = new FakeSpan();
+                CommentVideo.track(spans[i], "https://v.redd.it/many12345");
+            }
+            CommentVideo.track(new Object(), "https://v.redd.it/many12345");
+            CommentVideo.track(null, "https://v.redd.it/many12345");
+            CommentVideo.track(new FakeSpan(), "https://example.com/not-a-video");
+            String tall = new File(directory, "placeholder-480x853.jpg").getAbsolutePath();
+            check(waitFor(() -> tall.equals(spans[0].last())), "tall placeholder loaded");
+            int loaded = 0;
+            for (FakeSpan each : spans) if (tall.equals(each.last())) loaded++;
+            check(loaded == CommentVideo.MAX_WAITING_SPANS, "waiting spans capped at "
+                    + CommentVideo.MAX_WAITING_SPANS + ", got " + loaded);
+            CommentVideo.load(new Object(), "x");
+            CommentVideo.load("not a span", "x");
+
+            // A placeholder that cannot be drawn leaves Sync's own loading image.
+            CommentVideo.clear();
+            platform.placeholderWorks = false;
+            CommentVideo.rememberMetadata(video("odd123456", 300, 100));
+            FakeSpan odd = new FakeSpan();
+            CommentVideo.track(odd, "https://v.redd.it/odd123456");
+            Thread.sleep(300);
+            check(odd.loads.isEmpty(), "no load without a placeholder or poster: " + odd.loads);
+            platform.placeholderWorks = true;
+        } finally {
+            release.countDown();
+            server.stop(0);
+            serverThreads.shutdownNow();
+            CommentVideo.videoBase = "http://127.0.0.1:9/unused/";
+            platform.posterSize = new int[] {720, 405};
         }
     }
 
