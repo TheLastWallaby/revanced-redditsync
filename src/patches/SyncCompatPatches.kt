@@ -671,6 +671,10 @@ val showSyncCommentVideoPreviews = bytecodePatch(
         val radius = (load[k + 24] as NarrowLiteralInstruction).narrowLiteral
         val spanClass = proxy(classes.singleOrNull { it.type == span && it.sourceFile == "EmoteImageSpan.java" }
             ?: throw PatchException("Expected Sync inline image span was not found.")).mutableClass
+        // CommentVideo.load preserves this binding across Glide's target-clear callback.
+        layout(spanClass.fields.any { it.name == "c" && it.type == "Ljava/lang/ref/WeakReference;" } &&
+            spanClass.methods.any { it.name == "p" && it.parameterTypes == listOf("Landroid/widget/TextView;") &&
+                it.returnType == "V" }, "inline image span weak TextView binding")
         if (spanClass.methods.any { it.name == "syncCompatLoad" }) throw PatchException("Comment video patch is already installed.")
         val loadMethod = MutableMethod(ImmutableMethod(span, "syncCompatLoad",
             listOf(com.android.tools.smali.dexlib2.immutable.ImmutableMethodParameter("Ljava/lang/String;", null, null)),

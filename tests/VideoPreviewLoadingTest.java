@@ -43,6 +43,7 @@ public final class VideoPreviewLoadingTest {
         CommentVideo.clear();
         Map<String, AtomicInteger> hits = new ConcurrentHashMap<>();
         AtomicInteger leaked = new AtomicInteger();
+        AtomicInteger wrongAccept = new AtomicInteger();
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         byte[] large = new byte[CommentVideo.MAX_STILL_BYTES + 1];
@@ -50,12 +51,19 @@ public final class VideoPreviewLoadingTest {
         server.createContext("/", exchange -> {
             String path = exchange.getRequestURI().getPath();
             hits.computeIfAbsent(path, key -> new AtomicInteger()).incrementAndGet();
+            String accept = exchange.getRequestHeaders().getFirst("Accept");
+            if (path.endsWith(".webp") && (accept == null || !accept.contains("image/"))) wrongAccept.incrementAndGet();
+            if (path.endsWith(".mp4") && !"video/mp4".equals(accept)) wrongAccept.incrementAndGet();
             if (exchange.getRequestHeaders().containsKey("Authorization")
                     || exchange.getRequestHeaders().containsKey("Cookie")
                     || exchange.getRequestURI().getRawQuery() != null) leaked.incrementAndGet();
             if (path.equals("/Slow123.webp")) {
                 entered.countDown();
                 try { release.await(5, TimeUnit.SECONDS); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }
+            if (path.equals("/Timeout.webp")) {
+                try { Thread.sleep(2300); }
                 catch (InterruptedException e) { Thread.currentThread().interrupt(); }
             }
             byte[] body = path.startsWith("/Huge123") || path.startsWith("/Chunk12") ? large : new byte[] {1, 2, 3, 4};
@@ -103,6 +111,12 @@ public final class VideoPreviewLoadingTest {
             check(CommentVideo.generate("imgur-BadImg1"), "undecodable still falls back to MP4");
             check(hits.get("/BadImg1.mp4").get() == 1, "decode fallback uses canonical MP4");
             platform.stillSize = new int[] {720, 405};
+            check(CommentVideo.generate("imgur-Timeout"), "optional still timeout reaches MP4 fallback");
+            check(hits.get("/Timeout.mp4").get() == 1, "one MP4 fallback after timeout");
+            platform.stillThrows = true;
+            check(CommentVideo.generate("imgur-Throws1"), "optional still decoder exception reaches MP4 fallback");
+            check(hits.get("/Throws1.mp4").get() == 1, "one MP4 fallback after decoder exception");
+            platform.stillThrows = false;
             check(!CommentVideo.generate("imgur-Limit12"), "429 stops the job");
             check(!hits.containsKey("/Limit12.mp4"), "429 does not trigger another request to the same host");
             check(CommentVideo.posterSize("https://i.imgur.com/Limit12.gifv", 600) == null,
@@ -138,6 +152,7 @@ public final class VideoPreviewLoadingTest {
             check(!hits.containsKey("/Slow123.mp4"), "slow still also skips MP4");
             check(link == CommentVideo.tapUrl(link), "original tap URL preserved");
             check(leaked.get() == 0, "no credentials, cookies or comment query sent");
+            check(wrongAccept.get() == 0, "stills and videos request explicit media MIME types");
 
             // A process-local cache reset reuses the saved clean image; an interrupted zero-byte
             // placeholder write is repaired instead of handed to Glide as a missing image.

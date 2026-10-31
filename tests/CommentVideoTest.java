@@ -67,9 +67,11 @@ public final class CommentVideoTest {
         volatile int[] posterSize = {720, 405};
         volatile int[] diskSize;
         volatile int[] stillSize;
+        volatile boolean stillThrows;
         final AtomicInteger stillPosters = new AtomicInteger();
         @Override public int[] makeStillPoster(File source, File poster) {
             stillPosters.incrementAndGet();
+            if (stillThrows) throw new IllegalStateException("fixture still decoder failure");
             if (stillSize == null) return null;
             try {
                 Files.write(poster.toPath(), new byte[] {(byte) 0xff, (byte) 0xd8, 1, 2, 3});
@@ -111,6 +113,8 @@ public final class CommentVideoTest {
         }
         /** Runs inline; the app posts to Sync's main thread. */
         @Override public void post(Runnable runnable) { runnable.run(); }
+        final List<Object> invalidated = new CopyOnWriteArrayList<>();
+        @Override public void invalidate(Object view) { invalidated.add(view); }
         @Override public int[] makePoster(File video, File poster, int nativeWidth) {
             posters.incrementAndGet();
             lastVideoBytes = video.length();
@@ -642,7 +646,8 @@ public final class CommentVideoTest {
             CommentVideo.track(new FakeSpan(), "https://example.com/not-a-video", 844, 1500);
             CommentVideo.track(new FakeSpan(), "https://v.redd.it/many12345", 0, 1500);
             String tall = new File(directory, "placeholder-480x853.jpg").getAbsolutePath();
-            check(waitFor(() -> tall.equals(spans[0].last())), "tall placeholder loaded");
+            check(waitFor(() -> Arrays.stream(spans).filter(each -> tall.equals(each.last())).count()
+                    == CommentVideo.MAX_WAITING_SPANS), "all capped waiting spans finished loading");
             int loaded = 0;
             for (FakeSpan each : spans) if (tall.equals(each.last())) loaded++;
             check(loaded == CommentVideo.MAX_WAITING_SPANS, "waiting spans capped at "

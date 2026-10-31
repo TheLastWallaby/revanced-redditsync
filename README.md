@@ -12,12 +12,12 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Release candidate — v0.6.5-rc.2 Imgur comment video previews (issue #23)
+## Release candidate — v0.6.5-rc.3 Imgur comment video previews (issue #23)
 
 Extends **Sync: show comment video previews** to direct Imgur `.mp4` and `.gifv`
 links on `i.imgur.com`, `imgur.com` and `www.imgur.com`, using the same
 poster-and-play-button option as Reddit comment videos. It ships in the
-[v0.6.5-rc.2 prerelease](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.5-rc.2)
+[v0.6.5-rc.3 prerelease](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.5-rc.3)
 for phone testing; stable v0.6.4 contains only the Reddit part.
 
 - With **Inline image previews** on, the comment reserves a placeholder box and
@@ -28,11 +28,19 @@ for phone testing; stable v0.6.4 contains only the Reddit part.
   a poster file that does not exist yet, and unchanged placeholders are not
   repeatedly loaded. The shared neutral image is 69 bytes, written atomically
   once before its first use; shaped images are still drawn in the background.
+- **Automatic repaint (rc.3).** Replacing an image request makes Glide clear its
+  old target. Sync's image span also cleared its weak TextView binding then, so
+  a later frame could load without repainting until the user scrolled or tapped.
+  The loader now preserves that weak binding across replacement and schedules
+  a repaint afterward, including when a cached frame completes synchronously.
+  The patch validates the exact build-23033 binding field before applying.
 - A background worker first requests the clip's small WebP still from
   `i.imgur.com` (complete images only, at most 256 KB). Android decodes a bounded
   first frame, adds the play badge and caches it. Missing, oversized or invalid
   stills fall back to rc.1's first 2 MB of the MP4 and video-frame decoder.
   HTTP 429 stops that job instead of immediately requesting another rendition.
+  rc.3 also reaches the MP4 fallback after optional-still timeouts, read errors
+  or decoder exceptions. Requests explicitly ask for image or video MIME types.
   Requests use no redirects, cookies or authorization. The patch does not fetch
   GIF renditions or Imgur website HTML. Case-sensitive Imgur IDs have separate cache
   keys from Reddit videos; `.mp4` and `.gifv` share a poster for the same ID.
@@ -45,10 +53,12 @@ for phone testing; stable v0.6.4 contains only the Reddit part.
   playback. Playing the video still requires a tap.
 
 Loopback tests exercise the actual URL, download, cache, sizing and span-update
-logic with fake Android image/video decoders. The tester reported rc.1 working,
-but a messy placeholder appeared for several seconds before the frame. rc.2's
-loading transition and still-image decoding need phone validation; taps and the
-settings-off path were not separately confirmed. Retest a Reddit comment video,
+logic with fake Android image/video decoders. A target-lifecycle regression
+reproduces the shipped span's lost weak view binding and covers asynchronous,
+cached, failed, recycled and detached loads. The tester reported rc.1 working
+with a messy placeholder, then rc.2 showing frames after scrolling away and back
+or tapping. rc.3's automatic repaint needs phone validation; the active decoder
+branch and settings-off path were not separately confirmed. Retest a Reddit comment video,
 comment pictures/GIFs, share links and load more comments on that build.
 
 ## v0.6.4 comment video previews
