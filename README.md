@@ -15,6 +15,35 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
+## Gallery resilience (issue #6, unreleased)
+
+Extends **Sync: fix Reddit galleries**. A missing, failed, processing or unsupported
+media entry now leaves an unavailable slot while the other items remain usable.
+Slots retain their original index, caption and outbound link; opening a cached
+gallery retains the saved position. The parser accepts available image, GIF and
+MP4 sources without requiring previews or a particular source field.
+
+The response must identify the requested post. Crossposts use their own gallery
+first, then the parent identified by `crosspost_parent`; unrelated parent data
+is rejected. A missing own media entry can use metadata from that matching
+parent's gallery. Malformed thread/listing responses are rejected rather than
+being turned into an empty gallery. The original raw-response logger is removed.
+
+When a source explicitly declares an expired `expires`, `Expires` or `exp` query
+timestamp and has no usable alternative rendition, the parser refreshes metadata
+once through the same fixed OAuth origin. This request has a five-second budget,
+a 1 MiB response limit and no redirects. Original order, captions and position
+are retained, signed query bytes are preserved, and a failed refresh leaves usable
+neighbors available and an explicit reopen retryable. Opaque signatures do not
+establish expiry; a media viewer's later HTTP failure does not trigger this refresh.
+
+`GalleryCompatTest` executes the production parser and refresh against real Volley
+types and loopback HTTP. `GalleryPatchTest` applies the production patch to the
+original Sync 23033 parser/model fixtures and checks hook installation, cache
+handling, duplicate/layout rejection, branches, registers and DEX serialization.
+Android gallery rendering, authenticated Reddit responses and expired media on
+a phone remain unverified. This change does not publish a release or change VERSION.
+
 ## v0.6.8 bounded "load more comments" requests (issue #3)
 
 Changes the existing **Sync: load more comments in batches** patch for
@@ -503,7 +532,7 @@ versioning. The manual `--tools` route below remains available.
 
 - `src/patches/SyncCompatPatches.kt`: standalone ReVanced patch hooks.
 - `src/extension/`: the Java runtime helpers.
-- `src/stubs/`: compile-only signatures (shared Logger, Sync's Award model),
+- `src/stubs/`: compile-only signatures (shared Logger, Sync's Award and Gallery models),
   excluded from the APK.
 - `tests/`: JVM/loopback HTTP tests and minimal Android test adapters.
 - `tools/UpdateVerifier.java`: APK/code/signature verification.

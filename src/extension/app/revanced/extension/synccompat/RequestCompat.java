@@ -39,25 +39,6 @@ public final class RequestCompat {
                 + ".json?limit=1&depth=1&raw_json=1&always_show_media=1";
     }
 
-    public static NetworkResponse normalizeGallery(NetworkResponse response) {
-        if (response == null || response.data == null) return response;
-        try {
-            String text = new String(response.data, StandardCharsets.UTF_8).trim();
-            if (!text.startsWith("[")) return response;
-            JSONArray listings = new JSONArray(text);
-            JSONObject listing = listings.getJSONObject(0);
-            // Validate the expected listing shape before adapting it.
-            listing.getJSONObject("data").getJSONArray("children").getJSONObject(0)
-                    .getJSONObject("data");
-            return new NetworkResponse(response.statusCode,
-                    listing.toString().getBytes(StandardCharsets.UTF_8), response.headers,
-                    response.notModified, response.networkTimeMs);
-        } catch (Exception malformed) {
-            // The original parser reports malformed responses; never fake an empty gallery.
-            return response;
-        }
-    }
-
     public static String commentsUrl(String original, Map<String, String> parameters) {
         // getUrl() is called from the superclass constructor, before parameters exist.
         if (original == null || parameters == null || parameters.isEmpty()) return original;

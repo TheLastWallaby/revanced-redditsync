@@ -39,6 +39,8 @@ private const val MEDIA = "Lapp/revanced/extension/synccompat/CommentMedia;"
 private const val AWARDS = "Lapp/revanced/extension/synccompat/AwardCompat;"
 private const val AWARDS_RESULT = "Lapp/revanced/extension/synccompat/AwardCompat\$Result;"
 private const val MARKDOWN = "Lapp/revanced/extension/synccompat/MarkdownCompat;"
+private const val GALLERY = "Lapp/revanced/extension/synccompat/GalleryCompat;"
+private const val GALLERY_RESULT = "Lapp/revanced/extension/synccompat/GalleryCompat\$Result;"
 
 private val extensionPatch = bytecodePatch {
     extendWith("extensions/synccompat.rve")
@@ -155,7 +157,7 @@ val secureSyncShareLinks = bytecodePatch(
 
 val fixSyncGalleries = bytecodePatch(
     name = "Sync: fix Reddit galleries",
-    description = "Experimental: load native Reddit galleries through the comment-page API and adapt its listing response.",
+    description = "Load native Reddit galleries through the comment-page API, preserve unavailable item slots and captions, resolve matching crosspost media and refresh explicitly expired URLs once.",
 ) {
     compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
     dependsOn(extensionPatch)
@@ -164,18 +166,51 @@ val fixSyncGalleries = bytecodePatch(
             ?: throw PatchException("Expected Sync OAuthGalleryRequest was not found. This patch targets build 23033 only.")
         val clazz = proxy(target).mutableClass
         val url = clazz.methods.single { it.name == "b" && it.parameterTypes == listOf("Ljava/lang/String;") }
+        val parse = clazz.methods.single { it.name == "parseNetworkResponse" && it.parameterTypes == listOf(NETWORK) }
         if (url.implementation!!.instructions.any {
             it is ReferenceInstruction && it.reference.toString().contains("synccompat/RequestCompat")
-        }) throw PatchException("Gallery compatibility patch is already installed.")
+        } || parse.implementation!!.instructions.any { it.methodRef()?.definingClass == GALLERY })
+            throw PatchException("Gallery compatibility patch is already installed.")
+        val model = classes.singleOrNull { it.type == "Lo8/b;" && it.sourceFile == "Gallery.java" }
+            ?: throw PatchException("Expected Sync Gallery model was not found.")
+        layout(listOf("a" to "I", "b" to "[Ljava/lang/String;", "c" to "[Ljava/lang/String;",
+            "d" to "[Ljava/lang/String;").all { (name, type) ->
+            model.fields.any { it.name == name && it.type == type && AccessFlags.PUBLIC.isSet(it.accessFlags) }
+        } && model.methods.any { it.name == "<init>" && it.parameterTypes == listOf("I") }, "Gallery model")
+        val original = parse.implementation!!.instructions
+        val cache = original.mapNotNull { it.methodRef() }.singleOrNull {
+            it.definingClass == "Ld9/a;" && it.parameterTypes == listOf(NETWORK, "J") &&
+                it.returnType == "Lcom/android/volley/Cache\$Entry;"
+        }
+        layout(cache != null && listOf("media_metadata", "gallery_data", "media_id", "Could not load gallery").all { value ->
+            original.any { it.stringValue() == value }
+        }, "gallery request parser")
         url.resetBody(1, """
             invoke-static {p0}, $EXT->galleryUrl(Ljava/lang/String;)Ljava/lang/String;
             move-result-object p0
             return-object p0
         """.trimIndent())
-        val parse = clazz.methods.single { it.name == "parseNetworkResponse" && it.parameterTypes == listOf(NETWORK) }
-        parse.addInstructions(0, """
-            invoke-static/range {p1 .. p1}, $EXT->normalizeGallery($NETWORK)$NETWORK
-            move-result-object p1
+        // Replace the strict parser and its raw-response logger. Cache the canonical listing
+        // so MultiImageActivity can still save/reopen its position; a failed refresh is uncached.
+        parse.resetBody(6, """
+            invoke-static {p1, p0}, $GALLERY->parseGallery(${NETWORK}Lcom/android/volley/Request;)$GALLERY_RESULT
+            move-result-object v0
+            iget-object v1, v0, $GALLERY_RESULT->error:$VOLLEY_ERROR
+            if-eqz v1, :success
+            invoke-static {v1}, Lcom/android/volley/Response;->error($VOLLEY_ERROR)Lcom/android/volley/Response;
+            move-result-object v0
+            return-object v0
+            :success
+            iget-object v1, v0, $GALLERY_RESULT->gallery:Lo8/b;
+            iget-object v0, v0, $GALLERY_RESULT->response:$NETWORK
+            if-eqz v0, :ready
+            const-wide/32 v2, 0x36ee80
+            invoke-static {v0, v2, v3}, $cache
+            move-result-object v0
+            :ready
+            invoke-static {v1, v0}, Lcom/android/volley/Response;->success(Ljava/lang/Object;Lcom/android/volley/Cache${'$'}Entry;)Lcom/android/volley/Response;
+            move-result-object v0
+            return-object v0
         """.trimIndent())
     }
 }
