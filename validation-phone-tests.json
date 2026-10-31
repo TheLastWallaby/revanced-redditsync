@@ -2,6 +2,22 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.6.3",
+      "tested_release": "v0.6.3-rc.1",
+      "results": {
+        "candidate_installed_and_used": "reported; tester approved stable promotion",
+        "award_ui_in_sync": "none shown, including a post with a current-style award in Reddit's own app (Sync shows award UI only when Reddit reports an award count)"
+      },
+      "promotion": "Stable v0.6.3 uses the same runtime patch and extension source as the tested v0.6.3-rc.1 candidate.",
+      "unverified": [
+        "awards sheet lists, messages and the Open on Reddit row (not reachable without award data from Reddit)",
+        "Reddit's live award fields (its JSON was blocked or required sign-in)",
+        "account-switch behavior",
+        "Android Manager import and patching",
+        "exhaustive Reddit account/post combinations"
+      ]
+    },
+    {
       "stable": "v0.6.2",
       "tested_release": "v0.6.2-rc.5",
       "results": {
