@@ -64,6 +64,11 @@ class InfrastructureTests(unittest.TestCase):
     def test_markdown_patch_suite_is_discovered(self):
         self.assertIn("MarkdownPatchTest", discover_java_tests(ROOT / "tests"))
 
+    def test_gallery_suites_are_discovered(self):
+        tests = discover_java_tests(ROOT / "tests")
+        self.assertIn("app.revanced.extension.synccompat.GalleryCompatTest", tests)
+        self.assertIn("GalleryPatchTest", tests)
+
     def test_comment_request_suites_are_discovered(self):
         tests = discover_java_tests(ROOT / "tests")
         self.assertIn("BatchCommentsTest", tests)

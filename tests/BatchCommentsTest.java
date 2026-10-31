@@ -267,10 +267,6 @@ public final class BatchCommentsTest {
             check(continuations==2,"continue-thread rows with distinct parents retained");
             check(FixLoadMoreCommentsPatch.getMoreChildrenResponse(null,base,params("a"),headers)==null,"null response safe");
 
-            String gallery="[{\"kind\":\"Listing\",\"data\":{\"children\":[{\"data\":{\"gallery_data\":{\"items\":[]},\"media_metadata\":{}}}]}},{}]";
-            NetworkResponse g=response(gallery),adapted=RequestCompat.normalizeGallery(g);
-            check(new JSONObject(new String(adapted.data,StandardCharsets.UTF_8)).getJSONObject("data").has("children"),"gallery listing adapter retained");
-            check(adapted.headers==g.headers && adapted.networkTimeMs==g.networkTimeMs,"gallery network metadata retained");
 
             reset();bodies.put("fallback:a",thread());
             try { load(thread(),"a,b");throw new AssertionError("expected missing-parent diagnostic"); }

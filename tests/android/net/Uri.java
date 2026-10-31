@@ -9,6 +9,7 @@ public final class Uri {
     private Uri(String value) { uri = URI.create(value); }
     public static Uri parse(String value) { return new Uri(value); }
     public String getPath() { return uri.getPath(); }
+    public String getHost() { return uri.getHost(); }
     public Builder buildUpon() { return new Builder(uri); }
     @Override public String toString() { return uri.toString(); }
     public static final class Builder {
