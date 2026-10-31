@@ -4,6 +4,15 @@ package app.revanced.local.synccompat
 import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.patch.PatchException
 import app.revanced.patcher.extensions.InstructionExtensions.addInstructions
+import app.revanced.patcher.extensions.InstructionExtensions.addInstructionsWithLabels
+import app.revanced.patcher.extensions.ExternalLabel
+import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.builder.BuilderInstruction
+import com.android.tools.smali.dexlib2.builder.BuilderOffsetInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.NarrowLiteralInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.Instruction
+import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.TwoRegisterInstruction
 import app.revanced.com.android.tools.smali.dexlib2.mutable.MutableMethod
 import app.revanced.com.android.tools.smali.dexlib2.mutable.MutableClassDef
 import app.revanced.com.android.tools.smali.dexlib2.mutable.MutableField
@@ -24,6 +33,7 @@ private const val VOLLEY_ERROR = "Lcom/android/volley/VolleyError;"
 private const val SLINK = "Lapp/revanced/extension/synccompat/SafeSLinks;"
 private const val SLINK_BASE = "Lapp/revanced/extension/shared/fixes/slink/BaseFixSLinksPatch;"
 private const val SLINK_RESULT = "Lapp/revanced/extension/shared/fixes/slink/ResolveResult;"
+private const val MEDIA = "Lapp/revanced/extension/synccompat/CommentMedia;"
 
 private val extensionPatch = bytecodePatch {
     extendWith("extensions/synccompat.rve")
@@ -314,5 +324,155 @@ val fixSyncMoreComments = bytecodePatch(
             invoke-interface {v0}, $complete
             return-void
         """.trimIndent())
+    }
+}
+
+private const val SETTINGS = "Lcom/laurencedawson/reddit_sync/singleton/SettingsSingleton;"
+private const val SETTINGS_VALUES = "Lcom/laurencedawson/reddit_sync/singleton/SettingsSingleton\$Settings;"
+
+private fun Instruction.stringValue(): String? =
+    ((this as? ReferenceInstruction)?.reference as? StringReference)?.string
+
+private fun Instruction.methodRef(): MethodReference? =
+    (this as? ReferenceInstruction)?.reference as? MethodReference
+
+private fun Instruction.registerA(): Int? = (this as? OneRegisterInstruction)?.registerA
+
+private fun Instruction.branchTarget(): Instruction =
+    (this as BuilderOffsetInstruction).target.location.instruction
+        ?: throw PatchException("Unsupported comment media branch layout.")
+
+private fun List<BuilderInstruction>.singleIndex(what: String, predicate: (Int) -> Boolean): Int {
+    val matches = indices.filter(predicate)
+    if (matches.size != 1) throw PatchException("Expected one $what in Sync 23033, found ${matches.size}.")
+    return matches.single()
+}
+
+private fun layout(valid: Boolean, what: String) {
+    if (!valid) throw PatchException("Unsupported $what layout. This patch targets Sync build 23033 only.")
+}
+
+val improveSyncCommentMedia = bytecodePatch(
+    name = "Sync: improve inline comment media",
+    description = "Size Reddit comment pictures from URL parameters in any order or from media_metadata, preserving aspect ratio, reply width and signed links; inline WebP and other parsed picture formats; keep malformed Giphy markers usable.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        val target = classes.singleOrNull { it.type == "Lnc/d;" && it.sourceFile == "SyncHtmlToSpannedConverter.java" }
+            ?: throw PatchException("Expected Sync comment HTML converter was not found. This patch targets build 23033 only.")
+        val converter = proxy(target).mutableClass
+        fun method(name: String, parameters: List<String>): MutableMethod =
+            converter.methods.singleOrNull { it.name == name && it.parameterTypes == parameters && it.returnType == "V" }
+                ?: throw PatchException("Unsupported comment HTML converter method: $name")
+        val link = method("e", listOf("Loc/c;", "Lnc/a;", "Lnc/b;"))
+        val image = method("y", listOf("Loc/c;", "Lorg/xml/sax/Attributes;"))
+        if (link.implementation!!.instructions.any { it.methodRef()?.definingClass == MEDIA }) {
+            throw PatchException("Comment media patch is already installed.")
+        }
+
+        // Register roles below are fixed by build 23033 and checked before any change:
+        // v0 = link span, v2 = href, v6 = object replacement character, v7/v8/v9 = 2/0/1.
+        run {
+            val code = link.implementation!!.instructions
+            layout(code.any {
+                it.opcode == Opcode.IGET_OBJECT && it.registerA() == 2 &&
+                    ((it as ReferenceInstruction).reference as FieldReference).let { f -> f.definingClass == "Lnc/d\$h;" && f.name == "a" }
+            }, "comment link URL")
+            val tenor = code.singleIndex("Tenor inline check") { code[it].stringValue() == "tenor.com" }
+            layout(code[tenor].registerA() == 5 && code[tenor + 1].methodRef()?.name == "contains" &&
+                code[tenor + 2].opcode == Opcode.MOVE_RESULT && code[tenor + 2].registerA() == 5 &&
+                code[tenor + 3].opcode == Opcode.IF_EQZ && code[tenor + 3].registerA() == 5, "inline image gate")
+            // Add parsed picture formats (WebP, format=, media_metadata MIME) to Sync's own decision,
+            // which still requires its inline-preview preference and comment context.
+            link.addInstructions(tenor + 3, """
+                invoke-static {v2, v5}, $MEDIA->inlineImageOr(Ljava/lang/String;Z)Z
+                move-result v5
+            """.trimIndent())
+        }
+        run {
+            val code = link.implementation!!.instructions
+            val preview = code.singleIndex("preview image branch") { code[it].stringValue() == "preview.redd.it" }
+            layout(code[preview].registerA() == 4 && code[preview + 1].methodRef()?.name == "contains" &&
+                code[preview + 2].opcode == Opcode.MOVE_RESULT && code[preview + 3].opcode == Opcode.CONST_HIGH16 &&
+                code[preview + 3].registerA() == 5 && code[preview + 4].opcode == Opcode.IF_EQZ &&
+                code[preview + 4].registerA() == 4, "preview image branch")
+            fun constant(register: Int, value: Int) = code.subList(0, preview).any {
+                it.opcode == Opcode.CONST_4 && it.registerA() == register && (it as NarrowLiteralInstruction).narrowLiteral == value
+            }
+            layout(constant(7, 2) && constant(8, 0) && constant(9, 1) &&
+                code.subList(0, preview).any { it.registerA() == 6 && it.stringValue() == "￼" }, "preview image registers")
+            val fallback = code[preview + 4].branchTarget()
+            layout(fallback.methodRef()?.let { it.definingClass == SETTINGS && it.name == "x" } == true, "comment link fallback")
+            // Replace the old preview branch (integer parsing and "&height" slicing) with a parsed,
+            // validated size. Unknown sizes take Sync's normal link and inline-preview path.
+            link.addInstructionsWithLabels(preview + 4, """
+                invoke-static {}, $SETTINGS->x()$SETTINGS_VALUES
+                move-result-object v4
+                iget-boolean v4, v4, $SETTINGS_VALUES->inlineImagePreviews:Z
+                if-eqz v4, :fallback
+                iget v4, p1, Lnc/a;->e:I
+                invoke-static {v2, v4}, $MEDIA->inlineImageSize(Ljava/lang/String;I)[I
+                move-result-object v4
+                if-eqz v4, :fallback
+                invoke-virtual {p0, v0}, Loc/c;->r(Loc/c${'$'}a;)Ljava/lang/String;
+                invoke-virtual {p0, v0}, Loc/c;->q(Loc/c${'$'}a;)V
+                aget v10, v4, v8
+                aget v11, v4, v9
+                new-array v4, v7, [Ljava/lang/Object;
+                new-instance v1, Lnb/c;
+                invoke-direct {v1, v2, v10, v11}, Lnb/c;-><init>(Ljava/lang/String;II)V
+                aput-object v1, v4, v8
+                new-instance v1, Lmb/d;
+                invoke-direct {v1, v2}, Lmb/d;-><init>(Ljava/lang/String;)V
+                aput-object v1, v4, v9
+                invoke-virtual {p0, v6, v4}, Loc/c;->c(Ljava/lang/String;[Ljava/lang/Object;)V
+                return-void
+            """.trimIndent(), ExternalLabel("fallback", fallback))
+        }
+        run {
+            val code = image.implementation!!.instructions
+            val giphy = code.indexOfFirst { it.methodRef()?.let { m -> m.definingClass == "Lnc/d;" && m.name == "a" } == true }
+            layout(giphy >= 0 && code[giphy + 1].opcode in setOf(Opcode.GOTO, Opcode.GOTO_16, Opcode.GOTO_32), "Giphy image")
+            val end = code[giphy + 1].branchTarget()
+            layout(end.opcode == Opcode.RETURN_VOID, "Giphy image end")
+            val sized = code.singleIndex("sized Giphy check") {
+                it + 2 < code.size && code[it].opcode == Opcode.ARRAY_LENGTH &&
+                    (code[it] as TwoRegisterInstruction).registerB == 0 &&
+                    code[it + 1].opcode == Opcode.CONST_4 && (code[it + 1] as NarrowLiteralInstruction).narrowLiteral == 3 &&
+                    code[it + 1].registerA() == 1 && code[it + 2].opcode == Opcode.IF_NE
+            }
+            // id|width|height markers with missing or non-numeric sizes used to throw from
+            // Integer.parseInt; show them through Sync's unsized Giphy path instead.
+            image.addInstructionsWithLabels(sized + 1, """
+                invoke-static {v0}, $MEDIA->hasGiphySize([Ljava/lang/String;)Z
+                move-result v1
+                if-nez v1, :sized
+                const/4 v1, 0x0
+                aget-object v1, v0, v1
+                invoke-static {p0, v1}, Lnc/d;->a(Loc/c;Ljava/lang/String;)V
+                goto/16 :end
+                :sized
+                nop
+            """.trimIndent(), ExternalLabel("end", end))
+        }
+
+        val parserTarget = classes.singleOrNull { it.type == "Lc9/c;" && it.sourceFile == "PostParserHelper.java" }
+            ?: throw PatchException("Expected Sync PostParserHelper was not found.")
+        val parser = proxy(parserTarget).mutableClass
+        val sites = parser.methods.flatMap { m ->
+            val code = m.implementation?.instructions ?: return@flatMap emptyList()
+            code.indices.filter { i ->
+                code[i].stringValue() == "media_metadata" && i + 2 < code.size &&
+                    code[i + 1].methodRef()?.name == "optJSONObject" && code[i + 2].opcode == Opcode.MOVE_RESULT_OBJECT &&
+                    code.subList(maxOf(0, i - 8), i).any { it.stringValue() == "body" }
+            }.map { m to it }
+        }
+        if (sites.size != 1) throw PatchException("Expected one comment media_metadata read, found ${sites.size}.")
+        val (parse, index) = sites.single()
+        val metadata = parse.implementation!!.instructions[index + 2].registerA()!!
+        // Capture comment image sizes/types while Sync parses the comment; the body is unchanged.
+        parse.addInstructions(index + 3,
+            "invoke-static/range {v$metadata .. v$metadata}, $MEDIA->rememberMetadata(Lorg/json/JSONObject;)V")
     }
 }

@@ -141,6 +141,23 @@ public class UpdateVerifier {
     if(!original.isEmpty() || changes!=3)throw new AssertionError("Unexpected inherited resolver layout");
     System.out.println("PASS: share-link entry, transport and worker hardened; token/pending-link lifecycle preserved; no URL-bearing resolver logging");
   }
+  static int calls(ClassDef type,String method,String target) {
+    int count=0;
+    for(Method m:type.getMethods()) {
+      if(!m.getName().equals(method) || m.getImplementation()==null)continue;
+      for(Instruction i:m.getImplementation().getInstructions())
+        if(i instanceof ReferenceInstruction && ((ReferenceInstruction)i).getReference().toString().startsWith(target))count++;
+    }
+    return count;
+  }
+  static void checkCommentMedia(ClassDef converter,ClassDef parser) {
+    String media="Lapp/revanced/extension/synccompat/CommentMedia;->";
+    if(calls(converter,"e",media+"inlineImageSize(")!=1)throw new AssertionError("Comment image sizing hook missing");
+    if(calls(converter,"e",media+"inlineImageOr(")!=1)throw new AssertionError("Comment image format hook missing");
+    if(calls(converter,"y",media+"hasGiphySize(")!=1)throw new AssertionError("Giphy size guard missing");
+    if(calls(parser,"a",media+"rememberMetadata(")!=1)throw new AssertionError("Comment media_metadata hook missing");
+    System.out.println("PASS: comment media sizing, format, Giphy and media_metadata hooks installed once each");
+  }
   public static void main(String[] args) throws Exception {
     var result=new ApkVerifier.Builder(new File(args[1])).build().verify();
     if(!result.isVerified())throw new AssertionError(result.getErrors());
@@ -152,9 +169,10 @@ public class UpdateVerifier {
     List<String> changed=new ArrayList<>();
     for(String type:before.keySet())if(!body(before.get(type)).equals(body(after.get(type))))changed.add(type);
     String slink="Lapp/revanced/extension/shared/fixes/slink/BaseFixSLinksPatch;";
-    if(!new TreeSet<>(changed).equals(new TreeSet<>(List.of("Ly8/q;","Ly8/f;","Lya/d$f;","Lya/d;",slink))))throw new AssertionError("Unexpected changed code: "+changed);
-    System.out.println("PASS: "+before.size()+" existing classes preserved; only 5 intended classes changed; runtime classes added: "+newClasses+"");
+    if(!new TreeSet<>(changed).equals(new TreeSet<>(List.of("Ly8/q;","Ly8/f;","Lya/d$f;","Lya/d;",slink,"Lnc/d;","Lc9/c;"))))throw new AssertionError("Unexpected changed code: "+changed);
+    System.out.println("PASS: "+before.size()+" existing classes preserved; only 7 intended classes changed; runtime classes added: "+newClasses+"");
     checkShareLinks(before.get(slink),after.get(slink));
+    checkCommentMedia(after.get("Lnc/d;"),after.get("Lc9/c;"));
     checkPresenter(before.get("Lya/d;"),after.get("Lya/d;"));
     ClassDef error=after.get("Lya/d$f;");
     for(Method m:error.getMethods())if(m.getName().equals("onErrorResponse")) {
