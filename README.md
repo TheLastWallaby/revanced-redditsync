@@ -4,14 +4,15 @@ Unofficial ReVanced compatibility patches for **Sync for Reddit
 v23.06.30-13:39**, version code **23033**, free package
 `com.laurencedawson.reddit_sync`.
 
-The stable v0.6.0 patch code was reported working by its tester. The
-**v0.6.1-rc.1 release candidate** adds the share-link security fix below and
-awaits phone testing before a stable v0.6.1 release.
+**Stable v0.6.1** adds the share-link security fix below. Its runtime code is
+identical to v0.6.1-rc.1, which the tester confirmed working on their phone:
+three Reddit share links, a share link after force-stopping Sync, galleries and
+Load more comments.
 This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Release candidate — v0.6.1-rc.1 share-link security fix
+## v0.6.1 share-link security fix
 
 Adds **Sync: secure Reddit share links** for [issue #1](https://github.com/TheLastWallaby/revanced-redditsync/issues/1).
 The inherited ReVanced `/s/` resolver now parses the actual URI before any
@@ -45,8 +46,10 @@ the cumulative RVP with ReVanced CLI. `build-info.json` records the executed Jav
 suites by fully qualified name, including
 `app.revanced.extension.synccompat.SafeSLinksTest`.
 
-Phone behavior, live account resolution, cold-start/account-switch UI and Android
-Manager remain unverified. `validation-share-links.json` records the earlier
+The tester confirmed the candidate phone checks listed in
+`validation-phone-tests.json`. Account-switch behavior and Android Manager
+import/patching remain unverified; these checks are not exhaustive live-service
+coverage. `validation-share-links.json` records the earlier
 local smoke test with a disposable key; its hashes are historical evidence,
 not the candidate release's hashes or proof of update compatibility. The private
 APK pipeline separately verifies the prepared base checksum, original signing
@@ -55,18 +58,18 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [v0.6.1-rc.1 prerelease](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.1-rc.1)
-- [Candidate patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.1-rc.1/patches.rvp)
-- [Candidate source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.1-rc.1/sync-gallery-comments-compat-v0.6.1-rc.1-source.zip)
-- [Candidate SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.1-rc.1/SHA256SUMS)
-- [Candidate build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.1-rc.1/build-info.json)
-- [Latest stable release (v0.6.0)](https://github.com/TheLastWallaby/revanced-redditsync/releases/latest)
+- [Stable v0.6.1 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.1)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.1/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.1/sync-gallery-comments-compat-v0.6.1-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.1/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.1/build-info.json)
+- [Archived v0.6.1-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.1-rc.1)
 
-Before publication, download the `patch-bundle-<run>-<attempt>` artifact from the
-PR's passing [CI run](https://github.com/TheLastWallaby/revanced-redditsync/actions/workflows/ci.yml).
+For unpublished changes, download the `patch-bundle-<run>-<attempt>` artifact from
+the PR's passing [CI run](https://github.com/TheLastWallaby/revanced-redditsync/actions/workflows/ci.yml).
 CI and releases provide the same four outputs: `patches.rvp`, the source ZIP,
 `SHA256SUMS` and `build-info.json`. Local builds write them to `output/`.
-Old `dist/` files are historical and are not current candidate artifacts.
+Old `dist/` files are historical and are not current release artifacts.
 Supply your own prepared base APK and original signing key when applying patches.
 
 ## ReVanced Manager remote bundle
@@ -86,7 +89,7 @@ download that file from Releases and import it as a local patch bundle.
 Use the Sync base and patch selections described below. The validated patching
 route is the CLI; Manager import and patching still need device verification.
 
-## Included patches — cumulative v0.6.1-rc.1
+## Included patches — cumulative v0.6.1
 
 - **Sync: secure Reddit share links** validates share URLs and redirects before
   sending credentials, as described above.
@@ -106,13 +109,13 @@ The loading-details dialog remains available on failures. Its Copy details
 button exports fixed labels, numeric counts and statuses, excluding account
 tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 
-## Apply the candidate RVP
+## Apply the stable RVP
 
 1. Select a **ReVanced-patched Sync 23033 free APK** with your usual OAuth/client
    configuration and the ReVanced shared extension already present.
 2. Use a base that has **none of this bundle's earlier compatibility patches**.
    Do not reapply to an APK already containing any earlier compatibility bundle.
-3. Load the candidate `patches.rvp` (or `output/patches.rvp` after a local build)
+3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
    and apply all three named patches. Check that each reports success.
 4. Sign the result with your own keystore. Matching the key used by your current
    installation allows an in-place update.
@@ -129,7 +132,7 @@ repository, using your own paths for the other files:
 java -jar revanced-cli-6.0.0-all.jar patch \
   -p output/patches.rvp -b \
   --keystore your-signing-key.keystore \
-  -o Sync-v23.06.30-compat-v0.6.1-rc.1.apk \
+  -o Sync-v23.06.30-compat-v0.6.1.apk \
   Sync-v23.06.30-revanced-base.apk
 ```
 
@@ -163,6 +166,7 @@ versioning. The manual `--tools` route below remains available.
 - `changes-from-v0.5.1.diff`: this version's runtime changes.
 - `validation.json`: recorded checks, output digest and user test status.
 - `validation-share-links.json`: historical local security/smoke-test evidence.
+- `validation-phone-tests.json`: tester-reported candidate phone checks.
 - `bundles/`: ReVanced Manager remote-bundle metadata.
 - `scripts/update_bundle_json.py`: refreshes the metadata from published releases.
 
@@ -180,7 +184,7 @@ python3 build.py --tools /absolute/path/to/tools
 Add `--apk /path/to/revanced-base.apk --keystore /path/to/your.keystore` to
 build and sign an APK using the CLI's default key password settings.
 
-To inspect a locally built candidate test APK, compile `tools/UpdateVerifier.java`
+To inspect a locally built test APK, compile `tools/UpdateVerifier.java`
 with `revanced-cli.jar` on the classpath, then run:
 
 ```sh
@@ -197,13 +201,14 @@ with an existing installation.
 1. Set `VERSION` to an unused candidate version, run the required checks and
    merge the tested PR.
 2. Run **Actions → Publish patch release** on `main` with the exact matching tag
-   (`v0.6.1-rc.1` for this candidate). The workflow rebuilds, checks the tested
+   (for example `v0.6.2-rc.1` for a future candidate). The workflow rebuilds, checks the tested
    revision, publishes all four assets and updates the Manager feeds.
 3. Manually run **Build my Sync APK** in the provisioned private repository with
    the same candidate tag. Scheduled builds follow stable releases only.
    Inspect all three patch results and `verification.json` before installing.
-4. Test on the phone. Publish stable v0.6.1 only after the candidate is confirmed
-   working, using a separate VERSION change and release build.
+4. Test on the phone. After the candidate is confirmed working and stable
+   publication is authorized, set VERSION to the stable version and publish it
+   through a separate release-preparation change and release build.
 
 See [the automation guide](docs/AUTOMATION.md) for the full handoff. Existing
 release tags and assets are immutable; candidates are not renamed into stable
@@ -219,15 +224,18 @@ against a loopback HTTP server. Tests cover verified empties, more-only results,
 HTTP failures, wrong posts, malformed data, retry preservation, batch boundaries,
 parent metadata, deduplication, metadata and diagnostic privacy.
 
-The APK verifier preserved all 29,148 existing classes, limited modifications
-to four intended app classes and limited added classes to the helper DEX.
+The original v0.6.0 APK verifier preserved all 29,148 existing classes, limited
+modifications to four intended app classes and limited added classes to the helper DEX.
 All 3,189 non-code entries, including the manifest and resources, were identical
 apart from signing metadata.
 
 The tester subsequently reported v0.6 working on their phone on 2026-10-30.
 That is a manual confirmation for the tested case, not exhaustive Android or
 live-service coverage. The original server response bodies were not captured.
-This standalone bundle does not represent a full upstream Gradle/CI build.
+The v0.6.1-rc.1 candidate additionally passed the reported share-link, cold-start,
+gallery and comment phone checks recorded in `validation-phone-tests.json`.
+Stable v0.6.1 rebuilds the same runtime code under its stable version.
+This standalone bundle does not represent a full upstream Gradle build.
 
 ## Sharing and license
 
