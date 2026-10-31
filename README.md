@@ -48,6 +48,12 @@ Stable remains v0.6.1 until the candidate is confirmed on a phone.
   on its next redraw. Probing and inline GIFs only happen while both **Inline
   image previews** and animated comment images are on; the animated setting
   now also governs Reddit-hosted GIFs. If a probe fails, the card remains.
+- Direct Imgur pictures (`i.imgur.com/<id>.gif|jpg|png|webp`) draw inline at
+  their real aspect ratio, sized by reading at most the first 64 KB of the
+  file (GIF, PNG/APNG, WebP and JPEG headers, including EXIF rotation). Files
+  over 8 MB stay a card; Imgur can serve a 10-16 MB GIF even for a `.jpg`
+  link. This needs the **Inline image previews** setting, and GIFs also need
+  animated comment images. Imgur clips (`.mp4`, `.gifv`) stay cards.
 - Giphy `id|width|height` markers with bad sizes fall back to Sync's unsized
   Giphy image instead of throwing.
 

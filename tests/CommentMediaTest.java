@@ -236,6 +236,7 @@ public final class CommentMediaTest {
         check(CommentMedia.inlineImageSize(ordered, 1000, true) != null, "JVM without display metrics still sizes");
 
         probeChecks();
+        imageProbeChecks();
 
         CommentMedia.clearMetadata();
         System.out.println("PASS: " + checks + " comment media checks (loopback GIF probes; no device rendering)");
@@ -249,6 +250,202 @@ public final class CommentMediaTest {
         bytes[8] = (byte) height;
         bytes[9] = (byte) (height >> 8);
         return bytes;
+    }
+
+    private static byte[] bytes(int... values) {
+        byte[] out = new byte[values.length];
+        for (int i = 0; i < values.length; i++) out[i] = (byte) values[i];
+        return out;
+    }
+
+    private static byte[] concat(byte[]... parts) {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        for (byte[] part : parts) out.write(part, 0, part.length);
+        return out.toByteArray();
+    }
+
+    private static byte[] ascii(String text) {
+        return text.getBytes(StandardCharsets.ISO_8859_1);
+    }
+
+    private static byte[] png(int width, int height, boolean animated) {
+        byte[] ihdr = concat(bytes(0, 0, 0, 13), ascii("IHDR"),
+                bytes(width >>> 24, width >>> 16, width >>> 8, width, height >>> 24, height >>> 16, height >>> 8, height),
+                new byte[9]);
+        byte[] actl = animated ? concat(bytes(0, 0, 0, 8), ascii("acTL"), new byte[12]) : new byte[0];
+        return concat(bytes(0x89), ascii("PNG\r\n\u001a\n"), ihdr, actl, bytes(0, 0, 0, 0), ascii("IDAT"), new byte[8]);
+    }
+
+    private static byte[] webp(String chunk, byte[] payload) {
+        return concat(ascii("RIFF"), new byte[4], ascii("WEBP"), ascii(chunk), new byte[4], payload, new byte[8]);
+    }
+
+    private static byte[] vp8(int width, int height) {
+        return webp("VP8 ", bytes(0, 0, 0, 0x9d, 0x01, 0x2a, width, width >> 8, height, height >> 8));
+    }
+
+    private static byte[] vp8l(int width, int height) {
+        long bits = (width - 1) | (long) (height - 1) << 14;
+        return webp("VP8L", bytes(0x2f, (int) bits, (int) (bits >> 8), (int) (bits >> 16), (int) (bits >> 24)));
+    }
+
+    private static byte[] vp8x(int width, int height, boolean animated) {
+        int w = width - 1;
+        int h = height - 1;
+        return webp("VP8X", bytes(animated ? 0x02 : 0, 0, 0, 0, w, w >> 8, w >> 16, h, h >> 8, h >> 16));
+    }
+
+    private static byte[] jpeg(int width, int height, int orientation, boolean littleEndian) {
+        byte[] app1 = new byte[0];
+        if (orientation > 0) {
+            byte[] tiff = littleEndian
+                    ? concat(ascii("II"), bytes(0x2a, 0, 8, 0, 0, 0), bytes(1, 0), bytes(0x12, 0x01, 3, 0, 1, 0, 0, 0, orientation, 0, 0, 0), new byte[4])
+                    : concat(ascii("MM"), bytes(0, 0x2a, 0, 0, 0, 8), bytes(0, 1), bytes(0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, orientation, 0, 0), new byte[4]);
+            byte[] body = concat(ascii("Exif"), bytes(0, 0), tiff);
+            app1 = concat(bytes(0xff, 0xe1, (body.length + 2) >> 8, body.length + 2), body);
+        }
+        byte[] app0 = concat(bytes(0xff, 0xe0, 0, 16), ascii("JFIF"), new byte[10]);
+        byte[] sof = bytes(0xff, 0xc0, 0, 17, 8, height >> 8, height, width >> 8, width, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1);
+        return concat(bytes(0xff, 0xd8), app0, app1, sof, bytes(0xff, 0xda, 0, 2), new byte[16]);
+    }
+
+    private static void info(byte[] data, int width, int height, String mime, boolean animated, String message) {
+        CommentMedia.ImageInfo info = CommentMedia.imageInfo(data, data.length);
+        check(info != null && info.width == width && info.height == height && info.mime.equals(mime) && info.animated == animated,
+                message + (info == null ? " (null)" : " got " + info.width + "x" + info.height + " " + info.mime + " " + info.animated));
+    }
+
+    /** Direct Imgur pictures: header parsers and real HTTP against a loopback server. */
+    private static void imageProbeChecks() throws Exception {
+        info(gif("89a", 200, 150, 0), 200, 150, "image/gif", true, "GIF");
+        info(png(640, 480, false), 640, 480, "image/png", false, "PNG");
+        info(png(640, 480, true), 640, 480, "image/png", true, "APNG");
+        info(vp8(725, 304), 725, 304, "image/webp", false, "lossy WebP");
+        info(vp8l(1000, 16383), 1000, 16383, "image/webp", false, "lossless WebP");
+        info(vp8x(700, 293, false), 700, 293, "image/webp", false, "extended WebP");
+        info(vp8x(700, 293, true), 700, 293, "image/webp", true, "animated WebP");
+        info(jpeg(4000, 3000, 0, false), 4000, 3000, "image/jpeg", false, "JPEG");
+        info(jpeg(4000, 3000, 1, true), 4000, 3000, "image/jpeg", false, "JPEG upright EXIF");
+        info(jpeg(4000, 3000, 6, false), 3000, 4000, "image/jpeg", false, "JPEG rotated EXIF (big-endian)");
+        info(jpeg(4000, 3000, 8, true), 3000, 4000, "image/jpeg", false, "JPEG rotated EXIF (little-endian)");
+        byte[] fullJpeg = jpeg(800, 600, 0, false);
+        check(CommentMedia.imageInfo(fullJpeg, 24) == null, "JPEG cut before its frame header");
+        check(CommentMedia.imageInfo(fullJpeg, fullJpeg.length) != null, "same JPEG complete");
+        check(CommentMedia.imageInfo(png(0, 10, false), 60) == null, "zero-width PNG");
+        check(CommentMedia.imageInfo(png(200000, 10, false), 60) == null, "oversized PNG");
+        check(CommentMedia.imageInfo(ascii("<!DOCTYPE html><html><body>not an image</body></html>"), 50) == null, "HTML page");
+        check(CommentMedia.imageInfo(bytes(0xff, 0xd8, 0x12, 0x34, 0, 0), 6) == null, "corrupt JPEG");
+        check(CommentMedia.imageInfo(null, 10) == null && CommentMedia.imageInfo(new byte[4], 0) == null, "no bytes");
+
+        // Only direct Imgur picture files are eligible.
+        check("img:i.imgur.com/RSUMJS0.gif".equals(CommentMedia.imageKey(CommentMedia.parse("https://i.imgur.com/RSUMJS0.gif"))), "Imgur GIF key");
+        check("img:i.imgur.com/AbCdE12.jpg".equals(CommentMedia.imageKey(CommentMedia.parse("http://i.imgur.com/AbCdE12.JPG?1#x"))), "Imgur JPG key normalised");
+        for (String bad : new String[] {"https://i.imgur.com/jtdoLvC.mp4", "https://i.imgur.com/UMnwLif.gifv",
+                "https://imgur.com/RSUMJS0", "https://imgur.com/gallery/abcde", "https://i.imgur.com/a/abcde.png",
+                "https://i.imgur.com/ab.png", "https://i.imgur.com/%41bcdef.png", "https://i.imgur.com.evil.example/abcdef.png",
+                "https://example.com/abcdef.png"}) {
+            check(CommentMedia.imageKey(CommentMedia.parse(bad)) == null, "not a probed picture: " + bad);
+        }
+
+        Map<String, AtomicInteger> hits = new ConcurrentHashMap<>();
+        Map<String, String> ranges = new ConcurrentHashMap<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.setExecutor(Executors.newCachedThreadPool(runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setDaemon(true);
+            return thread;
+        }));
+        Map<String, String> accepts = new ConcurrentHashMap<>();
+        int[] port = {0};
+        server.createContext("/imgur/", exchange -> {
+            String name = exchange.getRequestURI().getPath().substring("/imgur/".length());
+            hits.computeIfAbsent(name, k -> new AtomicInteger()).incrementAndGet();
+            String accept = exchange.getRequestHeaders().getFirst("Accept");
+            if (accept != null) accepts.put(name, accept);
+            if (name.equals("Redir01.png")) {
+                // Same file on another host name: the probe must not follow it.
+                exchange.getResponseHeaders().set("Location", "http://localhost:" + port[0] + "/imgur/PngOk01.png");
+                exchange.sendResponseHeaders(302, -1);
+                exchange.close();
+                return;
+            }
+            String range = exchange.getRequestHeaders().getFirst("Range");
+            if (range != null) ranges.put(name, range);
+            byte[] body;
+            long total;
+            int status = 206;
+            switch (name) {
+                case "PngOk01.png": body = png(640, 480, false); total = 5000; break;
+                case "Anim001.gif": body = gif("89a", 200, 150, 0); total = 1508242; break;
+                case "Photo01.jpg": body = jpeg(4000, 3000, 6, false); total = 2_000_000; break;
+                case "BigGif1.jpg": body = gif("89a", 725, 304, 0); total = 10345462; break;
+                case "Html001.png": status = 200; body = ascii("<html>gone</html>"); total = body.length; break;
+                case "NoSize1.png": status = -1; body = png(640, 480, false); total = -1; break;
+                case "Missin1.png": status = 404; body = new byte[0]; total = 0; break;
+                default: body = png(100, 100, false); total = 5000;
+            }
+            if (status == 206) exchange.getResponseHeaders().set("Content-Range", "bytes 0-" + (body.length - 1) + "/" + total);
+            if (status == -1) {
+                exchange.sendResponseHeaders(200, 0);
+                exchange.getResponseBody().write(body);
+            } else {
+                exchange.sendResponseHeaders(status, body.length == 0 ? -1 : body.length);
+                if (body.length > 0) exchange.getResponseBody().write(body);
+            }
+            exchange.close();
+        });
+        server.start();
+        try {
+            port[0] = server.getAddress().getPort();
+            CommentMedia.imageProbeBase = "http://127.0.0.1:" + port[0] + "/imgur/";
+            CommentMedia.clearProbes();
+            CommentMedia.settingsOverride = Boolean.TRUE;
+
+            String png = "https://i.imgur.com/PngOk01.png";
+            none(CommentMedia.inlineImageSize(png, 1000, 0f, true), "first draw keeps Sync's card");
+            check(waitFor(() -> CommentMedia.inlineImageSize(png, 1000, 0f, true) != null), "picture probed in the background");
+            box(CommentMedia.inlineImageSize(png, 1000, 0f, true), 1000, 750, "Imgur PNG drawn full width");
+            box(CommentMedia.inlineImageSize(png + "?1", 400, 2.75f, true), 400, 300, "same file with a query fits a nested reply");
+            check(png.equals(CommentMedia.displayUrl(png)), "Imgur pictures draw their own link");
+            check(("bytes=0-" + (CommentMedia.IMAGE_HEADER_LIMIT - 1)).equals(ranges.get("PngOk01.png")), "only the header range is requested");
+            check(hits.get("PngOk01.png").get() == 1, "picture probed once");
+            check("image/*".equals(accepts.get("PngOk01.png")), "probe asks for an image, not a web page: " + accepts.get("PngOk01.png"));
+            check(!CommentMedia.probeImage("https://i.imgur.com/Redir01.png", "img:i.imgur.com/Redir01.png"), "redirect to another host rejected");
+
+            check(CommentMedia.probeImage("https://i.imgur.com/Anim001.gif", "img:i.imgur.com/Anim001.gif"), "small animated GIF sized");
+            box(CommentMedia.inlineImageSize("https://i.imgur.com/Anim001.gif", 1080, 2.6f, true), 520, 390, "small GIF shown at native size");
+            none(CommentMedia.inlineImageSize("https://i.imgur.com/Anim001.gif", 1080, 2.6f, false), "animated setting off keeps the card");
+            check(CommentMedia.probeImage("https://i.imgur.com/Photo01.jpg", "img:i.imgur.com/Photo01.jpg"), "rotated photo sized");
+            box(CommentMedia.inlineImageSize("https://i.imgur.com/Photo01.jpg", 1000, 0f, true), 1000, 1333, "portrait photo from EXIF orientation");
+            for (String bad : new String[] {"BigGif1.jpg", "Html001.png", "NoSize1.png", "Missin1.png"}) {
+                check(!CommentMedia.probeImage("https://i.imgur.com/" + bad, "img:i.imgur.com/" + bad), "probe rejected: " + bad);
+                none(CommentMedia.inlineImageSize("https://i.imgur.com/" + bad, 1000, 0f, true), "card kept: " + bad);
+            }
+            int before = hits.get("BigGif1.jpg").get();
+            CommentMedia.requestImageSize("https://i.imgur.com/BigGif1.jpg", "img:i.imgur.com/BigGif1.jpg");
+            Thread.sleep(300);
+            check(hits.get("BigGif1.jpg").get() == before, "rejected pictures are not re-probed");
+
+            // Clips stay cards and are never requested.
+            for (String clip : new String[] {"https://i.imgur.com/jtdoLvC.mp4", "https://i.imgur.com/UMnwLif.gifv"}) {
+                none(CommentMedia.inlineImageSize(clip, 1000, 0f, true), "clip keeps the card: " + clip);
+            }
+            Thread.sleep(200);
+            check(!hits.containsKey("jtdoLvC.mp4") && !hits.containsKey("UMnwLif.gifv"), "clips are not probed");
+
+            // Inline image previews off: nothing is requested.
+            CommentMedia.settingsOverride = Boolean.FALSE;
+            none(CommentMedia.inlineImageSize("https://i.imgur.com/Offxx01.png", 1000, 0f, true), "settings off keeps the card");
+            Thread.sleep(300);
+            check(!hits.containsKey("Offxx01.png"), "settings off sends no picture probe");
+            CommentMedia.settingsOverride = null;
+            check(!CommentMedia.imagesAllowed(), "unknown settings disable picture probes");
+        } finally {
+            server.stop(0);
+            CommentMedia.settingsOverride = Boolean.FALSE;
+            CommentMedia.imageProbeBase = null;
+            CommentMedia.clearProbes();
+        }
     }
 
     private static boolean waitFor(java.util.function.BooleanSupplier condition) throws InterruptedException {
@@ -276,6 +473,7 @@ public final class CommentMediaTest {
 
         Map<String, AtomicInteger> hits = new ConcurrentHashMap<>();
         Map<String, String> ranges = new ConcurrentHashMap<>();
+        Map<String, String> giphyAccepts = new ConcurrentHashMap<>();
         AtomicInteger credentialed = new AtomicInteger();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.setExecutor(Executors.newCachedThreadPool(runnable -> {
@@ -289,6 +487,8 @@ public final class CommentMediaTest {
             hits.computeIfAbsent(id, k -> new AtomicInteger()).incrementAndGet();
             String range = exchange.getRequestHeaders().getFirst("Range");
             if (range != null) ranges.put(id, range);
+            String accept = exchange.getRequestHeaders().getFirst("Accept");
+            if (accept != null) giphyAccepts.put(id, accept);
             if (exchange.getRequestHeaders().containsKey("Cookie") || exchange.getRequestHeaders().containsKey("Authorization")) {
                 credentialed.incrementAndGet();
             }
@@ -317,6 +517,7 @@ public final class CommentMediaTest {
             // Direct probes.
             check(CommentMedia.probeGiphy("GIFOK1"), "partial-content probe");
             check("bytes=0-9".equals(ranges.get("GIFOK1")), "only the 10-byte header is requested");
+            check("image/*".equals(giphyAccepts.get("GIFOK1")), "Giphy probe asks for an image");
             box(CommentMedia.inlineImageSize("https://media.giphy.com/media/GIFOK1/giphy.gif", 1000, 0f, true),
                     1000, 563, "probed Giphy sized");
             box(CommentMedia.inlineImageSize("https://giphy.com/gifs/some-title-GIFOK1", 400, 0f, true),
