@@ -12,10 +12,11 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Unreleased: inline comment media (issue #8)
+## Release candidate — v0.6.2-rc.1 inline comment media (issue #8)
 
 Adds **Sync: improve inline comment media** for [issue #8](https://github.com/TheLastWallaby/revanced-redditsync/issues/8).
-It is not in a release yet; use a PR CI artifact or a local build to test it.
+It ships in the **v0.6.2-rc.1** prerelease for phone testing. Stable remains
+v0.6.1 until the candidate is confirmed on a phone.
 
 - Reddit picture links (`preview.redd.it`, `external-preview.redd.it`,
   `i.redd.it`) read `width`/`height` in any parameter order. Missing,
@@ -145,8 +146,8 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 2. Use a base that has **none of this bundle's earlier compatibility patches**.
    Do not reapply to an APK already containing any earlier compatibility bundle.
 3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
-   and apply every named patch: three in v0.6.1, four in builds that include
-   the unreleased comment-media patch. Check that each reports success.
+   and apply every named patch: three in v0.6.1, four in v0.6.2-rc.1 and later.
+   Check that each reports success.
 4. Sign the result with your own keystore. Matching the key used by your current
    installation allows an in-place update.
 
