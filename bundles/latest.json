@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-10-31T05:28:00",
-  "description": "## What's Changed\n* Improve inline comment media sizing and formats (#8) by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/17\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.1...v0.6.2-rc.1",
-  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.2-rc.1/patches.rvp",
+  "created_at": "2026-10-31T05:43:06",
+  "description": "## What's Changed\n* Draw Giphy comment links inline from media_metadata (#8) by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/18\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.2-rc.1...v0.6.2-rc.2",
+  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.2-rc.2/patches.rvp",
   "signature_download_url": "N/A",
-  "version": "v0.6.2-rc.1"
+  "version": "v0.6.2-rc.2"
 }
