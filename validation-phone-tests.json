@@ -2,6 +2,27 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.6.9",
+      "tested_release": "v0.6.9-rc.1",
+      "results": {
+        "candidate_installed_and_used": "tester reported \"All 3 pass\" after receiving the three numbered gallery checks for the linked r/test post",
+        "gallery_navigation": "reported pass for check 1: open the gallery and swipe through every item",
+        "usable_media_and_unavailable_slots": "reported pass for check 2: usable items load and unavailable slots remain navigable; no per-item details or count of unavailable slots was supplied",
+        "saved_gallery_position": "reported pass for check 3: close and reopen to check the saved position"
+      },
+      "gallery_test_post": "https://www.reddit.com/r/test/comments/1viyq6w/gif_gallery/",
+      "promotion": "Prepared stable v0.6.9 uses the same runtime patch and extension source as the phone-tested v0.6.9-rc.1 candidate. Stable publication awaits explicit authorization; candidate assets remain immutable.",
+      "unverified": [
+        "live gallery JSON, exact per-item results and whether missing/failed/unsupported metadata was present in this post",
+        "crosspost galleries and matching-parent media fallback on a phone",
+        "caption/outbound-link alignment on a phone",
+        "expired media URL refresh on a phone; only explicit expiry timestamps trigger it",
+        "comment-media and load-more regression spot-checks for this candidate",
+        "separate device installation of the stable rebuild",
+        "exhaustive Reddit account/post combinations"
+      ]
+    },
+    {
       "stable": "v0.6.8",
       "tested_release": "v0.6.8-rc.1",
       "results": {

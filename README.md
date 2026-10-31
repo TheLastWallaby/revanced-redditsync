@@ -4,18 +4,17 @@ Unofficial ReVanced compatibility patches for **Sync for Reddit
 v23.06.30-13:39**, version code **23033**, free package
 `com.laurencedawson.reddit_sync`.
 
-**Stable v0.6.8** bounds "load more comments": each tap makes at most 32 extra
-requests, follows Reddit's rate limits, reuses comments already returned and
-stops when Sync cancels the load. It rebuilds the runtime code from the
-phone-tested v0.6.8-rc.1 candidate, retaining v0.6.7's literal Markdown
-replacements, v0.6.6's direct media resolution, v0.6.5's Imgur comment video
-posters, v0.6.4's Reddit video support, v0.6.3's award data, v0.6.2's inline
-comment media and v0.6.1's share-link security fixes.
+**Stable v0.6.9** keeps Reddit galleries usable when individual media items are
+unavailable, preserving order, captions and saved position. It rebuilds the
+runtime code from the phone-tested v0.6.9-rc.1 candidate, retaining v0.6.8's
+bounded comment loading, v0.6.7's literal Markdown replacements, v0.6.6's direct
+media resolution, comment video previews, award data, inline comment media and
+share-link security fixes.
 This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## v0.6.9-rc.1 gallery resilience (issue #6)
+## v0.6.9 gallery resilience (issue #6)
 
 Extends **Sync: fix Reddit galleries**. A missing, failed, processing or unsupported
 media entry now leaves an unavailable slot while the other items remain usable.
@@ -41,9 +40,21 @@ establish expiry; a media viewer's later HTTP failure does not trigger this refr
 types and loopback HTTP. `GalleryPatchTest` applies the production patch to the
 original Sync 23033 parser/model fixtures and checks hook installation, cache
 handling, duplicate/layout rejection, branches, register bounds/types and DEX serialization.
-Android gallery rendering, authenticated Reddit responses and expired media on
-a phone remain unverified. This candidate is for phone testing; stable remains
-v0.6.8 until those checks pass and stable publication is authorized.
+
+On v0.6.9-rc.1, the tester reported "All 3 pass" for the supplied checks on
+[Gif gallery in r/test](https://www.reddit.com/r/test/comments/1viyq6w/gif_gallery/):
+swiping through the gallery, checking usable items and navigable unavailable
+slots, and closing/reopening to retain the saved position. This confirms the
+tested post's phone behavior. The per-item results and live JSON were not
+captured, so it does not establish which metadata failure shapes were present.
+Crosspost galleries, captions/outbound links, expired-URL refresh and the
+comment-media/load-more regression checks remain unverified on the phone.
+See `validation-phone-tests.json` for the scope of the tester's report.
+
+The [v0.6.9 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.9)
+rebuilds the runtime code from the tested
+[v0.6.9-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.9-rc.1).
+Rebuild from the prepared base and check all eight named patch results.
 
 ## v0.6.8 bounded "load more comments" requests (issue #3)
 
@@ -412,13 +423,13 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Stable v0.6.8 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.8)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.8/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.8/sync-gallery-comments-compat-v0.6.8-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.8/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.8/build-info.json)
-- [Archived v0.6.8-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.8-rc.1)
-- [Previous stable v0.6.7](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.7)
+- [Stable v0.6.9 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.9)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.9/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.9/sync-gallery-comments-compat-v0.6.9-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.9/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.9/build-info.json)
+- [Archived v0.6.9-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.9-rc.1)
+- [Previous stable v0.6.8](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.8)
 
 For unpublished changes, download the `patch-bundle-<run>-<attempt>` artifact from
 the PR's passing [CI run](https://github.com/TheLastWallaby/revanced-redditsync/actions/workflows/ci.yml).
@@ -444,12 +455,13 @@ download that file from Releases and import it as a local patch bundle.
 Use the Sync base and patch selections described below. The validated patching
 route is the CLI; Manager import and patching still need device verification.
 
-## Included patches — cumulative v0.6.8
+## Included patches — cumulative v0.6.9
 
 - **Sync: secure Reddit share links** validates share URLs and redirects before
   sending credentials, as described above.
 - **Sync: fix Reddit galleries** loads native Reddit galleries through the
-  comment-page endpoint and adapts the post listing for Sync's existing parser.
+  comment-page endpoint, preserves unavailable slots and captions, resolves
+  matching crosspost media and refreshes explicitly expired source URLs once.
 - **Sync: load more comments in batches** uses normal comment routes, with at
   most 32 additional requests per tap (four at a time), Reddit rate-limit and
   backoff handling, a 20-second deadline and cancellation. It reuses comments
@@ -506,7 +518,7 @@ repository, using your own paths for the other files:
 java -jar revanced-cli-6.0.0-all.jar patch \
   -p output/patches.rvp -b \
   --keystore your-signing-key.keystore \
-  -o Sync-v23.06.30-compat-v0.6.6.apk \
+  -o Sync-v23.06.30-compat-v0.6.9.apk \
   Sync-v23.06.30-revanced-base.apk
 ```
 
@@ -624,6 +636,9 @@ Stable v0.6.7 rebuilds the v0.6.7-rc.1 runtime code after the tester's Markdown
 preview screenshot and reported gallery, load-more and emote checks passed.
 Stable v0.6.8 rebuilds the v0.6.8-rc.1 runtime code after the tester reported
 the candidate looking good on their phone.
+Stable v0.6.9 rebuilds the v0.6.9-rc.1 runtime code after the tester reported
+all three supplied gallery checks passing on the linked r/test post. The exact
+live metadata shapes and broader gallery/comment regressions were not captured.
 These are checks of the supplied cases, not exhaustive Android/live Reddit tests.
 This standalone bundle does not represent a full upstream Gradle build.
 
