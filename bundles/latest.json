@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-10-31T19:14:17",
-  "description": "## What's Changed\n* Resize visible video previews and close blank-frame race; prepare v0.6.5-rc.4 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/33\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.5-rc.3...v0.6.5-rc.4",
-  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.5-rc.4/patches.rvp",
+  "created_at": "2026-10-31T19:25:38",
+  "description": "## What's Changed\n* Add Imgur comment video previews by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/30\n* Smooth comment video placeholders and prepare v0.6.5-rc.2 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/31\n* Refresh comment video frames without scrolling; prepare v0.6.5-rc.3 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/32\n* Resize visible video previews and close blank-frame race; prepare v0.6.5-rc.4 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/33\n* Promote phone-tested video previews to stable v0.6.5 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/34\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.4...v0.6.5",
+  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.5/patches.rvp",
   "signature_download_url": "N/A",
-  "version": "v0.6.5-rc.4"
+  "version": "v0.6.5"
 }
