@@ -13,41 +13,7 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## v0.6.7 literal Markdown replacements (issue #2)
-
-Adds the selectable **Sync: preserve literal Markdown replacements** patch for
-[issue #2](https://github.com/TheLastWallaby/revanced-redditsync/issues/2).
-Fenced code containing `$HOME`, `$12`, a literal dollar sign or backslashes
-keeps that content instead of throwing or interpreting it as replacement groups.
-Spoiler-link labels and image/GIF emote URLs receive the same literal handling.
-The patch changes six calls in Sync 23033; existing formatting, search patterns,
-branch targets and deliberate regex group substitutions are retained.
-
-`MarkdownPatchTest` applies the compiled production patch to DEX fixtures and
-executes the resulting fenced-code, spoiler and emote instructions with real JVM
-string/regex APIs. It reproduces the original defect, covers Unicode, multiple
-matches and unchanged ordinary links, and rejects duplicate application.
-The fenced-code/spoiler fixtures contain the original build-23033 method bodies;
-the emote fixture isolates the two original replacement sequences. A small strict
-instruction runner covers these string methods, not the Android renderer or full
-post parser.
-
-On v0.6.7-rc.1, the tester supplied a phone screenshot showing literal dollar
-signs, backslashes and Unicode in a fenced-code preview, ordinary bold/link
-formatting and the spoiler label. The tester then reported gallery navigation
-and load-more comments passing, followed by the emote comment in
-[this test thread](https://www.reddit.com/r/deadbydaylight/comments/otk1ev/this_post_is_only_a_test/h6w2e7b/).
-Reddit currently supplies a generic animated dizzy-face image for that old custom
-emote; that is the image tested. Live emote URLs containing dollar signs or
-backslashes were not observed; the offline fixtures cover those replacements.
-See `validation-phone-tests.json` for the scope and remaining checks.
-
-The [v0.6.7 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.7)
-rebuilds the runtime code from the tested
-[v0.6.7-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.7-rc.1).
-Rebuild from the prepared base and check all eight named patch results.
-
-## Unreleased: bounded "load more comments" requests (issue #3)
+## v0.6.8-rc.1 candidate: bounded "load more comments" requests (issue #3)
 
 Changes the existing **Sync: load more comments in batches** patch for
 [issue #3](https://github.com/TheLastWallaby/revanced-redditsync/issues/3). A
@@ -85,6 +51,45 @@ the batch endpoint. `BatchCommentsTest` keeps the existing continuation checks.
 Not verified: Sync's internal rate helper is not updated (no APK was available
 to inspect it), whether `/api/morechildren` is ever usable for Sync's client,
 and phone or authenticated Reddit behavior.
+The [v0.6.8-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.8-rc.1)
+contains all eight stable v0.6.7 patches with this change to the load-more patch.
+Rebuild from the prepared base and check all eight patch results. Stable remains
+v0.6.7 while this candidate awaits phone testing; the stable download
+instructions below apply to that stable release.
+
+## v0.6.7 literal Markdown replacements (issue #2)
+
+Adds the selectable **Sync: preserve literal Markdown replacements** patch for
+[issue #2](https://github.com/TheLastWallaby/revanced-redditsync/issues/2).
+Fenced code containing `$HOME`, `$12`, a literal dollar sign or backslashes
+keeps that content instead of throwing or interpreting it as replacement groups.
+Spoiler-link labels and image/GIF emote URLs receive the same literal handling.
+The patch changes six calls in Sync 23033; existing formatting, search patterns,
+branch targets and deliberate regex group substitutions are retained.
+
+`MarkdownPatchTest` applies the compiled production patch to DEX fixtures and
+executes the resulting fenced-code, spoiler and emote instructions with real JVM
+string/regex APIs. It reproduces the original defect, covers Unicode, multiple
+matches and unchanged ordinary links, and rejects duplicate application.
+The fenced-code/spoiler fixtures contain the original build-23033 method bodies;
+the emote fixture isolates the two original replacement sequences. A small strict
+instruction runner covers these string methods, not the Android renderer or full
+post parser.
+
+On v0.6.7-rc.1, the tester supplied a phone screenshot showing literal dollar
+signs, backslashes and Unicode in a fenced-code preview, ordinary bold/link
+formatting and the spoiler label. The tester then reported gallery navigation
+and load-more comments passing, followed by the emote comment in
+[this test thread](https://www.reddit.com/r/deadbydaylight/comments/otk1ev/this_post_is_only_a_test/h6w2e7b/).
+Reddit currently supplies a generic animated dizzy-face image for that old custom
+emote; that is the image tested. Live emote URLs containing dollar signs or
+backslashes were not observed; the offline fixtures cover those replacements.
+See `validation-phone-tests.json` for the scope and remaining checks.
+
+The [v0.6.7 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.7)
+rebuilds the runtime code from the tested
+[v0.6.7-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.7-rc.1).
+Rebuild from the prepared base and check all eight named patch results.
 
 ## v0.6.6 direct media resolution (issue #4)
 
@@ -371,6 +376,7 @@ must also show success for every selected patch.
 
 ## Downloads
 
+- [Test candidate v0.6.8-rc.1](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.8-rc.1)
 - [Stable v0.6.7 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.7)
 - [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.7/patches.rvp)
 - [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.7/sync-gallery-comments-compat-v0.6.7-source.zip)
