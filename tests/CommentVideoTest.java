@@ -115,6 +115,8 @@ public final class CommentVideoTest {
         @Override public void post(Runnable runnable) { runnable.run(); }
         final List<Object> invalidated = new CopyOnWriteArrayList<>();
         @Override public void invalidate(Object view) { invalidated.add(view); }
+        final List<Object> relaidOut = new CopyOnWriteArrayList<>();
+        @Override public void relayout(Object view) { relaidOut.add(view); }
         @Override public int[] makePoster(File video, File poster, int nativeWidth) {
             posters.incrementAndGet();
             lastVideoBytes = video.length();
@@ -617,14 +619,15 @@ public final class CommentVideoTest {
             // A span drawn after the poster is ready starts with it and is not tracked; earlier spans are released.
             FakeSpan late = new FakeSpan();
             CommentVideo.track(late, link, 960, 540);
-            check(late.loads.isEmpty(), "late span already had the poster: " + late.loads);
+            check(posterPath.equals(late.last()), "ready poster is delivered even if it finished just before tracking");
             check(span.loads.size() == loads, "finished spans are not reloaded");
 
             // Failure: the span keeps the placeholder (dark frame with play badge), never a missing poster.
             CommentVideo.rememberMetadata(video("fail12345", 640, 360));
             String failLink = "https://v.redd.it/fail12345";
             int[] failBox = CommentVideo.posterSize(failLink, 1000);
-            check(failBox != null && failBox[0] == 1000 && failBox[1] == 563, "fail box: " + Arrays.toString(failBox));
+            check(failBox == null || (failBox[0] == 1000 && failBox[1] == 563),
+                    "pending video reserves its shape; an already failed one keeps its link: " + Arrays.toString(failBox));
             check(placeholderPath.equals(CommentVideo.posterUrl(failLink, 1000, 563)), "same-shaped placeholder reused");
             FakeSpan failed = new FakeSpan();
             CommentVideo.track(failed, failLink, 1000, 563);
@@ -632,7 +635,7 @@ public final class CommentVideoTest {
             Thread.sleep(200);
             for (String path : failed.loads) check(placeholderPath.equals(path), "failed video keeps the placeholder: " + failed.loads);
             check(platform.placeholders.get() == 1, "placeholder not redrawn for the same shape");
-            check(CommentVideo.posterSize(failLink, 1000) != null, "failed video keeps its reserved box");
+            check(CommentVideo.posterSize(failLink, 1000) == null, "failed video returns to Sync's link on rebind");
 
             // Waiting spans are capped, and spans without the load method are ignored.
             CommentVideo.rememberMetadata(video("many12345", 1080, 1920));
@@ -689,7 +692,7 @@ public final class CommentVideoTest {
             check(defPoster.equals(CommentVideo.posterUrl(square, 1000, 563)), "real-shape box gets the poster");
             FakeSpan fresh = new FakeSpan();
             CommentVideo.track(fresh, square, 1000, 563);
-            check(fresh.loads.isEmpty(), "real-shape span already final");
+            check(defPoster.equals(fresh.last()), "real-shape span receives final poster");
         } finally {
             release.countDown();
             releaseDefault.countDown();

@@ -189,8 +189,8 @@ public final class ImgurCommentVideoTest {
             check(leaked.isEmpty(), "no credentials, cookies or comment query sent to media host: " + leaked);
             check(ranges.stream().allMatch(range -> range.equals("bytes=0-" + (CommentVideo.MAX_VIDEO_BYTES - 1))),
                     "all clip requests bounded with Range");
-            check(hits.keySet().stream().allMatch(path -> path.endsWith(".mp4") || path.endsWith(".webp")),
-                    "only WebP stills and MP4 fallbacks; no GIF or website HTML fetched");
+            check(hits.keySet().stream().allMatch(path -> path.endsWith(".mp4") || path.endsWith(".webp") || path.endsWith("h.jpg")),
+                    "only WebP/thumbnail stills and MP4 fallbacks; no GIF or website HTML fetched");
         } finally {
             release.countDown();
             server.stop(0);

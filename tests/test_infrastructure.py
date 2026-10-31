@@ -66,6 +66,8 @@ class InfrastructureTests(unittest.TestCase):
                       discover_java_tests(ROOT / "tests"))
         self.assertIn("app.revanced.extension.synccompat.VideoSpanRefreshTest",
                       discover_java_tests(ROOT / "tests"))
+        self.assertIn("app.revanced.extension.synccompat.VideoSpanLayoutTest",
+                      discover_java_tests(ROOT / "tests"))
 
     def test_java_runner_rejects_an_empty_test_directory(self):
         with tempfile.TemporaryDirectory() as temporary:

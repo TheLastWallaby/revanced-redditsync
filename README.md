@@ -12,17 +12,18 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Release candidate — v0.6.5-rc.3 Imgur comment video previews (issue #23)
+## Release candidate — v0.6.5-rc.4 Imgur comment video previews (issue #23)
 
 Extends **Sync: show comment video previews** to direct Imgur `.mp4` and `.gifv`
 links on `i.imgur.com`, `imgur.com` and `www.imgur.com`, using the same
 poster-and-play-button option as Reddit comment videos. It ships in the
-[v0.6.5-rc.3 prerelease](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.5-rc.3)
+[v0.6.5-rc.4 prerelease](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.5-rc.4)
 for phone testing; stable v0.6.4 contains only the Reddit part.
 
 - With **Inline image previews** on, the comment reserves a placeholder box and
-  loads a still frame into it. The frame keeps its aspect ratio, with dark bars
-  when the reserved box has another shape. Later draws use the decoded shape.
+  loads a still frame into it. **Live sizing (rc.4)** updates the span's width and
+  height to the decoded aspect ratio and rebuilds its TextView layout. The first
+  square box no longer needs to survive until the comment scrolls offscreen.
 - **Cleaner loading (rc.2).** The first image load gets a ready, opaque neutral
   PNG, then the shaped play placeholder and poster. It no longer points Glide at
   a poster file that does not exist yet, and unchanged placeholders are not
@@ -34,6 +35,13 @@ for phone testing; stable v0.6.4 contains only the Reddit part.
   The loader now preserves that weak binding across replacement and schedules
   a repaint afterward, including when a cached frame completes synchronously.
   The patch validates the exact build-23033 binding field before applying.
+  rc.4 additionally validates the span's width/height fields against the original
+  constructor before allowing their metrics to change; ordinary image spans keep
+  their original dimensions. Unknown span implementations retain the old fitted
+  poster fallback.
+- **Completion race (rc.4).** A frame finishing between placeholder selection and
+  span registration must still be delivered. Readiness during registration no
+  longer assumes that the span already received the poster.
 - A background worker first requests the clip's small WebP still from
   `i.imgur.com` (complete images only, at most 256 KB). Android decodes a bounded
   first frame, adds the play badge and caches it. Missing, oversized or invalid
@@ -41,13 +49,17 @@ for phone testing; stable v0.6.4 contains only the Reddit part.
   HTTP 429 stops that job instead of immediately requesting another rendition.
   rc.3 also reaches the MP4 fallback after optional-still timeouts, read errors
   or decoder exceptions. Requests explicitly ask for image or video MIME types.
+  rc.4 tries the bounded `<id>h.jpg` thumbnail if WebP and the MP4 prefix cannot
+  produce a frame. The JPEG uses the same 256 KB/image-decode limits; any media
+  HTTP 429 stops the remaining fallbacks.
   Requests use no redirects, cookies or authorization. The patch does not fetch
   GIF renditions or Imgur website HTML. Case-sensitive Imgur IDs have separate cache
   keys from Reddit videos; `.mp4` and `.gifv` share a poster for the same ID.
 - The original link, query and fragment remain the tap target, using Sync's
   existing viewer. Albums, page-only links and other unsupported URLs keep their
   original cards. A failed fetch or decode keeps the link on subsequent draws;
-  an already drawn placeholder remains tappable.
+  an already drawn placeholder becomes a compact play tile in rc.4, preserving
+  the video tap target instead of occupying a large empty square.
 - Turning **Inline image previews** off keeps the link card and queues no poster
   fetch. Posters are static: animated-image and autoplay settings do not start
   playback. Playing the video still requires a tap.
@@ -55,10 +67,14 @@ for phone testing; stable v0.6.4 contains only the Reddit part.
 Loopback tests exercise the actual URL, download, cache, sizing and span-update
 logic with fake Android image/video decoders. A target-lifecycle regression
 reproduces the shipped span's lost weak view binding and covers asynchronous,
-cached, failed, recycled and detached loads. The tester reported rc.1 working
+cached, failed, recycled and detached loads. A separate layout suite covers the
+registration race, real frame dimensions, row relayout and compact terminal fallback.
+The tester reported rc.1 working
 with a messy placeholder, then rc.2 showing frames after scrolling away and back
-or tapping. rc.3's automatic repaint needs phone validation; the active decoder
-branch and settings-off path were not separately confirmed. Retest a Reddit comment video,
+or tapping. The tester confirmed rc.3's frames appear automatically, but gray bars
+disappear only after scrolling away and back and one preview never loads. rc.4
+addresses those paths; its live sizing still needs phone validation. The specific
+failed clip and active decoder branch were not captured. Retest a Reddit comment video,
 comment pictures/GIFs, share links and load more comments on that build.
 
 ## v0.6.4 comment video previews

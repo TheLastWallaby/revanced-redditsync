@@ -67,12 +67,16 @@ public final class VideoPreviewLoadingTest {
                 catch (InterruptedException e) { Thread.currentThread().interrupt(); }
             }
             byte[] body = path.startsWith("/Huge123") || path.startsWith("/Chunk12") ? large : new byte[] {1, 2, 3, 4};
-            String type = path.endsWith(".webp") ? "image/webp" : "video/mp4";
+            String type = path.endsWith(".webp") ? "image/webp" : path.endsWith(".jpg") ? "image/jpeg" : "video/mp4";
             int status = 200;
             if (path.equals("/Redir12.webp")) {
                 status = 302;
                 exchange.getResponseHeaders().set("Location", "/must-not-follow.webp");
             } else if (path.equals("/Limit12.webp")) status = 429;
+            else if ((path.startsWith("/Jpeg123") || path.startsWith("/JpegErr") || path.startsWith("/MpLimit"))
+                    && path.endsWith(".webp")) status = 404;
+            else if (path.equals("/Jpeg123.mp4")) status = 404;
+            else if (path.equals("/MpLimit.mp4")) status = 429;
             else if (path.equals("/Html123.webp")) type = "text/html";
             else if (path.equals("/Part123.webp")) status = 206;
             exchange.getResponseHeaders().set("Content-Type", type);
@@ -119,8 +123,18 @@ public final class VideoPreviewLoadingTest {
             platform.stillThrows = false;
             check(!CommentVideo.generate("imgur-Limit12"), "429 stops the job");
             check(!hits.containsKey("/Limit12.mp4"), "429 does not trigger another request to the same host");
+            check(!hits.containsKey("/Limit12h.jpg"), "WebP 429 also skips JPEG fallback");
             check(CommentVideo.posterSize("https://i.imgur.com/Limit12.gifv", 600) == null,
                     "rate-limited item keeps the link on redraw");
+
+            check(CommentVideo.generate("imgur-Jpeg123"), "bounded JPEG rescues unavailable WebP and MP4");
+            check(hits.get("/Jpeg123h.jpg").get() == 1, "small canonical JPEG requested once");
+            platform.posterSize = null;
+            check(CommentVideo.generate("imgur-JpegErr"), "JPEG rescues MP4 decoder failure");
+            check(hits.get("/JpegErrh.jpg").get() == 1, "JPEG decoded after MP4 failure");
+            platform.posterSize = new int[] {720, 405};
+            check(!CommentVideo.generate("imgur-MpLimit"), "MP4 429 stops remaining fallbacks");
+            check(!hits.containsKey("/MpLimith.jpg"), "no JPEG request after MP4 rate limit");
 
             platform.previews = false;
             check(CommentVideo.posterSize("https://i.imgur.com/Off1234.gifv", 600) == null, "previews off keeps card");
