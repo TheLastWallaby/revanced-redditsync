@@ -12,12 +12,12 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Release candidate — v0.6.2-rc.2 inline comment media (issue #8)
+## Release candidate — v0.6.2-rc.3 inline comment media (issue #8)
 
 Adds **Sync: improve inline comment media** for [issue #8](https://github.com/TheLastWallaby/revanced-redditsync/issues/8).
-It ships in the **v0.6.2-rc.2** prerelease for phone testing. rc.1 showed
-pictures correctly; rc.2 adds inline Giphy links. Stable remains v0.6.1 until
-the candidate is confirmed on a phone.
+It ships in the **v0.6.2-rc.3** prerelease for phone testing. rc.1 showed
+pictures correctly; rc.3 sizes Giphy comment GIFs from their file header.
+Stable remains v0.6.1 until the candidate is confirmed on a phone.
 
 - Reddit picture links (`preview.redd.it`, `external-preview.redd.it`,
   `i.redd.it`) read `width`/`height` in any parameter order. Missing,
@@ -37,11 +37,15 @@ the candidate is confirmed on a phone.
   **Inline image previews** setting. Inline-sized pictures also require that
   setting; with it off, links stay links.
 - Giphy links (`media.giphy.com/...`, `giphy.com/gifs/...`) draw inline at
-  their real aspect ratio when the comment's `media_metadata` describes them,
-  using Reddit's downsized rendition, instead of the small link card. Tapping
-  still opens the original link. This requires the animated-images setting,
-  which now also governs Reddit-hosted GIFs. Without metadata, for example
-  comments reloaded from Sync's cache, the card remains.
+  their real aspect ratio instead of the small link card. Tapping still opens
+  the original link. Reddit normally marks comment GIFs
+  `{"status": "invalid"}` with no size, so the patch fetches only the
+  10-byte GIF header from Giphy's HTTPS CDN in the background (a Range
+  request with no cookies or credentials, two at a time, once per GIF per app
+  session) to learn the size. A GIF first seen while drawing appears inline
+  on its next redraw. Probing and inline GIFs only happen while both **Inline
+  image previews** and animated comment images are on; the animated setting
+  now also governs Reddit-hosted GIFs. If a probe fails, the card remains.
 - Giphy `id|width|height` markers with bad sizes fall back to Sync's unsized
   Giphy image instead of throwing.
 
@@ -239,7 +243,7 @@ with an existing installation.
 1. Set `VERSION` to an unused candidate version, run the required checks and
    merge the tested PR.
 2. Run **Actions → Publish patch release** on `main` with the exact matching tag
-   (for example `v0.6.2-rc.3` for a future candidate). The workflow rebuilds, checks the tested
+   (for example `v0.6.2-rc.4` for a future candidate). The workflow rebuilds, checks the tested
    revision, publishes all four assets and updates the Manager feeds.
 3. Manually run **Build my Sync APK** in the provisioned private repository with
    the same candidate tag. Scheduled builds follow stable releases only.

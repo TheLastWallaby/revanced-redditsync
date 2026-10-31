@@ -1,5 +1,9 @@
 package app.revanced.extension.synccompat;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -7,6 +11,10 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import org.json.JSONObject;
 
 /**
@@ -190,26 +198,28 @@ public final class CommentMedia {
                 String key = keys.next();
                 JSONObject item = mediaMetadata.optJSONObject(key);
                 if (item == null) continue;
+                String id = item.optString("id", key);
+                // giphy|ID or giphy|ID|downsized
+                String giphy = id.startsWith("giphy|") ? giphyKeyId(id) : null;
+                if (id.startsWith("giphy|") && giphy == null) continue;
                 String status = item.optString("status", "valid");
-                if (!"valid".equals(status)) continue;
                 String kind = item.optString("e", "");
-                if (!"Image".equals(kind) && !"AnimatedImage".equals(kind)) continue;
                 String mime = item.optString("m", "").toLowerCase(Locale.ROOT);
                 JSONObject source = item.optJSONObject("s");
-                if (source == null) continue;
-                int width = source.optInt("x", -1);
-                int height = source.optInt("y", -1);
-                if (width <= 0 || height <= 0 || width > MAX_SOURCE_DIMENSION || height > MAX_SOURCE_DIMENSION) continue;
+                int width = source == null ? -1 : source.optInt("x", -1);
+                int height = source == null ? -1 : source.optInt("y", -1);
+                boolean sized = "valid".equals(status) && ("Image".equals(kind) || "AnimatedImage".equals(kind))
+                        && width > 0 && height > 0 && width <= MAX_SOURCE_DIMENSION && height <= MAX_SOURCE_DIMENSION;
+                if (!sized) {
+                    // Reddit usually marks comment GIFs {"status": "invalid"} with no size at all.
+                    if (giphy != null && probesAllowed()) requestGiphySize(giphy);
+                    continue;
+                }
                 boolean animated = "AnimatedImage".equals(kind) || "image/gif".equals(mime);
-                String id = item.optString("id", key);
                 String cacheKey;
                 String display = null;
-                if (id.startsWith("giphy|")) {
-                    // giphy|ID or giphy|ID|downsized: keep Reddit's chosen GIF rendition for drawing.
-                    String[] parts = id.split("\\|");
-                    Url probe = parts.length >= 2 ? parse("https://media.giphy.com/media/" + parts[1] + "/giphy.gif") : null;
-                    String giphy = giphyId(probe);
-                    if (giphy == null) continue;
+                if (giphy != null) {
+                    // Keep Reddit's chosen GIF rendition for drawing.
                     cacheKey = GIPHY_KEY + giphy;
                     display = trustedRendition(source.optString("gif", ""));
                 } else {
@@ -223,6 +233,145 @@ public final class CommentMedia {
             }
         } catch (RuntimeException ignored) {
             // Metadata only improves sizing; malformed data keeps Sync's original handling.
+        }
+    }
+
+    /** Validated Giphy ID from a media_metadata key such as giphy|ID or giphy|ID|downsized. */
+    static String giphyKeyId(String key) {
+        String[] parts = key.split("\\|");
+        if (parts.length < 2 || parts[1].isEmpty() || parts[1].length() > 64) return null;
+        for (int i = 0; i < parts[1].length(); i++) {
+            if (!Character.isLetterOrDigit(parts[1].charAt(i))) return null;
+        }
+        return parts[1];
+    }
+
+    // ------------------------------------------------------------- Giphy size probe
+
+    static final int PROBE_TIMEOUT_MS = 3000;
+    /** Tests point this at a loopback server; the app always uses Giphy's HTTPS CDN. */
+    static String giphyMediaBase = "https://media.giphy.com/media/";
+    /** Tests set this; in the app Sync's own settings decide. */
+    static Boolean settingsOverride;
+
+    private static final Set<String> PROBING = new HashSet<>();
+    private static final Map<String, Boolean> PROBE_FAILED = new LinkedHashMap<String, Boolean>(64, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+            return size() > CACHE_SIZE;
+        }
+    };
+    private static final ExecutorService PROBES = new ThreadPoolExecutor(0, 2, 30, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<Runnable>(64), runnable -> {
+                Thread thread = new Thread(runnable, "sync-compat-giphy-size");
+                thread.setDaemon(true);
+                return thread;
+            }, new ThreadPoolExecutor.DiscardPolicy());
+
+    static String giphyMediaUrl(String id) {
+        return giphyMediaBase + id + "/giphy.gif";
+    }
+
+    /**
+     * Probing only runs while Sync would draw the result: inline image previews and
+     * animated comment images both enabled. Reads Sync 23033's settings reflectively.
+     */
+    static boolean probesAllowed() {
+        if (settingsOverride != null) return settingsOverride;
+        try {
+            Class<?> singleton = Class.forName("com.laurencedawson.reddit_sync.singleton.SettingsSingleton");
+            Object settings = singleton.getMethod("x").invoke(null);
+            if (settings == null) return false;
+            Class<?> type = settings.getClass();
+            return type.getField("inlineImagePreviews").getBoolean(settings)
+                    && type.getField("commentsAnimatedImages").getBoolean(settings);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            return false;
+        }
+    }
+
+    /** Queues one background size probe per Giphy ID; never blocks the caller. */
+    static void requestGiphySize(String id) {
+        if (id == null) return;
+        synchronized (METADATA) {
+            if (METADATA.containsKey(GIPHY_KEY + id) || PROBE_FAILED.containsKey(id) || !PROBING.add(id)) return;
+        }
+        try {
+            PROBES.execute(() -> {
+                try {
+                    probeGiphy(id);
+                } finally {
+                    synchronized (METADATA) {
+                        PROBING.remove(id);
+                    }
+                }
+            });
+        } catch (RuntimeException e) {
+            synchronized (METADATA) {
+                PROBING.remove(id);
+            }
+        }
+    }
+
+    /**
+     * Reads only the 10-byte GIF header (Range request, no cookies or credentials) to learn
+     * the logical screen size, then caches it with the GIF URL to draw. Never logs.
+     */
+    static boolean probeGiphy(String id) {
+        HttpURLConnection connection = null;
+        boolean sized = false;
+        try {
+            URL url = new URL(giphyMediaUrl(id));
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setConnectTimeout(PROBE_TIMEOUT_MS);
+            connection.setReadTimeout(PROBE_TIMEOUT_MS);
+            connection.setUseCaches(false);
+            connection.setRequestProperty("Range", "bytes=0-9");
+            int status = connection.getResponseCode();
+            if ((status == 200 || status == 206) && url.getProtocol().equals(connection.getURL().getProtocol())) {
+                byte[] header = new byte[10];
+                int read = 0;
+                try (InputStream in = connection.getInputStream()) {
+                    while (read < header.length) {
+                        int count = in.read(header, read, header.length - read);
+                        if (count < 0) break;
+                        read += count;
+                    }
+                }
+                int[] size = read == header.length ? gifSize(header) : null;
+                if (size != null) {
+                    synchronized (METADATA) {
+                        METADATA.put(GIPHY_KEY + id, new Metadata(size[0], size[1], "image/gif", true, giphyMediaUrl(id)));
+                    }
+                    sized = true;
+                }
+            }
+        } catch (IOException | RuntimeException ignored) {
+            // A failed probe keeps Sync's link card for this GIF.
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+        if (!sized) {
+            synchronized (METADATA) {
+                PROBE_FAILED.put(id, Boolean.TRUE);
+            }
+        }
+        return sized;
+    }
+
+    /** Logical screen size from a GIF87a/GIF89a header, or null. */
+    static int[] gifSize(byte[] header) {
+        if (header == null || header.length < 10) return null;
+        if (header[0] != 'G' || header[1] != 'I' || header[2] != 'F' || header[3] != '8'
+                || (header[4] != '7' && header[4] != '9') || header[5] != 'a') return null;
+        int width = (header[6] & 0xff) | (header[7] & 0xff) << 8;
+        int height = (header[8] & 0xff) | (header[9] & 0xff) << 8;
+        return width > 0 && height > 0 ? new int[] {width, height} : null;
+    }
+
+    static void clearProbes() {
+        synchronized (METADATA) {
+            PROBE_FAILED.clear();
+            PROBING.clear();
         }
     }
 
@@ -335,8 +484,11 @@ public final class CommentMedia {
             height = dimension(queryValue(url.query, "height"));
         }
         if (width <= 0 || height <= 0) {
-            // Giphy links carry no dimensions; only metadata can give a safe aspect ratio.
-            if (metadata == null) return null;
+            // Giphy links carry no dimensions; only metadata or a header probe gives a safe ratio.
+            if (metadata == null) {
+                if (!reddit && probesAllowed()) requestGiphySize(giphyId(url));
+                return null;
+            }
             width = metadata.width;
             height = metadata.height;
         }
