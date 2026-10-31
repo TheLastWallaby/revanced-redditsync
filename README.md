@@ -15,7 +15,7 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Unreleased: literal Markdown replacements (issue #2)
+## v0.6.7-rc.1 candidate: literal Markdown replacements (issue #2)
 
 Adds the selectable **Sync: preserve literal Markdown replacements** patch for
 [issue #2](https://github.com/TheLastWallaby/revanced-redditsync/issues/2).
@@ -33,7 +33,11 @@ The fenced-code/spoiler fixtures contain the original build-23033 method bodies;
 the emote fixture isolates the two original replacement sequences. A small strict
 instruction runner covers these string methods, not the Android renderer or full
 post parser. Phone rendering and authenticated Reddit validation are pending.
-This preview does not change `VERSION` or the stable release downloads below.
+The [v0.6.7-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.7-rc.1)
+contains all seven stable patches plus this eighth selectable patch. Rebuild from
+the prepared base and check all eight patch results. Stable remains v0.6.6 while
+this candidate awaits phone testing; the stable download instructions below apply
+to that stable release.
 
 ## v0.6.6 direct media resolution (issue #4)
 
@@ -320,6 +324,7 @@ must also show success for every selected patch.
 
 ## Downloads
 
+- [Test candidate v0.6.7-rc.1](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.7-rc.1)
 - [Stable v0.6.6 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.6)
 - [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.6/patches.rvp)
 - [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.6/sync-gallery-comments-compat-v0.6.6-source.zip)
