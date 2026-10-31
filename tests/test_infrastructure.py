@@ -125,6 +125,7 @@ class InfrastructureTests(unittest.TestCase):
             scaffold(root)
             self.assertTrue((root / ".github/workflows/build-apk.yml").is_file())
             self.assertTrue((root / "VerifyPersonalApk.java").is_file())
+            self.assertTrue((root / "AGENTS.md").is_file())
             self.assertFalse(any(root.rglob("*.apk")))
             self.assertFalse(any(root.rglob("*.keystore")))
 
