@@ -15,6 +15,26 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
+## Unreleased: literal Markdown replacements (issue #2)
+
+Adds the selectable **Sync: preserve literal Markdown replacements** patch for
+[issue #2](https://github.com/TheLastWallaby/revanced-redditsync/issues/2).
+Fenced code containing `$HOME`, `$12`, a literal dollar sign or backslashes
+keeps that content instead of throwing or interpreting it as replacement groups.
+Spoiler-link labels and image/GIF emote URLs receive the same literal handling.
+The patch changes six calls in Sync 23033; existing formatting, search patterns,
+branch targets and deliberate regex group substitutions are retained.
+
+`MarkdownPatchTest` applies the compiled production patch to DEX fixtures and
+executes the resulting fenced-code, spoiler and emote instructions with real JVM
+string/regex APIs. It reproduces the original defect, covers Unicode, multiple
+matches and unchanged ordinary links, and rejects duplicate application.
+The fenced-code/spoiler fixtures contain the original build-23033 method bodies;
+the emote fixture isolates the two original replacement sequences. A small strict
+instruction runner covers these string methods, not the Android renderer or full
+post parser. Phone rendering and authenticated Reddit validation are pending.
+This preview does not change `VERSION` or the stable release downloads below.
+
 ## v0.6.6 direct media resolution (issue #4)
 
 Adds an optional seventh patch, **Sync: replace legacy media proxies**, for

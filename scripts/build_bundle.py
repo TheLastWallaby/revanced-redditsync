@@ -78,16 +78,13 @@ def main():
         write_zip(target, {str(path.relative_to(directory)): path.read_bytes()
                           for path in directory.rglob("*") if path.is_file()}, epoch)
 
-    javac = [java, "-XX:-UsePerfData", "-m", "jdk.compiler/com.sun.tools.javac.Main"]
+    javac = [java, "-XX:-UsePerfData", "-m", "jdk.compiler/com.sun.tools.javac.Main", "-encoding", "UTF-8"]
     # Compile-only signatures (ReVanced Logger, Sync's Award model); never packaged.
     run(*javac, "--release", "8", "-d", build / "stubs",
         *sorted((ROOT / "src/stubs").rglob("*.java")))
     extension_cp = cp(build / "stubs", tools / "android.jar", tools / "volley.jar", tools / "json.jar")
     run(*javac, "--release", "8", "-cp", extension_cp, "-d", build / "extension",
         *sorted((ROOT / "src/extension").rglob("*.java")))
-    test_cp = cp(build / "stubs", build / "extension", tools / "volley.jar", tools / "json.jar", tools / "android.jar")
-    run(*javac, "-cp", test_cp, "-d", build / "tests", *sorted((ROOT / "tests").rglob("*.java")))
-    tests = run_java_tests(ROOT / "tests", java, cp(build / "tests", test_cp))
     jar(build / "stubs", build / "stubs.jar")
     jar(build / "extension", build / "extension.jar")
     run(java, "-XX:-UsePerfData", "-cp", tools / "r8.jar", "com.android.tools.r8.D8",
@@ -100,6 +97,12 @@ def main():
         "-Xallow-unstable-dependencies", "-no-stdlib", "-no-reflect", "-jvm-target", "17",
         "-Xlambdas=class", "-Xstring-concat=inline", "-classpath", tools / "revanced-cli.jar",
         "-d", build / "patches", ROOT / "src/patches/SyncCompatPatches.kt")
+    # Patch tests apply the compiled production hooks to DEX fixtures. Compile the
+    # hooks first and use the same pinned Patcher/Smali implementation as the CLI.
+    test_cp = cp(build / "stubs", build / "extension", build / "patches",
+                 tools / "volley.jar", tools / "json.jar", tools / "android.jar", tools / "revanced-cli.jar")
+    run(*javac, "-cp", test_cp, "-d", build / "tests", *sorted((ROOT / "tests").rglob("*.java")))
+    tests = run_java_tests(ROOT / "tests", java, cp(build / "tests", test_cp))
     jar(build / "patches", build / "patches.jar")
     run(java, "-XX:-UsePerfData", "-cp", tools / "r8.jar", "com.android.tools.r8.D8",
         "--release", "--min-api", "26", "--lib", java_home,
