@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -344,7 +345,13 @@ public final class CommentVideoTest {
                 out.write(body);
             }
         });
-        server.setExecutor(Executors.newFixedThreadPool(2));
+        // Daemon threads, shut down below, so the test JVM can exit.
+        ExecutorService serverThreads = Executors.newFixedThreadPool(2, runnable -> {
+            Thread thread = new Thread(runnable, "comment-video-test-server");
+            thread.setDaemon(true);
+            return thread;
+        });
+        server.setExecutor(serverThreads);
         server.start();
         try {
             CommentVideo.videoBase = "http://127.0.0.1:" + server.getAddress().getPort() + "/";
@@ -401,6 +408,7 @@ public final class CommentVideoTest {
             check(leaked.isEmpty(), "no cookies or credentials sent: " + leaked);
         } finally {
             server.stop(0);
+            serverThreads.shutdownNow();
             CommentVideo.videoBase = "http://127.0.0.1:9/unused/";
         }
     }
