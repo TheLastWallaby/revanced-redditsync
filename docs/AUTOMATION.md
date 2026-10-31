@@ -127,6 +127,12 @@ failed or unverified update.
   Package declarations determine the fully qualified launch names, which are
   recorded in `build-info.json`; extend discovery for other test layouts.
   Python infrastructure tests use `tests/test_*.py`.
+- Java sources compile as UTF-8 on every platform. Production patch hooks compile
+  before the Java suites; the tests can use those classes and the pinned CLI's
+  Patcher/Smali APIs. `MarkdownPatchTest` assembles `tests/fixtures/markdown`,
+  applies the production patch and executes its resulting string-method DEX
+  instructions with JVM APIs. Its optional APK argument runs the same fenced-code
+  and spoiler checks against a local build-23033 base, without signing an APK.
 - Public workflow permissions are read-only except release publishing and feed
   updates. No private signing secrets are passed to public builds.
 - If main requires pull requests for all changes, let the feed updater submit a

@@ -15,6 +15,30 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
+## v0.6.7-rc.1 candidate: literal Markdown replacements (issue #2)
+
+Adds the selectable **Sync: preserve literal Markdown replacements** patch for
+[issue #2](https://github.com/TheLastWallaby/revanced-redditsync/issues/2).
+Fenced code containing `$HOME`, `$12`, a literal dollar sign or backslashes
+keeps that content instead of throwing or interpreting it as replacement groups.
+Spoiler-link labels and image/GIF emote URLs receive the same literal handling.
+The patch changes six calls in Sync 23033; existing formatting, search patterns,
+branch targets and deliberate regex group substitutions are retained.
+
+`MarkdownPatchTest` applies the compiled production patch to DEX fixtures and
+executes the resulting fenced-code, spoiler and emote instructions with real JVM
+string/regex APIs. It reproduces the original defect, covers Unicode, multiple
+matches and unchanged ordinary links, and rejects duplicate application.
+The fenced-code/spoiler fixtures contain the original build-23033 method bodies;
+the emote fixture isolates the two original replacement sequences. A small strict
+instruction runner covers these string methods, not the Android renderer or full
+post parser. Phone rendering and authenticated Reddit validation are pending.
+The [v0.6.7-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.7-rc.1)
+contains all seven stable patches plus this eighth selectable patch. Rebuild from
+the prepared base and check all eight patch results. Stable remains v0.6.6 while
+this candidate awaits phone testing; the stable download instructions below apply
+to that stable release.
+
 ## v0.6.6 direct media resolution (issue #4)
 
 Adds an optional seventh patch, **Sync: replace legacy media proxies**, for
@@ -300,6 +324,7 @@ must also show success for every selected patch.
 
 ## Downloads
 
+- [Test candidate v0.6.7-rc.1](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.7-rc.1)
 - [Stable v0.6.6 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.6)
 - [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.6/patches.rvp)
 - [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.6/sync-gallery-comments-compat-v0.6.6-source.zip)

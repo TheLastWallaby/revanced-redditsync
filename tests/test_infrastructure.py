@@ -61,6 +61,9 @@ class InfrastructureTests(unittest.TestCase):
         self.assertIn("app.revanced.extension.synccompat.MediaProxyCompatTest",
                       discover_java_tests(ROOT / "tests"))
 
+    def test_markdown_patch_suite_is_discovered(self):
+        self.assertIn("MarkdownPatchTest", discover_java_tests(ROOT / "tests"))
+
     def test_comment_video_suite_is_discovered_with_its_package(self):
         self.assertIn("app.revanced.extension.synccompat.CommentVideoTest",
                       discover_java_tests(ROOT / "tests"))

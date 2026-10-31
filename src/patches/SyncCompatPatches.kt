@@ -5,6 +5,7 @@ import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.patch.PatchException
 import app.revanced.patcher.extensions.InstructionExtensions.addInstructions
 import app.revanced.patcher.extensions.InstructionExtensions.addInstructionsWithLabels
+import app.revanced.patcher.extensions.InstructionExtensions.replaceInstruction
 import app.revanced.patcher.extensions.ExternalLabel
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.builder.BuilderInstruction
@@ -37,6 +38,7 @@ private const val SLINK_RESULT = "Lapp/revanced/extension/shared/fixes/slink/Res
 private const val MEDIA = "Lapp/revanced/extension/synccompat/CommentMedia;"
 private const val AWARDS = "Lapp/revanced/extension/synccompat/AwardCompat;"
 private const val AWARDS_RESULT = "Lapp/revanced/extension/synccompat/AwardCompat\$Result;"
+private const val MARKDOWN = "Lapp/revanced/extension/synccompat/MarkdownCompat;"
 
 private val extensionPatch = bytecodePatch {
     extendWith("extensions/synccompat.rve")
@@ -353,6 +355,71 @@ private fun List<BuilderInstruction>.singleIndex(what: String, predicate: (Int) 
 
 private fun layout(valid: Boolean, what: String) {
     if (!valid) throw PatchException("Unsupported $what layout. This patch targets Sync build 23033 only.")
+}
+
+val preserveSyncMarkdownLiterals = bytecodePatch(
+    name = "Sync: preserve literal Markdown replacements",
+    description = "Preserve dollar signs and backslashes in fenced code, spoiler links and emote URLs without treating content as regex replacement groups.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        fun target(type: String, source: String) = proxy(classes.singleOrNull {
+            it.type == type && it.sourceFile == source
+        } ?: throw PatchException("Expected Sync $source was not found. This patch targets build 23033 only.")).mutableClass
+        val helper = target("Ld7/f;", "RedditHelper.java")
+        val parser = target("Lc9/c;", "PostParserHelper.java")
+        val code = helper.methods.singleOrNull {
+            it.name == "e" && it.parameterTypes == listOf("Ljava/lang/String;") && it.returnType == "Ljava/lang/String;"
+        } ?: throw PatchException("Unsupported Sync fenced-code method.")
+        val spoilers = helper.methods.singleOrNull {
+            it.name == "g" && it.parameterTypes == listOf("Ljava/lang/String;") && it.returnType == "Ljava/lang/String;"
+        } ?: throw PatchException("Unsupported Sync spoiler-link method.")
+        val posts = parser.methods.singleOrNull {
+            it.name == "a" && it.parameterTypes == listOf("Landroid/content/Context;", "I", "Lorg/json/JSONObject;",
+                "Ljava/util/ArrayList;", "I", "Z", "Z", "Ljava/lang/String;") && it.returnType == "V"
+        } ?: throw PatchException("Unsupported Sync post parser.")
+        val methods = listOf(code, spoilers, posts)
+        if (methods.any { m -> m.implementation?.instructions?.any { it.methodRef()?.definingClass == MARKDOWN } == true }) {
+            throw PatchException("Literal Markdown patch is already installed.")
+        }
+        val append = "Ljava/util/regex/Matcher;->appendReplacement(Ljava/lang/StringBuffer;Ljava/lang/String;)Ljava/util/regex/Matcher;"
+        val replace = "Ljava/lang/String;->replaceAll(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;"
+        val quote = "Ljava/util/regex/Pattern;->quote(Ljava/lang/String;)Ljava/lang/String;"
+        // Validate every site before editing. Replace the invoke itself so branch targets,
+        // try ranges, register counts and move-result consumers keep their original positions.
+        fun appendSites(method: MutableMethod, count: Int): List<Int> {
+            val sites = method.implementation!!.instructions.indices.filter {
+                method.implementation!!.instructions[it].methodRef()?.toString() == append
+            }
+            layout(sites.size == count, "literal Markdown appendReplacement")
+            return sites
+        }
+        val codeSites = appendSites(code, 1)
+        val spoilerSites = appendSites(spoilers, 3)
+        val instructions = posts.implementation!!.instructions
+        val emoteSites = instructions.indices.filter { instructions[it].methodRef()?.toString() == quote }.map { index ->
+            layout(index + 2 < instructions.size && instructions[index].opcode == Opcode.INVOKE_STATIC &&
+                instructions[index + 1].opcode == Opcode.MOVE_RESULT_OBJECT &&
+                instructions[index + 2].methodRef()?.toString() == replace &&
+                (instructions[index + 2] as? FiveRegisterInstruction)?.registerD == instructions[index + 1].registerA(),
+                "emote literal search")
+            index + 2
+        }
+        layout(emoteSites.size == 2 && instructions.any { it.stringValue() == "emote|" }, "emote replacements")
+        val edits = listOf(Triple(code, codeSites, "$MARKDOWN->appendReplacement(Ljava/util/regex/Matcher;Ljava/lang/StringBuffer;Ljava/lang/String;)Ljava/util/regex/Matcher;"),
+            Triple(spoilers, spoilerSites, "$MARKDOWN->appendReplacement(Ljava/util/regex/Matcher;Ljava/lang/StringBuffer;Ljava/lang/String;)Ljava/util/regex/Matcher;"),
+            Triple(posts, emoteSites, "$MARKDOWN->replaceAll(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;"))
+        for ((method, sites, _) in edits) for (index in sites) {
+            val invoke = method.implementation!!.instructions[index]
+            layout(invoke.opcode == Opcode.INVOKE_VIRTUAL && (invoke as? FiveRegisterInstruction)?.registerCount == 3,
+                "literal replacement invoke")
+        }
+        for ((method, sites, destination) in edits) for (index in sites) {
+            val invoke = method.implementation!!.instructions[index] as FiveRegisterInstruction
+            method.replaceInstruction(index, "invoke-static {v${invoke.registerC}, v${invoke.registerD}, v${invoke.registerE}}, $destination")
+        }
+    }
 }
 
 val improveSyncCommentMedia = bytecodePatch(
