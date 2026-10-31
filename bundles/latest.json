@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-10-31T16:04:26",
-  "description": "## What's Changed\n* Add Imgur comment video previews by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/30\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.4...v0.6.5-rc.1",
-  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.5-rc.1/patches.rvp",
+  "created_at": "2026-10-31T16:36:16",
+  "description": "## What's Changed\n* Smooth comment video placeholders and prepare v0.6.5-rc.2 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/31\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.5-rc.1...v0.6.5-rc.2",
+  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.5-rc.2/patches.rvp",
   "signature_download_url": "N/A",
-  "version": "v0.6.5-rc.1"
+  "version": "v0.6.5-rc.2"
 }
