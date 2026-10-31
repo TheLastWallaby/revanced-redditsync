@@ -59,6 +59,44 @@ not exhaustive Android/live-service validation. The exact failed clip's decoder
 path and settings-off behavior were not separately confirmed; see
 `validation-phone-tests.json` for the scope of the report.
 
+## Unreleased: direct media resolution (issue #4)
+
+Adds an optional seventh patch, **Sync: replace legacy media proxies**, for
+[issue #4](https://github.com/TheLastWallaby/revanced-redditsync/issues/4).
+It is not in a release yet; CI builds of its PR include it.
+
+Sync 23033 still sends several media requests through its own proxies, and
+neither answers now: `images.syncforreddit.com` does not resolve and
+`ap.syncforreddit.com/image` returns HTTP 401.
+
+| What | Sync 23033 used | With the patch |
+|---|---|---|
+| Imgur album or gallery post | `images.syncforreddit.com/a/…` | Imgur's public album embed page. Album order, titles and descriptions, video items and the saved album position are kept. |
+| Gallery link that is one item | `images.syncforreddit.com/image/…` | A missing album (HTTP 404) takes Sync's existing single-item fallback, read from the item's embed page. |
+| Album link-card thumbnail in comments | `ap.syncforreddit.com/image?url=imgur-album-…` | The album's first item as a small thumbnail, looked up once in the background and loaded into the card. |
+| Website preview (Sync Ultra) and Tenor/web-page card thumbnails | `ap.syncforreddit.com/image?url=<page>` | Sync's ordinary link card. YouTube keeps its `i.ytimg.com` thumbnail. Web pages are no longer handed to the image decoder. |
+| Gfycat card thumbnail | `ap.syncforreddit.com/image?url=<gfycat link>` | The link card. Gfycat shut down. |
+| Enhanced autoplay: RedGifs | `ap.syncforreddit.com/image?url=redgifs-…` | Sync's own RedGifs resolver (with the base's RedGifs fix), then the RedGifs video. Errors and unexpected results use Sync's ordinary autoplay source. |
+| Enhanced autoplay: Gfycat | `ap.syncforreddit.com/image?url=gfycat-…` | Sync's ordinary autoplay source, or no autoplay when there is none. |
+
+- Imgur requests use fixed HTTPS Imgur hosts and validated IDs, current
+  `/gallery/title-words-ID` links included. Media links are rebuilt as
+  `https://i.imgur.com/<id>.<ext>` from Imgur's own list; nothing guesses file
+  extensions. The cover lookup follows no redirects and sends no cookies or
+  credentials. Sync's album requests keep their existing `sync_for_reddit`
+  User-Agent and send no Reddit authorization.
+- RedGifs results are used only when they are HTTPS `.mp4` links on a
+  `redgifs.com` host. The RedGifs token stays inside Sync's RedGifs requests.
+- Not changed: Sync's `ap.syncforreddit.com/stats.json` and
+  `todo.syncforreddit.com` icon/licence links, which are not media proxies.
+
+`MediaProxyCompatTest` covers the ID parsing, the adapted album and item
+responses, album covers, website and Gfycat fallbacks, RedGifs autoplay and a
+loopback HTTP server (redirects, size limit, no cookies or credentials). The
+parsers were also run against 39 live Imgur album embed pages (278 items, all
+matching Imgur's own counts) and live single-item pages. The patched APK has
+not yet been tried on a phone.
+
 ## v0.6.4 comment video previews
 
 Adds **Sync: show comment video previews**, the poster-frame part of
