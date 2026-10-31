@@ -40,7 +40,7 @@ establish expiry; a media viewer's later HTTP failure does not trigger this refr
 `GalleryCompatTest` executes the production parser and refresh against real Volley
 types and loopback HTTP. `GalleryPatchTest` applies the production patch to the
 original Sync 23033 parser/model fixtures and checks hook installation, cache
-handling, duplicate/layout rejection, branches, registers and DEX serialization.
+handling, duplicate/layout rejection, branches, register bounds/types and DEX serialization.
 Android gallery rendering, authenticated Reddit responses and expired media on
 a phone remain unverified. This change does not publish a release or change VERSION.
 

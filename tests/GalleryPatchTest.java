@@ -6,6 +6,9 @@ import app.revanced.com.android.tools.smali.dexlib2.mutable.MutableClassDef;
 import com.android.tools.smali.dexlib2.*;
 import com.android.tools.smali.dexlib2.iface.*;
 import com.android.tools.smali.dexlib2.iface.instruction.*;
+import com.android.tools.smali.dexlib2.analysis.*;
+import com.android.tools.smali.dexlib2.analysis.reflection.ReflectionClassDef;
+import com.android.tools.smali.dexlib2.immutable.ImmutableClassDef;
 import com.android.tools.smali.dexlib2.immutable.ImmutableDexFile;
 import com.android.tools.smali.dexlib2.writer.pool.DexPool;
 import com.android.tools.smali.smali.Smali;
@@ -67,6 +70,27 @@ public final class GalleryPatchTest {
             check(code(method(request, "b")).stream().anyMatch(s -> s.contains("RequestCompat;->galleryUrl(")), "comment endpoint route installed");
             check(constructor.equals(code(method(request, "<init>"))), "constructor and cache setting preserved");
             check(parse.getImplementation().getTryBlocks().isEmpty(), "old strict parser catch blocks removed");
+            // Verify register types at the cache/no-cache merge, not just numeric register bounds.
+            ClassProvider reflection = type -> {
+                try { return new ReflectionClassDef(Class.forName(type.substring(1, type.length() - 1).replace('/', '.'),
+                        false, GalleryPatchTest.class.getClassLoader())); }
+                catch (ClassNotFoundException missing) { return null; }
+            };
+            var superclass = new ImmutableClassDef("Lx8/a;", 1, "Lcom/android/volley/Request;", List.of(), null,
+                    Set.of(), List.of(), List.of());
+            var definitions = new ImmutableDexFile(Opcodes.getDefault(),
+                    List.of(request, clazz(context, "Lo8/b;"), superclass));
+            var analyzer = new MethodAnalyzer(new ClassPath(List.of(new DexClassProvider(definitions), reflection),
+                    false, ClassPath.NOT_ART), parse, null, false);
+            check(analyzer.getAnalysisException() == null, "parser register-type analysis: " + analyzer.getAnalysisException());
+            for (AnalyzedInstruction instruction : analyzer.getAnalyzedInstructions()) {
+                Instruction code = instruction.getInstruction();
+                if (code instanceof ReferenceInstruction && ((ReferenceInstruction)code).getReference().toString()
+                        .contains("Response;->success(")) {
+                    String cacheType = instruction.getPreInstructionRegisterType(0).toString();
+                    check(cacheType.contains("Cache$Entry"), "success cache argument retains its type: " + cacheType);
+                }
+            }
             Set<Integer> boundaries = new HashSet<>();
             int pc = 0;
             for (Instruction instruction : parse.getImplementation().getInstructions()) {

@@ -203,7 +203,10 @@ val fixSyncGalleries = bytecodePatch(
             :success
             iget-object v1, v0, $GALLERY_RESULT->gallery:Lo8/b;
             iget-object v0, v0, $GALLERY_RESULT->response:$NETWORK
-            if-eqz v0, :ready
+            if-nez v0, :cache
+            const/4 v0, 0x0
+            goto :ready
+            :cache
             const-wide/32 v2, 0x36ee80
             invoke-static {v0, v2, v3}, $cache
             move-result-object v0
