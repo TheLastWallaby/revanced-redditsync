@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.ref.WeakReference;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -105,6 +106,8 @@ public final class CommentVideo {
     static final int PLACEHOLDER_WIDTH = 480;
     /** Method the patch adds to Sync's inline image span (nb.c) to load another file into it. */
     static final String SPAN_LOAD = "syncCompatLoad";
+    /** Sync 23033 nb.c's weak TextView binding, cleared by Glide when a request is replaced. */
+    static final String SPAN_OWNER = "c";
 
     /** Two posters at a time; core threads time out when idle. */
     private static final ThreadPoolExecutor WORKER = new ThreadPoolExecutor(2, 2, 30, TimeUnit.SECONDS,
@@ -159,6 +162,8 @@ public final class CommentVideo {
         boolean makeFitted(File poster, File fitted, int width, int height);
         /** Runs on Sync's main thread, where image loads must start. */
         void post(Runnable runnable);
+        /** Repaint a bound view after a cached/synchronous replacement also completes. */
+        void invalidate(Object view);
         float density();
     }
 
@@ -469,13 +474,42 @@ public final class CommentVideo {
         });
     }
 
-    /** Calls the method the patch adds to Sync's image span. Never throws. */
+    /**
+     * Glide clears its previous target before replacing a request. Sync's target clears its weak
+     * TextView binding at that point (nb.c.b(null) -> d()), so subsequent resource callbacks lose
+     * the view they must invalidate. Preserve that weak binding across the replacement. Cached
+     * loads can complete synchronously before it is restored, so also schedule a repaint after.
+     */
     static void load(Object span, String path) {
+        Field owner = null;
+        WeakReference<?> binding = null;
+        Object boundView = null;
+        try {
+            owner = span.getClass().getDeclaredField(SPAN_OWNER);
+            if (owner.getType() == WeakReference.class) {
+                owner.setAccessible(true);
+                binding = (WeakReference<?>) owner.get(span);
+                // Sync calls WeakReference.clear(), not just field = null. Keep the referent
+                // alive only for this synchronous request replacement, then store it weakly.
+                boundView = binding == null ? null : binding.get();
+            }
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            // Unknown spans can still use their loader; the patch validates nb.c's real field.
+        }
         try {
             Method method = span.getClass().getMethod(SPAN_LOAD, String.class);
             method.invoke(span, path);
         } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
             // The span keeps its current image.
+        } finally {
+            if (owner != null && binding != null) {
+                try {
+                    owner.set(span, boundView == null ? binding : new WeakReference<>(boundView));
+                    if (boundView != null) platform.invalidate(boundView);
+                } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+                    // A recycled or detached span must never crash the comment renderer.
+                }
+            }
         }
     }
 
@@ -669,7 +703,13 @@ public final class CommentVideo {
                     String base = imgurBase + id.substring(IMGUR_KEY.length());
                     // Imgur supplies a much smaller still for these clips. Decode only its first
                     // frame, with the same play badge. Unavailable/invalid stills use the MP4 path.
-                    if (downloadStill(base + ".webp", video)) size = validSize(platform.makeStillPoster(video, temp));
+                    try {
+                        if (downloadStill(base + ".webp", video)) size = validSize(platform.makeStillPoster(video, temp));
+                    } catch (RateLimitedException e) {
+                        throw e;
+                    } catch (IOException | RuntimeException | LinkageError ignored) {
+                        // The still is optional: timeout/read/decoder errors must reach MP4 fallback.
+                    }
                     target = base + ".mp4";
                 } else {
                     String manifest = fetchText(videoBase + id + "/DASHPlaylist.mpd", MAX_MANIFEST_BYTES);
@@ -726,15 +766,18 @@ public final class CommentVideo {
         return connection;
     }
 
+    private static final class RateLimitedException extends IOException {}
+
     /** Complete small still only; truncation, HTML and redirects fall back to the MP4. */
     static boolean downloadStill(String target, File destination) throws IOException {
         HttpURLConnection connection = open(target);
         connection.setConnectTimeout(2000);
         connection.setReadTimeout(2000);
+        connection.setRequestProperty("Accept", "image/webp,image/*;q=0.9");
         try {
             int status = connection.getResponseCode();
             // Do not immediately issue another request to a host that just rate-limited us.
-            if (status == 429) throw new IOException("Media host rate limited");
+            if (status == 429) throw new RateLimitedException();
             if (status != 200) return false;
             String type = connection.getContentType();
             if (type == null || !type.toLowerCase(Locale.ROOT).startsWith("image/")) return false;
@@ -782,6 +825,7 @@ public final class CommentVideo {
     static boolean download(String target, File destination, int limit) throws IOException {
         HttpURLConnection connection = open(target);
         try {
+            connection.setRequestProperty("Accept", "video/mp4");
             connection.setRequestProperty("Range", "bytes=0-" + (limit - 1));
             int status = connection.getResponseCode();
             if (status != 200 && status != 206) return false;
@@ -1154,6 +1198,10 @@ public final class CommentVideo {
         @Override public synchronized void post(Runnable runnable) {
             if (main == null) main = new android.os.Handler(android.os.Looper.getMainLooper());
             main.post(runnable);
+        }
+
+        @Override public void invalidate(Object view) {
+            if (view instanceof android.view.View) ((android.view.View) view).postInvalidate();
         }
 
         @Override public float density() {

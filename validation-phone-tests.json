@@ -3,6 +3,21 @@
   "releases": [
     {
       "stable": null,
+      "tested_release": "v0.6.5-rc.2",
+      "results": {
+        "initial_video_preview": "screenshots show large gray play placeholders",
+        "frame_after_interaction": "tester reports frames load after scrolling past and back, or clicking the item"
+      },
+      "promotion": "Not promoted; v0.6.5-rc.3 preserves the image span weak TextView binding during request replacement and prepares another phone test.",
+      "unverified": [
+        "rc.3 automatic frame repaint while the comment remains visible without interaction",
+        "which rc.2 decoder branch produced the displayed frames",
+        "Inline image previews off",
+        "regression spot-checks of Reddit videos, comment pictures/GIFs, share links and load more comments"
+      ]
+    },
+    {
+      "stable": null,
       "tested_release": "v0.6.5-rc.1",
       "results": {
         "imgur_comment_video_preview": "tester reported working in the supplied Reddit test thread",
