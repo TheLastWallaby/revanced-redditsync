@@ -6,14 +6,19 @@
       "tested_release": "v0.6.6-rc.1",
       "results": {
         "candidate_installed_and_used": "tester answered \"Tested, promote to stable\" after the v0.6.6-rc.1 handoff and explicitly authorized stable promotion",
-        "direct_media_resolution": "accepted overall; no per-check results were reported"
+        "handoff_checklist": "tester then reported: \"I tested each thing you told me to test on phone app\", covering all six handoff checks",
+        "imgur_albums_and_galleries": "tested per the checklist: album order and captions, video items, saved album position",
+        "single_item_gallery_fallback": "tested per the checklist",
+        "album_link_card_thumbnails": "tested per the checklist",
+        "website_and_youtube_link_cards": "tested per the checklist",
+        "redgifs_enhanced_autoplay": "tested per the checklist, with Enhanced autoplay on and off",
+        "regression_galleries_comment_media": "tested per the checklist: Reddit galleries, inline comment pictures and comment videos"
       },
       "promotion": "Stable v0.6.6 rebuilds the same runtime patch and extension source as the phone-tested v0.6.6-rc.1 candidate; existing candidate assets remain immutable.",
       "unverified": [
-        "each handoff check individually: Imgur albums/galleries (order, captions, video items, saved position), single-item gallery fallback, album link-card thumbnails, website/YouTube link cards, RedGifs enhanced autoplay",
-        "RedGifs resolver result URL format checked live",
+        "individual pass/fail notes per check (the tester reported the checklist as a whole)",
+        "Inline image previews off",
         "separate device installation of the stable rebuild",
-        "regression spot-checks of Reddit galleries, inline comment pictures and comment videos",
         "account-switch behavior and Android Manager import/patching"
       ]
     },
