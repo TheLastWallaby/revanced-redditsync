@@ -134,9 +134,17 @@ public final class BatchCommentsTest {
             all=things(load(thread(comment("a","t3_post123",more("b","t3_post123","b","c"))),"a,b"));
             check(ids(all,"more").equals(Collections.singletonList("c")),"later loaded ID removed from nested retry");
 
+            // An ID already inside a returned tree is reused (issue #3); Reddit marks
+            // truncated replies with their own continuation rows.
             bodies.put("b",thread(comment("b","t1_a",comment("c","t1_b"))));
+            before=calls.get();
             all=things(load(thread(comment("a","t3_post123",comment("b","t1_a"))),"a,b"));
-            check(ids(all,"t1").equals(Arrays.asList("a","b","c")),"duplicate root still contributes newly loaded descendants");
+            check(ids(all,"t1").equals(Arrays.asList("a","b")) && calls.get()==before,"ID already in a returned tree is not requested again");
+            reset();
+            bodies.put("b",thread(comment("b","t3_post123",comment("c","t1_b"))));
+            bodies.put("c",thread(comment("c","t1_b",comment("e","t1_c"))));
+            all=things(load(thread(comment("a","t3_post123")),"a,b,c"));
+            check(ids(all,"t1").equals(Arrays.asList("a","b","c","e")),"duplicate root fetched at the same time still contributes newly loaded descendants");
 
             reset();bodies.put("b",thread());bodies.put("fallback:b",thread());
             all=things(load(thread(comment("a","t3_post123")),"a,b"));
