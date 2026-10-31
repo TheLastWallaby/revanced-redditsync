@@ -2,6 +2,22 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.6.6",
+      "tested_release": "v0.6.6-rc.1",
+      "results": {
+        "candidate_installed_and_used": "tester answered \"Tested, promote to stable\" after the v0.6.6-rc.1 handoff and explicitly authorized stable promotion",
+        "direct_media_resolution": "accepted overall; no per-check results were reported"
+      },
+      "promotion": "Stable v0.6.6 rebuilds the same runtime patch and extension source as the phone-tested v0.6.6-rc.1 candidate; existing candidate assets remain immutable.",
+      "unverified": [
+        "each handoff check individually: Imgur albums/galleries (order, captions, video items, saved position), single-item gallery fallback, album link-card thumbnails, website/YouTube link cards, RedGifs enhanced autoplay",
+        "RedGifs resolver result URL format checked live",
+        "separate device installation of the stable rebuild",
+        "regression spot-checks of Reddit galleries, inline comment pictures and comment videos",
+        "account-switch behavior and Android Manager import/patching"
+      ]
+    },
+    {
       "stable": "v0.6.5",
       "tested_release": "v0.6.5-rc.4",
       "results": {

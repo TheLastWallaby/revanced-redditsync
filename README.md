@@ -4,14 +4,59 @@ Unofficial ReVanced compatibility patches for **Sync for Reddit
 v23.06.30-13:39**, version code **23033**, free package
 `com.laurencedawson.reddit_sync`.
 
-**Stable v0.6.5** adds Imgur comment video posters, automatic frame refresh and
-live aspect-ratio sizing. Its runtime code is identical to v0.6.5-rc.4, which
-the tester confirmed working on their phone before approving stable promotion.
-It includes v0.6.4's Reddit video support, v0.6.3's award data, v0.6.2's inline
-comment media and v0.6.1's share-link security fixes.
+**Stable v0.6.6** replaces Sync's defunct media proxies with direct HTTPS
+resolution: Imgur albums and gallery posts, album link-card thumbnails and
+enhanced autoplay of RedGifs posts. Its runtime code is identical to
+v0.6.6-rc.1, which the tester confirmed on their phone before approving stable
+promotion. It includes v0.6.5's Imgur comment video posters, v0.6.4's Reddit
+video support, v0.6.3's award data, v0.6.2's inline comment media and v0.6.1's
+share-link security fixes.
 This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
+
+## v0.6.6 direct media resolution (issue #4)
+
+Adds an optional seventh patch, **Sync: replace legacy media proxies**, for
+[issue #4](https://github.com/TheLastWallaby/revanced-redditsync/issues/4).
+The
+[v0.6.6 stable release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.6)
+rebuilds the runtime code from the tested
+[v0.6.6-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.6-rc.1).
+
+Sync 23033 still sends several media requests through its own proxies, and
+neither answers now: `images.syncforreddit.com` does not resolve and
+`ap.syncforreddit.com/image` returns HTTP 401.
+
+| What | Sync 23033 used | With the patch |
+|---|---|---|
+| Imgur album or gallery post | `images.syncforreddit.com/a/…` | Imgur's public album embed page. Album order, titles and descriptions, video items and the saved album position are kept. |
+| Gallery link that is one item | `images.syncforreddit.com/image/…` | A missing album (HTTP 404) takes Sync's existing single-item fallback, read from the item's embed page. |
+| Album link-card thumbnail in comments | `ap.syncforreddit.com/image?url=imgur-album-…` | The album's first item as a small thumbnail, looked up once in the background and loaded into the card. |
+| Website preview (Sync Ultra) and Tenor/web-page card thumbnails | `ap.syncforreddit.com/image?url=<page>` | Sync's ordinary link card. YouTube keeps its `i.ytimg.com` thumbnail. Web pages are no longer handed to the image decoder. |
+| Gfycat card thumbnail | `ap.syncforreddit.com/image?url=<gfycat link>` | The link card. Gfycat shut down. |
+| Enhanced autoplay: RedGifs | `ap.syncforreddit.com/image?url=redgifs-…` | Sync's own RedGifs resolver (with the base's RedGifs fix), then the RedGifs video. Errors and unexpected results use Sync's ordinary autoplay source. |
+| Enhanced autoplay: Gfycat | `ap.syncforreddit.com/image?url=gfycat-…` | Sync's ordinary autoplay source, or no autoplay when there is none. |
+
+- Imgur requests use fixed HTTPS Imgur hosts and validated IDs, current
+  `/gallery/title-words-ID` links included. Media links are rebuilt as
+  `https://i.imgur.com/<id>.<ext>` from Imgur's own list; nothing guesses file
+  extensions. The cover lookup follows no redirects and sends no cookies or
+  credentials. Sync's album requests keep their existing `sync_for_reddit`
+  User-Agent and send no Reddit authorization.
+- RedGifs results are used only when they are HTTPS `.mp4` links on a
+  `redgifs.com` host. The RedGifs token stays inside Sync's RedGifs requests.
+- Not changed: Sync's `ap.syncforreddit.com/stats.json` and
+  `todo.syncforreddit.com` icon/licence links, which are not media proxies.
+
+`MediaProxyCompatTest` covers the ID parsing, the adapted album and item
+responses, album covers, website and Gfycat fallbacks, RedGifs autoplay and a
+loopback HTTP server (redirects, size limit, no cookies or credentials). The
+parsers were also run against 39 live Imgur album embed pages (278 items, all
+matching Imgur's own counts) and live single-item pages. The tester tried
+v0.6.6-rc.1 on their phone and approved stable promotion; no per-check results
+were reported, so `validation-phone-tests.json` lists each feature as
+unconfirmed individually. This is not exhaustive Android or live-service coverage.
 
 ## v0.6.5 Imgur comment video previews (issue #23)
 
@@ -58,46 +103,6 @@ and authorized stable promotion. This is phone confirmation for the tested case,
 not exhaustive Android/live-service validation. The exact failed clip's decoder
 path and settings-off behavior were not separately confirmed; see
 `validation-phone-tests.json` for the scope of the report.
-
-## Release candidate — v0.6.6-rc.1 direct media resolution (issue #4)
-
-Adds an optional seventh patch, **Sync: replace legacy media proxies**, for
-[issue #4](https://github.com/TheLastWallaby/revanced-redditsync/issues/4).
-It ships in the
-[v0.6.6-rc.1 prerelease](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.6-rc.1)
-for phone testing; stable v0.6.5 does not include it.
-
-Sync 23033 still sends several media requests through its own proxies, and
-neither answers now: `images.syncforreddit.com` does not resolve and
-`ap.syncforreddit.com/image` returns HTTP 401.
-
-| What | Sync 23033 used | With the patch |
-|---|---|---|
-| Imgur album or gallery post | `images.syncforreddit.com/a/…` | Imgur's public album embed page. Album order, titles and descriptions, video items and the saved album position are kept. |
-| Gallery link that is one item | `images.syncforreddit.com/image/…` | A missing album (HTTP 404) takes Sync's existing single-item fallback, read from the item's embed page. |
-| Album link-card thumbnail in comments | `ap.syncforreddit.com/image?url=imgur-album-…` | The album's first item as a small thumbnail, looked up once in the background and loaded into the card. |
-| Website preview (Sync Ultra) and Tenor/web-page card thumbnails | `ap.syncforreddit.com/image?url=<page>` | Sync's ordinary link card. YouTube keeps its `i.ytimg.com` thumbnail. Web pages are no longer handed to the image decoder. |
-| Gfycat card thumbnail | `ap.syncforreddit.com/image?url=<gfycat link>` | The link card. Gfycat shut down. |
-| Enhanced autoplay: RedGifs | `ap.syncforreddit.com/image?url=redgifs-…` | Sync's own RedGifs resolver (with the base's RedGifs fix), then the RedGifs video. Errors and unexpected results use Sync's ordinary autoplay source. |
-| Enhanced autoplay: Gfycat | `ap.syncforreddit.com/image?url=gfycat-…` | Sync's ordinary autoplay source, or no autoplay when there is none. |
-
-- Imgur requests use fixed HTTPS Imgur hosts and validated IDs, current
-  `/gallery/title-words-ID` links included. Media links are rebuilt as
-  `https://i.imgur.com/<id>.<ext>` from Imgur's own list; nothing guesses file
-  extensions. The cover lookup follows no redirects and sends no cookies or
-  credentials. Sync's album requests keep their existing `sync_for_reddit`
-  User-Agent and send no Reddit authorization.
-- RedGifs results are used only when they are HTTPS `.mp4` links on a
-  `redgifs.com` host. The RedGifs token stays inside Sync's RedGifs requests.
-- Not changed: Sync's `ap.syncforreddit.com/stats.json` and
-  `todo.syncforreddit.com` icon/licence links, which are not media proxies.
-
-`MediaProxyCompatTest` covers the ID parsing, the adapted album and item
-responses, album covers, website and Gfycat fallbacks, RedGifs autoplay and a
-loopback HTTP server (redirects, size limit, no cookies or credentials). The
-parsers were also run against 39 live Imgur album embed pages (278 items, all
-matching Imgur's own counts) and live single-item pages. The patched APK has
-not yet been tried on a phone.
 
 ## v0.6.4 comment video previews
 
@@ -293,13 +298,13 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Stable v0.6.5 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.5)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.5/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.5/sync-gallery-comments-compat-v0.6.5-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.5/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.5/build-info.json)
-- [Archived v0.6.5-rc.4 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.5-rc.4)
-- [Previous stable v0.6.4](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.4)
+- [Stable v0.6.6 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.6)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.6/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.6/sync-gallery-comments-compat-v0.6.6-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.6/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.6/build-info.json)
+- [Archived v0.6.6-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.6-rc.1)
+- [Previous stable v0.6.5](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.5)
 
 For unpublished changes, download the `patch-bundle-<run>-<attempt>` artifact from
 the PR's passing [CI run](https://github.com/TheLastWallaby/revanced-redditsync/actions/workflows/ci.yml).
@@ -325,7 +330,7 @@ download that file from Releases and import it as a local patch bundle.
 Use the Sync base and patch selections described below. The validated patching
 route is the CLI; Manager import and patching still need device verification.
 
-## Included patches — cumulative v0.6.5
+## Included patches — cumulative v0.6.6
 
 - **Sync: secure Reddit share links** validates share URLs and redirects before
   sending credentials, as described above.
@@ -343,6 +348,9 @@ route is the CLI; Manager import and patching still need device verification.
 - **Sync: show comment video previews** opens Reddit comment video
   links in Sync's video viewer and draws them as a still frame with a play
   button, as described above.
+- **Sync: replace legacy media proxies** resolves Imgur albums, gallery posts,
+  album thumbnails and RedGifs enhanced autoplay directly instead of through
+  Sync's defunct proxies, as described above.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
@@ -361,13 +369,14 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 2. Use a base that has **none of this bundle's earlier compatibility patches**.
    Do not reapply to an APK already containing any earlier compatibility bundle.
 3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
-   and apply all six named patches (five in v0.6.3, four in v0.6.2, three in
-   v0.6.1). Check that each reports success.
+   and apply all seven named patches (six in v0.6.4 and v0.6.5, five in v0.6.3,
+   four in v0.6.2, three in v0.6.1). Check that each reports success.
 4. Sign the result with your own keystore. Matching the key used by your current
    installation allows an in-place update.
 
 This bundle adds the gallery/comment fixes, share-link hardening, inline
-comment media, award data handling and comment video previews. It expects
+comment media, award data handling, comment video previews and direct media
+resolution. It expects
 the existing ReVanced shared Logger class; its source stub is for compilation only. It does not
 supply OAuth configuration or unrelated Sync patches such as RedGifs fixes.
 
@@ -379,7 +388,7 @@ repository, using your own paths for the other files:
 java -jar revanced-cli-6.0.0-all.jar patch \
   -p output/patches.rvp -b \
   --keystore your-signing-key.keystore \
-  -o Sync-v23.06.30-compat-v0.6.5.apk \
+  -o Sync-v23.06.30-compat-v0.6.6.apk \
   Sync-v23.06.30-revanced-base.apk
 ```
 
@@ -449,7 +458,7 @@ with an existing installation.
 1. Set `VERSION` to an unused candidate version, run the required checks and
    merge the tested PR.
 2. Run **Actions → Publish patch release** on `main` with the exact matching tag
-   (for example `v0.6.6-rc.1` for a future candidate). The workflow rebuilds, checks the tested
+   (for example `v0.6.7-rc.1` for a future candidate). The workflow rebuilds, checks the tested
    revision, publishes all four assets and updates the Manager feeds.
 3. Manually run **Build my Sync APK** in the provisioned private repository with
    the same candidate tag. Scheduled builds follow stable releases only.
@@ -491,6 +500,8 @@ it; see `validation-phone-tests.json` for what was and wasn't exercised. Stable
 v0.6.4 rebuilds the v0.6.4-rc.3 runtime code, which the tester confirmed on
 their phone before approving it. Stable v0.6.5 rebuilds the tested v0.6.5-rc.4
 runtime code after the tester reported it looking good and authorized promotion.
+Stable v0.6.6 rebuilds the v0.6.6-rc.1 runtime code, which the tester tried on
+their phone before approving promotion.
 This standalone bundle does not represent a full upstream Gradle build.
 
 ## Sharing and license
