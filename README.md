@@ -59,11 +59,13 @@ not exhaustive Android/live-service validation. The exact failed clip's decoder
 path and settings-off behavior were not separately confirmed; see
 `validation-phone-tests.json` for the scope of the report.
 
-## Unreleased: direct media resolution (issue #4)
+## Release candidate — v0.6.6-rc.1 direct media resolution (issue #4)
 
 Adds an optional seventh patch, **Sync: replace legacy media proxies**, for
 [issue #4](https://github.com/TheLastWallaby/revanced-redditsync/issues/4).
-It is not in a release yet; CI builds of its PR include it.
+It ships in the
+[v0.6.6-rc.1 prerelease](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.6-rc.1)
+for phone testing; stable v0.6.5 does not include it.
 
 Sync 23033 still sends several media requests through its own proxies, and
 neither answers now: `images.syncforreddit.com` does not resolve and
