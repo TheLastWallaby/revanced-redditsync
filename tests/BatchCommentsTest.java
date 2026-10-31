@@ -99,6 +99,10 @@ public final class BatchCommentsTest {
             } finally { exchange.close();active.decrementAndGet(); }
         });server.start();
         base="http://127.0.0.1:"+server.getAddress().getPort()+"/api/morechildren?always_show_media=1&profile_img=true";
+        // Continuation rules here are independent of the per-tap request budget,
+        // which BoundedCommentsTest covers.
+        Class<?> transport=Class.forName("app.revanced.extension.syncforreddit.CommentTransport");
+        java.lang.reflect.Field budget=transport.getDeclaredField("maxRequests");budget.setAccessible(true);budget.setInt(null,1000);
         try {
             check(base.equals(FixLoadMoreCommentsPatch.getUrl(base,null)),"constructor-time null parameters");
             Map<String,String> p=params("t1_a, a,b");p.put("sort","best");
@@ -247,7 +251,7 @@ public final class BatchCommentsTest {
             check(calls.get()-before==99,"100-ID batch limit includes first response");
             check(ids(all,"t1").size()==100,"100 requested comments returned");
             check(ids(all,"more").equals(many.subList(100,105)),"all IDs beyond batch remain available to retry");
-            check(maximum.get()>1 && maximum.get()<=8,"parallel requests bounded at eight");
+            check(maximum.get()>1 && maximum.get()<=4,"parallel requests bounded at four");
             check(authorized.get()==calls.get(),"original authorization copied to every additional request");
 
             reset();all=things(load(thread(comment("a","t3_post123",more("_","t1_a"),comment("d","t1_a",more("_","t1_d")))),"a"));
@@ -349,7 +353,7 @@ public final class BatchCommentsTest {
             System.out.println("PASS: "+checks+" checks with real Volley and loopback HTTP; peak parallel requests="+maximum.get());
         } finally {
             server.stop(0);serverThreads.shutdownNow();
-            java.lang.reflect.Field field=FixLoadMoreCommentsPatch.class.getDeclaredField("executor");field.setAccessible(true);
+            java.lang.reflect.Field field=transport.getDeclaredField("executor");field.setAccessible(true);
             ((ExecutorService)field.get(null)).shutdownNow();
         }
     }

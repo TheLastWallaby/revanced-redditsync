@@ -4,16 +4,13 @@ import android.net.Uri;
 import android.text.TextUtils;
 
 import com.android.volley.NetworkResponse;
+import com.android.volley.Request;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -24,9 +21,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 
 import app.revanced.extension.shared.Logger;
 
@@ -47,20 +46,11 @@ public final class FixLoadMoreCommentsPatch {
      */
     private static final int MAX_CHILDREN = 100;
 
-    private static final int TIMEOUT_MILLISECONDS = 15_000;
-
-    private static final ExecutorService executor = Executors.newFixedThreadPool(8);
-
     /** Fixed messages only: never expose JSON bodies, account headers, or server exception text. */
     private static final class CommentResponseException extends RuntimeException {
         final int reason;
         String diagnostic;
         CommentResponseException(int reason) { this.reason = reason; }
-    }
-
-    private static final class HttpStatusException extends IOException {
-        final int status;
-        HttpStatusException(int status) { super("HTTP " + status); this.status = status; }
     }
 
     private static final class CommentFetch {
@@ -77,12 +67,14 @@ public final class FixLoadMoreCommentsPatch {
         int firstComments = -1, fallbackComments = -1, firstPostMatch = -1, fallbackPostMatch = -1;
         int firstRoots = -1, fallbackRoots = -1, firstMore = -1, fallbackMore = -1, exhausted;
         int missing, invalid, network;
+        int requests, budget, reused, deferred;
+        String stop, batch = "not_needed";
         final Map<Integer, Integer> http = new TreeMap<>();
 
         void failure(Throwable error) {
             for (int i = 0; i < 8 && error != null; i++, error = error.getCause()) {
-                if (error instanceof HttpStatusException) {
-                    int status = ((HttpStatusException) error).status;
+                if (error instanceof CommentTransport.HttpStatusException) {
+                    int status = ((CommentTransport.HttpStatusException) error).status;
                     Integer previous = http.get(status);
                     http.put(status, previous == null ? 1 : previous + 1);
                     return;
@@ -133,7 +125,9 @@ public final class FixLoadMoreCommentsPatch {
                     + "first_more=" + firstMore + " fallback_more=" + fallbackMore + " exhausted=" + exhausted + "\n"
                     + "first_post_match=" + firstPostMatch + " fallback_post_match=" + fallbackPostMatch + "\n"
                     + "failed_ids: missing=" + missing + " invalid=" + invalid + " network=" + network + "\n"
-                    + "http_failures=" + http;
+                    + "http_failures=" + http + "\n"
+                    + "transport: requests=" + requests + " budget=" + budget + " reused=" + reused
+                    + " deferred=" + deferred + " stop=" + (stop == null ? "none" : stop) + " batch=" + batch;
         }
     }
 
@@ -189,6 +183,12 @@ public final class FixLoadMoreCommentsPatch {
                 switch (((CommentResponseException) error).reason) {
                     case 1: return "comment unavailable";
                     case 3: return "fallback request failed";
+                    case 4: return "rate limited, try again shortly";
+                    case 5: return "sign-in rejected";
+                    case 6: return "timed out";
+                    case 7: return "canceled";
+                    case 8: return "requests failed";
+                    case 9: return "busy, try again";
                     default: return "invalid comment response";
                 }
             }
@@ -239,10 +239,29 @@ public final class FixLoadMoreCommentsPatch {
             Map<String, String> headers,
             String continuationParent
     ) {
+        return getMoreChildrenResponse(response, url, params, headers, continuationParent, null);
+    }
+
+    /**
+     * Injection point. Sync's own request supplies cancellation and, after a 401,
+     * the headers carrying its refreshed token.
+     */
+    public static NetworkResponse getMoreChildrenResponse(
+            NetworkResponse response,
+            String url,
+            Map<String, String> params,
+            Map<String, String> headers,
+            String continuationParent,
+            Request<?> request
+    ) {
         if (response == null || response.data == null || params == null) return response;
         Diagnostic diagnostic = new Diagnostic();
         diagnostic.firstStatus = response.statusCode;
         diagnostic.parentKnown = continuationParent != null && continuationParent.matches("t[13]_[a-zA-Z0-9]+");
+        // Sync's own request already reported Reddit's current rate window.
+        CommentTransport.observe(response.headers);
+        CommentTransport.Expansion expansion = new CommentTransport.Expansion(request, headers);
+        diagnostic.budget = expansion.budget;
         try {
             List<String> children = getChildren(params);
             diagnostic.requested = children.size();
@@ -280,7 +299,7 @@ public final class FixLoadMoreCommentsPatch {
                 things = new JSONArray();
                 addedIds.clear();
                 try {
-                    String fallback = fetch(getFallbackUrl(url, params, children.get(0)), headers);
+                    String fallback = expansion.fetch(getFallbackUrl(url, params, children.get(0)));
                     diagnostic.response(fallback, linkId, true);
                     if (response.statusCode == 200 && diagnostic.parentKnown
                             && isVerifiedEmpty(firstJson, params) && isVerifiedEmpty(fallback, params)) {
@@ -289,9 +308,13 @@ public final class FixLoadMoreCommentsPatch {
                     } else {
                         parentId = addComments(fallback, children.get(0), things, addedIds, defaults);
                     }
+                } catch (CommentTransport.Deferred deferred) {
+                    firstFailure = stopFailure(expansion.stopReason());
                 } catch (IOException unavailable) {
                     diagnostic.failure(unavailable);
-                    firstFailure = new CommentResponseException(3);
+                    firstFailure = expansion.aborted() || "auth".equals(expansion.stopReason())
+                            || "rate_limited".equals(expansion.stopReason())
+                            ? stopFailure(expansion.stopReason()) : new CommentResponseException(3);
                 } catch (Exception unavailable) {
                     diagnostic.failure(unavailable);
                     firstFailure = unavailable;
@@ -308,27 +331,20 @@ public final class FixLoadMoreCommentsPatch {
                 throw firstFailure;
             }
 
-            diagnostic.attempted = fetchedChildren.size();
-            List<Future<CommentFetch>> futures = new ArrayList<>(fetchedChildren.size());
-            for (String child : fetchedChildren.subList(1, fetchedChildren.size())) {
-                futures.add(executor.submit(() -> fetchComment(url, params, child, headers)));
+            // IDs with at least one request sent for them. The rest are untouched.
+            Set<String> touched = new HashSet<>();
+            touched.add(children.get(0));
+            List<String> siblings = fetchedChildren.subList(1, fetchedChildren.size());
+            Set<String> loaded = new HashSet<>();
+            addLoadedIds(things, 0, loaded);
+            List<String> wanted = new ArrayList<>();
+            for (String child : siblings) if (!loaded.contains(child)) wanted.add(child);
+            if (loadBatch(expansion, url, params, wanted, things, addedIds, defaults, diagnostic)) {
+                touched.addAll(wanted);
+                addLoadedIds(things, 0, loaded);
             }
-
-            for (int i = 0; i < futures.size(); i++) {
-                try {
-                    CommentFetch result = futures.get(i).get();
-                    if (result.verifiedEmpty) {
-                        exhausted.add(fetchedChildren.get(i + 1));
-                        diagnostic.exhausted++;
-                    } else {
-                        addComments(result.json, fetchedChildren.get(i + 1), things, addedIds, defaults);
-                    }
-                } catch (Exception ex) {
-                    diagnostic.failure(ex);
-                    String child = fetchedChildren.get(i + 1);
-                    Logger.printInfo(() -> "Failed to load comment " + child, ex);
-                }
-            }
+            fetchEach(expansion, url, params, siblings, loaded, touched, things, addedIds, defaults, exhausted, diagnostic);
+            diagnostic.attempted = touched.size();
 
             // Decide what is still pending from the returned content, not from the
             // attempted batch. This retains failed/empty requests and avoids adding
@@ -349,16 +365,27 @@ public final class FixLoadMoreCommentsPatch {
             }
             List<String> remainingChildren = new ArrayList<>();
             // Advance to untouched IDs before retrying IDs already attempted this tap.
-            // This prevents 100 unavailable IDs from hiding all later batches forever.
-            for (String child : children.subList(fetchedChildren.size(), children.size())) {
-                if (!represented.contains(child) && !exhausted.contains(child)) remainingChildren.add(child);
+            // This prevents unavailable IDs from hiding all later batches forever.
+            for (String child : children) {
+                if (!represented.contains(child) && !exhausted.contains(child) && !touched.contains(child)) remainingChildren.add(child);
             }
-            for (String child : fetchedChildren) if (!represented.contains(child) && !exhausted.contains(child)) remainingChildren.add(child);
+            diagnostic.deferred = remainingChildren.size();
+            for (String child : children) {
+                if (!represented.contains(child) && !exhausted.contains(child) && touched.contains(child)) remainingChildren.add(child);
+            }
 
-            if (things.length() == 0 && exhausted.isEmpty() && children.size() <= fetchedChildren.size()) {
-                diagnostic.stage = "empty_batch";
-                if (firstFailure != null) throw firstFailure;
-                throw new CommentResponseException(1);
+            if (things.length() == 0 && exhausted.isEmpty()) {
+                // Nothing loaded: keep Sync's row in place with a short reason.
+                String stop = expansion.stopReason();
+                if (stop != null && !"budget".equals(stop)) {
+                    diagnostic.stage = "stopped";
+                    throw stopFailure(stop);
+                }
+                if (diagnostic.deferred == 0) {
+                    diagnostic.stage = "empty_batch";
+                    if (firstFailure != null) throw firstFailure;
+                    throw new CommentResponseException(1);
+                }
             }
             if (!remainingChildren.isEmpty() && parentId != null) {
                 things.put(createMore(remainingChildren, parentId));
@@ -379,9 +406,208 @@ public final class FixLoadMoreCommentsPatch {
             Logger.printInfo(() -> "Failed to load more comments", ex);
             CommentResponseException failure = ex instanceof CommentResponseException
                     ? (CommentResponseException) ex : new CommentResponseException(2);
+            diagnostic.requests = expansion.requests.get();
+            diagnostic.stop = expansion.stopReason();
             failure.diagnostic = diagnostic.format();
             throw failure;
         }
+    }
+
+    private static CommentResponseException stopFailure(String stop) {
+        if (stop == null) return new CommentResponseException(3);
+        switch (stop) {
+            case "rate_limited": return new CommentResponseException(4);
+            case "auth": return new CommentResponseException(5);
+            case "deadline": return new CommentResponseException(6);
+            case "canceled": return new CommentResponseException(7);
+            case "failing": return new CommentResponseException(8);
+            case "busy": return new CommentResponseException(9);
+            default: return new CommentResponseException(3);
+        }
+    }
+
+    /** IDs of the comments in things from index start on. */
+    private static void addLoadedIds(JSONArray things, int start, Set<String> loaded) {
+        for (int i = start; i < things.length(); i++) {
+            JSONObject thing = things.optJSONObject(i);
+            JSONObject data = thing == null ? null : thing.optJSONObject("data");
+            if (data != null && "t1".equals(thing.optString("kind"))) loaded.add(data.optString("id"));
+        }
+    }
+
+    /**
+     * Reddit's own batch endpoint returns every ID in one request when the configured
+     * client may use it. Its availability is cached, and failures fall back to the
+     * per-comment route without losing any ID.
+     */
+    private static boolean loadBatch(CommentTransport.Expansion expansion, String url, Map<String, String> params,
+                                     List<String> ids, JSONArray things, Set<String> addedIds,
+                                     Map<String, String> defaults, Diagnostic diagnostic) {
+        if (ids.isEmpty()) return false;
+        if (!CommentTransport.batchMayWork()) { diagnostic.batch = "unavailable"; return false; }
+        String batchUrl = getBatchUrl(url, params, ids);
+        if (batchUrl == null || !expansion.canStart()) { diagnostic.batch = "skipped"; return false; }
+        String body;
+        try {
+            body = expansion.fetchBatch(batchUrl);
+        } catch (CommentTransport.HttpStatusException status) {
+            diagnostic.batch = "http_" + status.status;
+            int code = status.status;
+            if (code == 400 || code == 403 || code == 404 || code == 405 || code == 410) CommentTransport.recordBatch(false);
+            return false;
+        } catch (IOException failed) {
+            diagnostic.batch = failed instanceof CommentTransport.Deferred ? "deferred" : "network";
+            return false;
+        }
+        try {
+            JSONObject json = new JSONObject(body).getJSONObject("json");
+            JSONArray errors = json.optJSONArray("errors");
+            if (errors != null && errors.length() > 0) throw new CommentResponseException(2);
+            JSONArray batch = json.getJSONObject("data").getJSONArray("things");
+            // An empty answer for IDs Sync listed proves nothing; use the per-comment route.
+            if (batch.length() == 0) throw new CommentResponseException(1);
+            JSONArray staged = new JSONArray();
+            Set<String> stagedIds = new HashSet<>(addedIds);
+            for (int i = 0; i < batch.length(); i++) flatten(batch.getJSONObject(i), staged, stagedIds, defaults);
+            for (int i = 0; i < staged.length(); i++) things.put(staged.getJSONObject(i));
+            addedIds.addAll(stagedIds);
+            CommentTransport.recordBatch(true);
+            diagnostic.batch = "used";
+            return true;
+        } catch (Exception invalid) {
+            CommentTransport.recordBatch(false);
+            diagnostic.batch = "invalid";
+            return false;
+        }
+    }
+
+    private static String getBatchUrl(String url, Map<String, String> params, List<String> ids) {
+        Uri uri = Uri.parse(url);
+        String linkId = params.get("link_id");
+        if (TextUtils.isEmpty(linkId) || !MORE_CHILDREN_PATH.equals(uri.getPath())) return null;
+        if (!linkId.startsWith("t3_")) linkId = "t3_" + linkId;
+        StringBuilder joined = new StringBuilder();
+        for (String id : ids) {
+            if (joined.length() > 0) joined.append(',');
+            joined.append(id);
+        }
+        Uri.Builder builder = uri.buildUpon().appendQueryParameter("api_type", "json")
+                .appendQueryParameter("link_id", linkId).appendQueryParameter("children", joined.toString())
+                .appendQueryParameter("raw_json", "1");
+        String sort = params.get("sort");
+        if (!TextUtils.isEmpty(sort) && !"suggested".equalsIgnoreCase(sort)) {
+            builder.appendQueryParameter("sort", "best".equalsIgnoreCase(sort) ? "confidence" : sort);
+        }
+        return builder.build().toString();
+    }
+
+    /**
+     * Requests the remaining IDs a few at a time. An ID already returned inside an
+     * earlier subtree is not requested again. Stops at the budget, the deadline,
+     * cancellation, rate limiting, a rejected token or repeated request failures.
+     */
+    private static void fetchEach(CommentTransport.Expansion expansion, String url, Map<String, String> params,
+                                  List<String> ids, Set<String> loaded, Set<String> touched, JSONArray things,
+                                  Set<String> addedIds, Map<String, String> defaults, Set<String> exhausted,
+                                  Diagnostic diagnostic) {
+        ExecutorCompletionService<CommentFetch> service = new ExecutorCompletionService<>(CommentTransport.executor);
+        Map<Future<CommentFetch>, Integer> running = new HashMap<>();
+        // Trees are kept per ID and added in the requested order, preserving Reddit's sort.
+        CommentFetch[] results = new CommentFetch[ids.size()];
+        int next = 0, failures = 0;
+        while (true) {
+            while (running.size() < CommentTransport.THREADS && next < ids.size() && expansion.canStart()) {
+                final String child = ids.get(next);
+                if (loaded.contains(child)) {
+                    if (!touched.contains(child)) diagnostic.reused++;
+                    next++;
+                    continue;
+                }
+                // Reserve each ID's first request in order, so the budget covers the earliest IDs.
+                if (!expansion.reserve()) break;
+                try {
+                    running.put(service.submit(() -> fetchComment(expansion, url, params, child)), next);
+                    next++;
+                } catch (RejectedExecutionException busy) {
+                    expansion.release();
+                    expansion.stop("busy");
+                }
+            }
+            if (running.isEmpty()) break;
+            Future<CommentFetch> done;
+            try {
+                done = service.poll(Math.max(1, Math.min(100, expansion.remainingMs())), TimeUnit.MILLISECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                expansion.stop("canceled");
+                break;
+            }
+            if (done == null) {
+                if (expansion.aborted()) break;
+                continue;
+            }
+            int index = running.remove(done);
+            String child = ids.get(index);
+            try {
+                CommentFetch result = done.get();
+                touched.add(child);
+                failures = 0;
+                results[index] = result;
+                // Later IDs inside this subtree need no request of their own.
+                if (!result.verifiedEmpty) addSubtreeIds(result.json, child, loaded);
+            } catch (ExecutionException failed) {
+                Throwable cause = failed.getCause();
+                if (cause instanceof CommentTransport.Deferred) continue;
+                touched.add(child);
+                diagnostic.failure(cause);
+                if (cause instanceof IOException && ++failures >= CommentTransport.failureLimit) expansion.stop("failing");
+                Logger.printInfo(() -> "Failed to load comment " + child,
+                        cause instanceof Exception ? (Exception) cause : new Exception(cause));
+            } catch (Exception invalid) {
+                touched.add(child);
+                diagnostic.failure(invalid);
+                Logger.printInfo(() -> "Failed to load comment " + child, invalid);
+            }
+        }
+        // Canceled or out of time: requests still running are abandoned; their IDs stay pending.
+        for (Map.Entry<Future<CommentFetch>, Integer> abandoned : running.entrySet()) {
+            abandoned.getKey().cancel(true);
+            touched.add(ids.get(abandoned.getValue()));
+        }
+        for (int i = 0; i < results.length; i++) {
+            CommentFetch result = results[i];
+            if (result == null) continue;
+            String child = ids.get(i);
+            if (result.verifiedEmpty) {
+                exhausted.add(child);
+                diagnostic.exhausted++;
+                continue;
+            }
+            try {
+                addComments(result.json, child, things, addedIds, defaults);
+            } catch (Exception invalid) {
+                diagnostic.failure(invalid);
+                Logger.printInfo(() -> "Failed to load comment " + child, invalid);
+            }
+        }
+    }
+
+    /** IDs of the requested comment and its loaded replies. Unreadable responses add nothing. */
+    private static void addSubtreeIds(String json, String child, Set<String> loaded) {
+        try {
+            collectIds(selectComment(json, child, new HashMap<>()), loaded, 0);
+        } catch (Exception unreadable) { /* Reported when the tree is added. */ }
+    }
+
+    private static void collectIds(JSONObject thing, Set<String> loaded, int depth) {
+        if (thing == null || depth > 64 || !"t1".equals(thing.optString("kind"))) return;
+        JSONObject data = thing.optJSONObject("data");
+        if (data == null) return;
+        loaded.add(data.optString("id"));
+        JSONObject replies = data.optJSONObject("replies");
+        JSONObject nested = replies == null ? null : replies.optJSONObject("data");
+        JSONArray children = nested == null ? null : nested.optJSONArray("children");
+        if (children != null) for (int i = 0; i < children.length(); i++) collectIds(children.optJSONObject(i), loaded, depth + 1);
     }
 
     private static List<String> getChildren(Map<String, String> params) {
@@ -415,34 +641,6 @@ public final class FixLoadMoreCommentsPatch {
         return builder.build().toString();
     }
 
-    private static String fetch(String url, Map<String, String> headers) throws IOException {
-        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-        try {
-            connection.setConnectTimeout(TIMEOUT_MILLISECONDS);
-            connection.setReadTimeout(TIMEOUT_MILLISECONDS);
-            for (Map.Entry<String, String> header : headers.entrySet()) {
-                connection.setRequestProperty(header.getKey(), header.getValue());
-            }
-
-            int responseCode = connection.getResponseCode();
-            if (responseCode != HttpURLConnection.HTTP_OK) {
-                throw new HttpStatusException(responseCode);
-            }
-
-            try (InputStream inputStream = connection.getInputStream()) {
-                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-                byte[] buffer = new byte[8192];
-                int read;
-                while ((read = inputStream.read(buffer)) != -1) {
-                    outputStream.write(buffer, 0, read);
-                }
-                return outputStream.toString("UTF-8");
-            }
-        } finally {
-            connection.disconnect();
-        }
-    }
-
     private static String getFallbackUrl(String url, Map<String, String> params, String child) {
         Uri uri = Uri.parse(url);
         String postId = params.get("link_id");
@@ -459,14 +657,20 @@ public final class FixLoadMoreCommentsPatch {
         return builder.build().toString();
     }
 
-    private static CommentFetch fetchComment(String url, Map<String, String> params, String child,
-                                       Map<String, String> headers) throws Exception {
-        String json = fetch(getCommentUrl(url, params, child), headers);
+    private static CommentFetch fetchComment(CommentTransport.Expansion expansion, String url,
+                                             Map<String, String> params, String child) throws Exception {
+        String json = expansion.fetchReserved(getCommentUrl(url, params, child));
         try {
             selectComment(json, child, new HashMap<>());
             return new CommentFetch(json, false);
         } catch (Exception missing) {
-            String fallback = fetch(getFallbackUrl(url, params, child), headers);
+            String fallback;
+            try {
+                fallback = expansion.fetch(getFallbackUrl(url, params, child));
+            } catch (CommentTransport.Deferred deferred) {
+                // The first route was already requested, so this ID counts as attempted.
+                throw new CommentResponseException(1);
+            }
             boolean empty = isVerifiedEmpty(json, params) && isVerifiedEmpty(fallback, params);
             return new CommentFetch(empty ? null : fallback, empty);
         }

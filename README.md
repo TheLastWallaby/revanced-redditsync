@@ -47,6 +47,45 @@ rebuilds the runtime code from the tested
 [v0.6.7-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.7-rc.1).
 Rebuild from the prepared base and check all eight named patch results.
 
+## Unreleased: bounded "load more comments" requests (issue #3)
+
+Changes the existing **Sync: load more comments in batches** patch for
+[issue #3](https://github.com/TheLastWallaby/revanced-redditsync/issues/3). A
+large expansion could previously send roughly 100–200 requests with no rate
+accounting, overall deadline or cancellation. Each tap now:
+
+- makes at most 32 requests beyond Sync's own, four at a time, shared across
+  taps. Untouched IDs stay in the continuation row ahead of failed ones, so
+  the next tap carries on. A 100-ID row loads 33 comments per tap on the
+  per-comment route.
+- does not request IDs already returned inside another comment's reply tree,
+  or duplicate IDs.
+- follows Reddit's `X-Ratelimit-*` headers, including those on Sync's own
+  response, keeping 10 requests in reserve. HTTP 429 waits for `Retry-After`
+  (shared by later taps) and retries once.
+- after HTTP 401 asks Sync's request once for its current headers, so Sync's own
+  token refresh is used. Later taps holding the same rejected token reuse that
+  result. Four consecutive request failures (such as a blanket 403) end the tap.
+- ends after 20 seconds and stops when Sync cancels the request, closing requests
+  that are still open. Pending IDs stay retryable.
+- tries Reddit's `/api/morechildren` once (serially, one request at a time
+  across taps) and caches the result for six hours. If it is refused or returns
+  nothing usable, the per-comment route is used as before. An ID the batch omits
+  is fetched on its own and appears after the batch results.
+
+When nothing loads, the error names the cause (rate limited, sign-in rejected,
+timed out, requests failed) and the row stays. The loading details gain a
+`transport:` line with request, budget, reuse, deferral, stop and batch-endpoint
+counters only.
+
+`BoundedCommentsTest` exercises these paths against a loopback server with real
+Volley requests: request counts for 1, 20, 100 and 150 IDs, duplicates and
+subtrees, 401/403/429, slow responses, canceling queued and in-flight work and
+the batch endpoint. `BatchCommentsTest` keeps the existing continuation checks.
+Not verified: Sync's internal rate helper is not updated (no APK was available
+to inspect it), whether `/api/morechildren` is ever usable for Sync's client,
+and phone or authenticated Reddit behavior.
+
 ## v0.6.6 direct media resolution (issue #4)
 
 Adds an optional seventh patch, **Sync: replace legacy media proxies**, for
