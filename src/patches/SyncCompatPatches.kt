@@ -617,16 +617,16 @@ val showSyncCommentVideoPreviews = bytecodePatch(
             const/4 v4, 0x0
             goto :continue
             :poster
-            invoke-static {v2}, $VIDEO->posterUrl(Ljava/lang/String;)Ljava/lang/String;
+            aget v10, v4, v8
+            aget v11, v4, v9
+            invoke-static {v2, v10, v11}, $VIDEO->posterUrl(Ljava/lang/String;II)Ljava/lang/String;
             move-result-object v3
             invoke-virtual {p0, v0}, Loc/c;->r(Loc/c${'$'}a;)Ljava/lang/String;
             invoke-virtual {p0, v0}, Loc/c;->q(Loc/c${'$'}a;)V
-            aget v10, v4, v8
-            aget v11, v4, v9
             new-array v5, v7, [Ljava/lang/Object;
             new-instance v1, Lnb/c;
             invoke-direct {v1, v3, v10, v11}, Lnb/c;-><init>(Ljava/lang/String;II)V
-            invoke-static {v1, v2}, $VIDEO->track(Ljava/lang/Object;Ljava/lang/String;)V
+            invoke-static {v1, v2, v10, v11}, $VIDEO->track(Ljava/lang/Object;Ljava/lang/String;II)V
             aput-object v1, v5, v8
             new-instance v1, Lmb/d;
             invoke-direct {v1, v2}, Lmb/d;-><init>(Ljava/lang/String;)V
