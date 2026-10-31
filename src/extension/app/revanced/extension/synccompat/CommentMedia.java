@@ -34,14 +34,21 @@ public final class CommentMedia {
         final int width;
         final int height;
         final String mime;
-        Metadata(int width, int height, String mime) {
+        final boolean animated;
+        /** Reddit's chosen rendition for drawing (Giphy only); null draws the link itself. */
+        final String display;
+        Metadata(int width, int height, String mime, boolean animated, String display) {
             this.width = width;
             this.height = height;
             this.mime = mime;
+            this.animated = animated;
+            this.display = display;
         }
     }
 
-    /** Process-local and bounded; holds media IDs, dimensions and MIME types only. */
+    private static final String GIPHY_KEY = "giphy:";
+
+    /** Process-local and bounded; holds media IDs, dimensions, MIME types and Giphy rendition URLs only. */
     private static final Map<String, Metadata> METADATA = new LinkedHashMap<String, Metadata>(64, 0.75f, true) {
         @Override protected boolean removeEldestEntry(Map.Entry<String, Metadata> eldest) {
             return size() > CACHE_SIZE;
@@ -131,6 +138,39 @@ public final class CommentMedia {
         return normalizeId(name);
     }
 
+    static boolean isGiphyHost(String host) {
+        return host.equals("giphy.com") || host.endsWith(".giphy.com");
+    }
+
+    /**
+     * Giphy ID from media.giphy.com/media/ID/giphy.gif, media2.giphy.com/media/v1.x/ID/giphy.gif,
+     * i.giphy.com/ID.gif or giphy.com/gifs/title-ID. IDs are case-sensitive.
+     */
+    static String giphyId(Url url) {
+        if (url == null || !isGiphyHost(url.host)) return null;
+        String[] segments = url.path.split("/");
+        int last = segments.length - 1;
+        while (last >= 0 && segments[last].isEmpty()) last--;
+        if (last < 0) return null;
+        String name = segments[last];
+        String candidate;
+        if (last >= 1 && segments[1].equals("gifs")) {
+            int dash = name.lastIndexOf('-');
+            candidate = dash >= 0 ? name.substring(dash + 1) : name;
+        } else if (last >= 2 && segments[1].equals("media") && name.indexOf('.') >= 0) {
+            candidate = segments[last - 1];
+        } else if (last == 1 && name.indexOf('.') >= 0) {
+            candidate = name.substring(0, name.indexOf('.'));
+        } else {
+            return null;
+        }
+        if (candidate.isEmpty() || candidate.length() > 64) return null;
+        for (int i = 0; i < candidate.length(); i++) {
+            if (!Character.isLetterOrDigit(candidate.charAt(i))) return null;
+        }
+        return candidate;
+    }
+
     private static String normalizeId(String name) {
         if (name == null || name.isEmpty() || name.length() > 32) return null;
         for (int i = 0; i < name.length(); i++) {
@@ -160,12 +200,25 @@ public final class CommentMedia {
                 int width = source.optInt("x", -1);
                 int height = source.optInt("y", -1);
                 if (width <= 0 || height <= 0 || width > MAX_SOURCE_DIMENSION || height > MAX_SOURCE_DIMENSION) continue;
+                boolean animated = "AnimatedImage".equals(kind) || "image/gif".equals(mime);
                 String id = item.optString("id", key);
-                // Emote and Giphy keys contain '|' and are rejected here; Sync handles them itself.
-                String normalized = normalizeId(id);
-                if (normalized == null) continue;
+                String cacheKey;
+                String display = null;
+                if (id.startsWith("giphy|")) {
+                    // giphy|ID or giphy|ID|downsized: keep Reddit's chosen GIF rendition for drawing.
+                    String[] parts = id.split("\\|");
+                    Url probe = parts.length >= 2 ? parse("https://media.giphy.com/media/" + parts[1] + "/giphy.gif") : null;
+                    String giphy = giphyId(probe);
+                    if (giphy == null) continue;
+                    cacheKey = GIPHY_KEY + giphy;
+                    display = trustedRendition(source.optString("gif", ""));
+                } else {
+                    // Emote keys contain '|' and are rejected here; Sync handles them itself.
+                    cacheKey = normalizeId(id);
+                    if (cacheKey == null) continue;
+                }
                 synchronized (METADATA) {
-                    METADATA.put(normalized, new Metadata(width, height, mime));
+                    METADATA.put(cacheKey, new Metadata(width, height, mime, animated, display));
                 }
             }
         } catch (RuntimeException ignored) {
@@ -173,9 +226,21 @@ public final class CommentMedia {
         }
     }
 
+    /** HTTPS Giphy or Reddit media URL from metadata, otherwise null. */
+    static String trustedRendition(String value) {
+        if (value == null || !value.regionMatches(true, 0, "https://", 0, 8)) return null;
+        Url url = parse(value);
+        if (url == null || !(isGiphyHost(url.host) || REDDIT_MEDIA_HOSTS.contains(url.host))) return null;
+        return value;
+    }
+
     static Metadata metadata(Url url) {
         String id = mediaId(url);
-        if (id == null) return null;
+        if (id == null) {
+            String giphy = giphyId(url);
+            if (giphy == null) return null;
+            id = GIPHY_KEY + giphy;
+        }
         synchronized (METADATA) {
             return METADATA.get(id);
         }
@@ -242,28 +307,65 @@ public final class CommentMedia {
         return new int[] {boxWidth, boxHeight};
     }
 
-    /** Inline box for a Reddit-hosted picture whose dimensions are known, otherwise null. */
-    static int[] inlineImageSize(String value, int maxWidth, float density) {
+    /** GIFs and Giphy media; an explicit static format= rendition is not animated. */
+    static boolean isAnimated(Url url) {
+        String format = queryValue(url.query, "format");
+        if (format != null) return format.equalsIgnoreCase("gif");
+        if (isGiphyHost(url.host) || extension(url.path).equals("gif")) return true;
+        Metadata metadata = metadata(url);
+        return metadata != null && metadata.animated;
+    }
+
+    /**
+     * Inline box for a Reddit-hosted picture, or a Giphy link described by the comment's
+     * media_metadata, whose dimensions are known. Null keeps Sync's link/preview card.
+     */
+    static int[] inlineImageSize(String value, int maxWidth, float density, boolean animatedAllowed) {
         Url url = parse(value);
-        if (url == null || !REDDIT_MEDIA_HOSTS.contains(url.host) || !isInlineImage(value)) return null;
-        int width = dimension(queryValue(url.query, "width"));
-        int height = dimension(queryValue(url.query, "height"));
+        if (url == null) return null;
+        boolean reddit = REDDIT_MEDIA_HOSTS.contains(url.host);
+        if (!reddit && !isGiphyHost(url.host)) return null;
+        if (!animatedAllowed && isAnimated(url)) return null;
+        Metadata metadata = metadata(url);
+        int width = -1;
+        int height = -1;
+        if (reddit) {
+            if (!isInlineImage(value)) return null;
+            width = dimension(queryValue(url.query, "width"));
+            height = dimension(queryValue(url.query, "height"));
+        }
         if (width <= 0 || height <= 0) {
-            Metadata metadata = metadata(url);
+            // Giphy links carry no dimensions; only metadata can give a safe aspect ratio.
             if (metadata == null) return null;
             width = metadata.width;
             height = metadata.height;
         }
+        // A giphy.com page link needs Reddit's rendition URL; a media file can be drawn directly.
+        if (!reddit && metadata.display == null && !IMAGE_TYPES.contains(extension(url.path))) return null;
         return fitBox(width, height, maxWidth, density);
     }
 
     /** Called from Sync's comment HTML converter. Null keeps the tappable link/preview path. */
-    public static int[] inlineImageSize(String url, int maxWidth) {
+    public static int[] inlineImageSize(String url, int maxWidth, boolean animatedAllowed) {
         try {
-            return inlineImageSize(url, maxWidth, density());
+            return inlineImageSize(url, maxWidth, density(), animatedAllowed);
         } catch (RuntimeException e) {
             return null;
         }
+    }
+
+    /** URL to draw: Reddit's chosen Giphy rendition when known, otherwise the link itself. */
+    public static String displayUrl(String value) {
+        try {
+            Url url = parse(value);
+            if (url != null && isGiphyHost(url.host)) {
+                Metadata metadata = metadata(url);
+                if (metadata != null && metadata.display != null) return metadata.display;
+            }
+        } catch (RuntimeException ignored) {
+            // Fall through to the original link.
+        }
+        return value;
     }
 
     private static float density() {

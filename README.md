@@ -35,6 +35,12 @@ v0.6.1 until the candidate is confirmed on a phone.
   pictures. Detection only adds to Sync's own list and still respects the
   **Inline image previews** setting. Inline-sized pictures also require that
   setting; with it off, links stay links.
+- Giphy links (`media.giphy.com/...`, `giphy.com/gifs/...`) draw inline at
+  their real aspect ratio when the comment's `media_metadata` describes them,
+  using Reddit's downsized rendition, instead of the small link card. Tapping
+  still opens the original link. This requires the animated-images setting,
+  which now also governs Reddit-hosted GIFs. Without metadata, for example
+  comments reloaded from Sync's cache, the card remains.
 - Giphy `id|width|height` markers with bad sizes fall back to Sync's unsized
   Giphy image instead of throwing.
 
