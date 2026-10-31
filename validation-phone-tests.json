@@ -1,0 +1,16 @@
+{
+  "tested_release": "v0.6.1-rc.1",
+  "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
+  "results": {
+    "three_reddit_share_links": "passed",
+    "share_link_after_force_stop": "passed",
+    "reddit_galleries": "passed",
+    "load_more_comments": "passed"
+  },
+  "promotion": "Stable v0.6.1 uses the same runtime patch and extension source as this tested candidate.",
+  "unverified": [
+    "account-switch behavior",
+    "Android Manager import and patching",
+    "exhaustive Reddit account/post combinations"
+  ]
+}
