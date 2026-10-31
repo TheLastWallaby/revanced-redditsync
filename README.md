@@ -12,10 +12,11 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Unreleased: award data (issue #11)
+## Release candidate — v0.6.3-rc.1 award data (issue #11)
 
 Adds **Sync: handle unavailable award data** for [issue #11](https://github.com/TheLastWallaby/revanced-redditsync/issues/11).
-It is not in a release yet; use a PR CI artifact or a local build to test it.
+It ships in the **v0.6.3-rc.1** prerelease for phone testing. Stable remains
+v0.6.2 until the candidate is confirmed on a phone.
 
 Sync 23033 reads legacy award fields in two places. Both used to throw when a
 field was missing or had changed shape.
@@ -192,7 +193,7 @@ route is the CLI; Manager import and patching still need device verification.
 - **Sync: improve inline comment media** draws comment pictures, Reddit/Giphy
   GIFs and direct Imgur pictures inline at their real aspect ratio within the
   reply width, as described above.
-- **Sync: handle unavailable award data** (unreleased) keeps listings usable when
+- **Sync: handle unavailable award data** (v0.6.3-rc.1 candidate) keeps listings usable when
   award fields are missing and gives the awards sheet accurate messages and an
   Open on Reddit row, as described above.
 
@@ -213,8 +214,8 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 2. Use a base that has **none of this bundle's earlier compatibility patches**.
    Do not reapply to an APK already containing any earlier compatibility bundle.
 3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
-   and apply every named patch: four in v0.6.2 (three in v0.6.1), five in builds
-   that include the unreleased award-data patch. Check that each reports success.
+   and apply every named patch: four in v0.6.2 (three in v0.6.1), five in
+   v0.6.3-rc.1, which adds the award-data patch. Check that each reports success.
 4. Sign the result with your own keystore. Matching the key used by your current
    installation allows an in-place update.
 
@@ -301,7 +302,7 @@ with an existing installation.
 1. Set `VERSION` to an unused candidate version, run the required checks and
    merge the tested PR.
 2. Run **Actions → Publish patch release** on `main` with the exact matching tag
-   (for example `v0.6.3-rc.1` for a future candidate). The workflow rebuilds, checks the tested
+   (for example `v0.6.3-rc.2` for a future candidate). The workflow rebuilds, checks the tested
    revision, publishes all four assets and updates the Manager feeds.
 3. Manually run **Build my Sync APK** in the provisioned private repository with
    the same candidate tag. Scheduled builds follow stable releases only.
