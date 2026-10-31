@@ -6,6 +6,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.ref.WeakReference;
+import java.lang.reflect.Method;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -13,6 +15,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -23,6 +26,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.json.JSONObject;
 
 /**
  * Still-frame previews for Reddit-hosted videos in comments.
@@ -33,6 +37,10 @@ import java.util.regex.Pattern;
  * opens, and makes a JPEG poster (first frame plus a play badge) that Sync's inline image span
  * draws like a comment picture. Posters are made in the background from the start of the
  * smallest suitable rendition, without cookies or credentials, and cached in the app's cache.
+ *
+ * Posters are queued as soon as Sync parses a comment's media_metadata. When that metadata gives
+ * the video's size, the comment reserves the box at once with a placeholder (a dark frame with
+ * the play badge), and the poster is loaded into the same span when it is ready.
  */
 public final class CommentVideo {
     static final int MAX_MANIFEST_BYTES = 256 * 1024;
@@ -63,8 +71,19 @@ public final class CommentVideo {
     private static final Map<String, Boolean> FAILED = lru();
     private static final Map<String, Boolean> DISK_CHECKED = lru();
     private static final Set<String> PENDING = new HashSet<>();
+    /** Video sizes by media ID, from media_metadata or the manifest. */
+    private static final Map<String, int[]> VIDEO_SIZES = lru();
+    /** Image spans drawn before their poster was ready, by media ID; weakly held. */
+    private static final Map<String, List<WeakReference<Object>>> WAITING = lru();
+    static final int MAX_WAITING_SPANS = 8;
+    private static final Map<String, Boolean> PLACEHOLDERS = lru();
+    private static final Set<String> PLACEHOLDER_PENDING = new HashSet<>();
+    static final int PLACEHOLDER_WIDTH = 480;
+    /** Method the patch adds to Sync's inline image span (nb.c) to load another file into it. */
+    static final String SPAN_LOAD = "syncCompatLoad";
 
-    private static final ThreadPoolExecutor WORKER = new ThreadPoolExecutor(0, 1, 30, TimeUnit.SECONDS,
+    /** Two posters at a time; core threads time out when idle. */
+    private static final ThreadPoolExecutor WORKER = new ThreadPoolExecutor(2, 2, 30, TimeUnit.SECONDS,
             new LinkedBlockingQueue<Runnable>(16), runnable -> {
                 Thread thread = new Thread(runnable, "sync-compat-video-poster");
                 thread.setDaemon(true);
@@ -77,6 +96,17 @@ public final class CommentVideo {
                     }
                 }
             });
+    private static final ThreadPoolExecutor DRAWER = new ThreadPoolExecutor(1, 1, 30, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<Runnable>(16), runnable -> {
+                Thread thread = new Thread(runnable, "sync-compat-video-placeholder");
+                thread.setDaemon(true);
+                return thread;
+            }, new ThreadPoolExecutor.DiscardPolicy());
+
+    static {
+        WORKER.allowCoreThreadTimeOut(true);
+        DRAWER.allowCoreThreadTimeOut(true);
+    }
 
     private CommentVideo() {}
 
@@ -97,6 +127,10 @@ public final class CommentVideo {
         int[] imageSize(File poster);
         /** Writes a JPEG poster from the video's first frame; returns its size or null. */
         int[] makePoster(File video, File poster, int nativeWidth);
+        /** Writes a JPEG placeholder (dark frame with the play badge) of this size. */
+        boolean makePlaceholder(File placeholder, int width, int height);
+        /** Runs on Sync's main thread, where image loads must start. */
+        void post(Runnable runnable);
         float density();
     }
 
@@ -166,8 +200,9 @@ public final class CommentVideo {
     // ---------------------------------------------------------------- posters
 
     /**
-     * Inline box for a video link whose poster is ready, or null to keep Sync's link. An unknown
-     * poster is queued in the background and appears on a later redraw. Never throws.
+     * Inline box for a video link, or null to keep Sync's link. The box uses the poster's size
+     * when it is ready, otherwise the video's size from media_metadata or the manifest, so the
+     * space is reserved before the poster exists. A missing poster is queued. Never throws.
      */
     public static int[] posterSize(String href, int maxWidth) {
         try {
@@ -176,7 +211,10 @@ public final class CommentVideo {
             int[] size = cachedSize(id);
             if (size == null) {
                 requestPoster(id);
-                return null;
+                synchronized (LOCK) {
+                    size = VIDEO_SIZES.get(id);
+                }
+                if (size == null) return null;
             }
             return CommentMedia.fitBox(size[0], size[1], maxWidth, platform.density());
         } catch (RuntimeException | LinkageError e) {
@@ -184,16 +222,222 @@ public final class CommentVideo {
         }
     }
 
-    /** Poster file for Sync's image span; only called after posterSize returned a box. Never null. */
+    /**
+     * File for Sync's image span, only called after posterSize returned a box: the poster when
+     * ready, else the placeholder for the video's shape, else the poster's future path (the span
+     * then shows Sync's loading placeholder until track() loads a file into it). Never null.
+     */
     public static String posterUrl(String href) {
         try {
             String id = mediaId(href);
-            File file = id == null ? null : posterFile(id);
-            if (file != null) return file.getAbsolutePath();
+            String path = id == null ? null : bestPath(id);
+            if (path != null) return path;
         } catch (RuntimeException | LinkageError ignored) {
             // Fall through: the span then fails to load and draws nothing.
         }
         return href == null ? "" : href;
+    }
+
+    static String bestPath(String id) {
+        File directory = platform.posterDirectory();
+        if (directory == null) return null;
+        String placeholder = null;
+        synchronized (LOCK) {
+            if (SIZES.containsKey(id)) return new File(directory, id + ".jpg").getAbsolutePath();
+            int[] video = VIDEO_SIZES.get(id);
+            String key = video == null ? null : placeholderKey(video[0], video[1]);
+            if (key != null && PLACEHOLDERS.containsKey(key)) placeholder = key;
+        }
+        return new File(directory, (placeholder != null ? placeholder : id) + ".jpg").getAbsolutePath();
+    }
+
+    /**
+     * Records Reddit video sizes from a comment's media_metadata while Sync parses it, and queues
+     * their posters so they are usually ready before the comment is drawn. Never throws.
+     */
+    public static void rememberMetadata(JSONObject metadata) {
+        if (metadata == null) return;
+        try {
+            Boolean enabled = null;
+            Iterator<String> keys = metadata.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                JSONObject item = metadata.optJSONObject(key);
+                if (item == null || !"RedditVideo".equals(item.optString("e", ""))
+                        || !"valid".equals(item.optString("status", "valid"))) continue;
+                String id = validId(item.optString("id", key));
+                if (id == null) continue;
+                int[] size = validSize(metadataSize(item));
+                if (size != null) {
+                    synchronized (LOCK) {
+                        VIDEO_SIZES.put(id, size);
+                    }
+                }
+                if (enabled == null) enabled = platform.previewsEnabled();
+                if (enabled) requestPoster(id);
+            }
+        } catch (RuntimeException | LinkageError ignored) {
+            // Metadata only speeds up previews; the link handler still works without it.
+        }
+    }
+
+    static int[] videoSize(String id) {
+        synchronized (LOCK) {
+            return VIDEO_SIZES.get(id);
+        }
+    }
+
+    /** Width and height from x/y on the entry, or on its "s" source object. */
+    static int[] metadataSize(JSONObject item) {
+        int width = item.optInt("x", -1);
+        int height = item.optInt("y", -1);
+        JSONObject source = item.optJSONObject("s");
+        if ((width <= 0 || height <= 0) && source != null) {
+            width = source.optInt("x", -1);
+            height = source.optInt("y", -1);
+        }
+        return new int[] {width, height};
+    }
+
+    /**
+     * Called with each image span the comment handler creates for a video. A span drawn before its
+     * poster was ready gets the placeholder and then the poster loaded into it in place. Never throws.
+     */
+    public static void track(Object span, String href) {
+        try {
+            String id = mediaId(href);
+            if (span == null || id == null) return;
+            int[] video;
+            boolean ready;
+            synchronized (LOCK) {
+                ready = SIZES.containsKey(id);
+                List<WeakReference<Object>> spans = WAITING.get(id);
+                if (spans == null) WAITING.put(id, spans = new ArrayList<>());
+                for (Iterator<WeakReference<Object>> it = spans.iterator(); it.hasNext(); ) {
+                    if (it.next().get() == null) it.remove();
+                }
+                if (spans.size() < MAX_WAITING_SPANS) spans.add(new WeakReference<>(span));
+                video = VIDEO_SIZES.get(id);
+            }
+            if (ready) {
+                // The poster finished between sizing and drawing; load it now.
+                reload(id);
+            } else if (video != null) {
+                requestPlaceholder(video[0], video[1]);
+            }
+        } catch (RuntimeException | LinkageError ignored) {
+            // The span keeps whatever it loaded first.
+        }
+    }
+
+    /**
+     * Loads the poster, or while it is not ready the placeholder, into every live span waiting
+     * for this video. Nothing is loaded while neither file exists.
+     */
+    static void reload(String id) {
+        List<Object> spans = new ArrayList<>();
+        boolean done;
+        boolean placeholder;
+        synchronized (LOCK) {
+            done = SIZES.containsKey(id);
+            int[] video = VIDEO_SIZES.get(id);
+            String key = video == null ? null : placeholderKey(video[0], video[1]);
+            placeholder = key != null && PLACEHOLDERS.containsKey(key);
+            List<WeakReference<Object>> waiting = done ? WAITING.remove(id) : WAITING.get(id);
+            if (waiting != null) {
+                for (WeakReference<Object> reference : waiting) {
+                    Object span = reference.get();
+                    if (span != null) spans.add(span);
+                }
+            }
+        }
+        String path = done || placeholder ? bestPath(id) : null;
+        if (spans.isEmpty() || path == null) return;
+        platform.post(() -> {
+            for (Object span : spans) load(span, path);
+        });
+    }
+
+    /** Calls the method the patch adds to Sync's image span. Never throws. */
+    static void load(Object span, String path) {
+        try {
+            Method method = span.getClass().getMethod(SPAN_LOAD, String.class);
+            method.invoke(span, path);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            // The span keeps its current image.
+        }
+    }
+
+    /** Placeholder size: the video's shape at a fixed width, or null for an unusable shape. */
+    static int[] placeholderDimensions(int width, int height) {
+        if (width <= 0 || height <= 0) return null;
+        float ratio = (float) height / width;
+        if (ratio < CommentMedia.MIN_RATIO || ratio > CommentMedia.MAX_RATIO) return null;
+        int scaled = Math.round(PLACEHOLDER_WIDTH * ratio);
+        return scaled > 0 ? new int[] {PLACEHOLDER_WIDTH, scaled} : null;
+    }
+
+    static String placeholderKey(int width, int height) {
+        int[] size = placeholderDimensions(width, height);
+        return size == null ? null : "placeholder-" + size[0] + "x" + size[1];
+    }
+
+    /** Draws one placeholder per shape in the background, or reuses a saved one. */
+    static void requestPlaceholder(int width, int height) {
+        int[] size = placeholderDimensions(width, height);
+        String key = placeholderKey(width, height);
+        if (size == null) return;
+        synchronized (LOCK) {
+            if (PLACEHOLDERS.containsKey(key) || !PLACEHOLDER_PENDING.add(key)) return;
+        }
+        Runnable task = () -> {
+            try {
+                if (makePlaceholder(key, size)) {
+                    synchronized (LOCK) {
+                        PLACEHOLDERS.put(key, Boolean.TRUE);
+                    }
+                    reloadPlaceholder(key);
+                }
+            } finally {
+                synchronized (LOCK) {
+                    PLACEHOLDER_PENDING.remove(key);
+                }
+            }
+        };
+        try {
+            DRAWER.execute(task);
+        } catch (RuntimeException e) {
+            synchronized (LOCK) {
+                PLACEHOLDER_PENDING.remove(key);
+            }
+        }
+    }
+
+    static boolean makePlaceholder(String key, int[] size) {
+        try {
+            File directory = platform.posterDirectory();
+            if (directory == null || !(directory.isDirectory() || directory.mkdirs())) return false;
+            File file = new File(directory, key + ".jpg");
+            if (file.isFile() && file.length() > 0) return true;
+            File temp = new File(directory, key + ".tmp");
+            boolean made = platform.makePlaceholder(temp, size[0], size[1]) && temp.isFile() && temp.renameTo(file);
+            temp.delete();
+            return made;
+        } catch (RuntimeException | LinkageError e) {
+            return false;
+        }
+    }
+
+    /** Spans still waiting for a poster whose video has this placeholder shape. */
+    private static void reloadPlaceholder(String key) {
+        List<String> ids = new ArrayList<>();
+        synchronized (LOCK) {
+            for (String id : WAITING.keySet()) {
+                int[] video = VIDEO_SIZES.get(id);
+                if (!SIZES.containsKey(id) && video != null && key.equals(placeholderKey(video[0], video[1]))) ids.add(id);
+            }
+        }
+        for (String id : ids) reload(id);
     }
 
     static File posterFile(String id) {
@@ -266,6 +510,13 @@ public final class CommentVideo {
                 String manifest = fetchText(videoBase + id + "/DASHPlaylist.mpd", MAX_MANIFEST_BYTES);
                 List<Rendition> renditions = manifest == null ? null : renditions(manifest);
                 Rendition pick = renditions == null ? null : choose(renditions);
+                if (pick != null) {
+                    // The manifest gives the shape even when media_metadata did not.
+                    Rendition full = largest(renditions);
+                    synchronized (LOCK) {
+                        if (!VIDEO_SIZES.containsKey(id)) VIDEO_SIZES.put(id, new int[] {full.width, full.height});
+                    }
+                }
                 if (pick != null && download(videoBase + id + "/" + pick.base, video, MAX_VIDEO_BYTES)) {
                     int[] size = validSize(platform.makePoster(video, temp, largest(renditions).width));
                     File poster = new File(directory, id + ".jpg");
@@ -289,6 +540,8 @@ public final class CommentVideo {
                 FAILED.put(id, Boolean.TRUE);
             }
         }
+        // Waiting spans get the poster, or keep the placeholder (dark frame with play badge) on failure.
+        reload(id);
         return made;
     }
 
@@ -355,7 +608,7 @@ public final class CommentVideo {
         long stale = System.currentTimeMillis() - 10 * 60 * 1000L;
         for (File file : files) {
             String name = file.getName();
-            if (name.endsWith(".jpg")) {
+            if (name.endsWith(".jpg") && !name.startsWith("placeholder-")) {
                 posters.add(file);
             } else if ((name.endsWith(".part") || name.endsWith(".tmp")) && file.lastModified() < stale) {
                 file.delete();
@@ -509,6 +762,10 @@ public final class CommentVideo {
             FAILED.clear();
             DISK_CHECKED.clear();
             PENDING.clear();
+            VIDEO_SIZES.clear();
+            WAITING.clear();
+            PLACEHOLDERS.clear();
+            PLACEHOLDER_PENDING.clear();
         }
     }
 
@@ -574,22 +831,8 @@ public final class CommentVideo {
                 android.graphics.Paint paint = new android.graphics.Paint(
                         android.graphics.Paint.ANTI_ALIAS_FLAG | android.graphics.Paint.FILTER_BITMAP_FLAG);
                 canvas.drawBitmap(frame, null, new android.graphics.Rect(0, 0, size[0], size[1]), paint);
-                float radius = badgeRadius(size[0], size[1]);
-                float x = size[0] / 2f;
-                float y = size[1] / 2f;
-                paint.setColor(0x8C000000);
-                canvas.drawCircle(x, y, radius, paint);
-                android.graphics.Path triangle = new android.graphics.Path();
-                triangle.moveTo(x - radius * 0.32f, y - radius * 0.45f);
-                triangle.lineTo(x - radius * 0.32f, y + radius * 0.45f);
-                triangle.lineTo(x + radius * 0.5f, y);
-                triangle.close();
-                paint.setColor(0xFFFFFFFF);
-                canvas.drawPath(triangle, paint);
-                try (OutputStream out = new FileOutputStream(poster)) {
-                    if (!image.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out)) return null;
-                }
-                return size;
+                drawBadge(canvas, paint, size[0], size[1]);
+                return save(image, poster) ? size : null;
             } catch (IOException | RuntimeException e) {
                 return null;
             } finally {
@@ -601,6 +844,49 @@ public final class CommentVideo {
                 if (frame != null) frame.recycle();
                 if (image != null) image.recycle();
             }
+        }
+
+        private static void drawBadge(android.graphics.Canvas canvas, android.graphics.Paint paint, int width, int height) {
+            float radius = badgeRadius(width, height);
+            float x = width / 2f;
+            float y = height / 2f;
+            paint.setColor(0x8C000000);
+            canvas.drawCircle(x, y, radius, paint);
+            android.graphics.Path triangle = new android.graphics.Path();
+            triangle.moveTo(x - radius * 0.32f, y - radius * 0.45f);
+            triangle.lineTo(x - radius * 0.32f, y + radius * 0.45f);
+            triangle.lineTo(x + radius * 0.5f, y);
+            triangle.close();
+            paint.setColor(0xFFFFFFFF);
+            canvas.drawPath(triangle, paint);
+        }
+
+        private static boolean save(android.graphics.Bitmap image, File file) throws IOException {
+            try (OutputStream out = new FileOutputStream(file)) {
+                return image.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out);
+            }
+        }
+
+        @Override public boolean makePlaceholder(File placeholder, int width, int height) {
+            android.graphics.Bitmap image = null;
+            try {
+                image = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888);
+                android.graphics.Canvas canvas = new android.graphics.Canvas(image);
+                canvas.drawColor(0xFF202020);
+                drawBadge(canvas, new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG), width, height);
+                return save(image, placeholder);
+            } catch (IOException | RuntimeException e) {
+                return false;
+            } finally {
+                if (image != null) image.recycle();
+            }
+        }
+
+        private android.os.Handler main;
+
+        @Override public synchronized void post(Runnable runnable) {
+            if (main == null) main = new android.os.Handler(android.os.Looper.getMainLooper());
+            main.post(runnable);
         }
 
         @Override public float density() {

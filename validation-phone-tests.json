@@ -2,6 +2,22 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": null,
+      "tested_release": "v0.6.4-rc.1",
+      "results": {
+        "comment_video_link_opens_in_sync_video_viewer": "passed (reported; no browser redirect or 404 page)",
+        "comment_video_inline_preview_frame_and_play_badge": "passed (reported)",
+        "first_display_timing": "comment showed as a link for a few seconds before the frame appeared; addressed in v0.6.4-rc.2 with media_metadata prefetch and a reserved placeholder box"
+      },
+      "promotion": "Not promoted; superseded by v0.6.4-rc.2 for phone testing.",
+      "unverified": [
+        "Inline image previews off (link stays a link, tap still opens the video)",
+        "regression spot-checks of comment pictures, GIFs, share links and load more comments",
+        "account-switch behavior",
+        "Android Manager import and patching"
+      ]
+    },
+    {
       "stable": "v0.6.3",
       "tested_release": "v0.6.3-rc.1",
       "results": {

@@ -626,6 +626,7 @@ val showSyncCommentVideoPreviews = bytecodePatch(
             new-array v5, v7, [Ljava/lang/Object;
             new-instance v1, Lnb/c;
             invoke-direct {v1, v3, v10, v11}, Lnb/c;-><init>(Ljava/lang/String;II)V
+            invoke-static {v1, v2}, $VIDEO->track(Ljava/lang/Object;Ljava/lang/String;)V
             aput-object v1, v5, v8
             new-instance v1, Lmb/d;
             invoke-direct {v1, v2}, Lmb/d;-><init>(Ljava/lang/String;)V
@@ -635,6 +636,92 @@ val showSyncCommentVideoPreviews = bytecodePatch(
             :continue
             nop
         """.trimIndent())
+
+        // Inline image span (nb.c): add syncCompatLoad(path), which loads another file into an
+        // existing span exactly as Sync's builder (oc.c.o) loads it, so a placeholder or poster
+        // replaces what the span shows without waiting for Sync to redraw the comment.
+        val builderTarget = classes.singleOrNull { it.type == "Loc/c;" && it.sourceFile == "SpannableTextViewStringBuilder.java" }
+            ?: throw PatchException("Expected Sync span builder was not found. This patch targets build 23033 only.")
+        val loader = proxy(builderTarget).mutableClass.methods.singleOrNull {
+            it.name == "o" && it.parameterTypes.size == 1 && it.returnType == "V" &&
+                it.implementation?.instructions?.any { i -> i.opcode == Opcode.INSTANCE_OF &&
+                    (i as ReferenceInstruction).reference.toString() == "Lnb/c;" } == true
+        } ?: throw PatchException("Unsupported Sync span loader.")
+        val load = loader.implementation!!.instructions
+        val k = load.singleIndex("inline image span load") {
+            load[it].opcode == Opcode.INSTANCE_OF && (load[it] as ReferenceInstruction).reference.toString() == "Lnb/c;"
+        }
+        val expected = listOf(Opcode.INSTANCE_OF, Opcode.IF_EQZ, Opcode.CHECK_CAST, Opcode.INVOKE_VIRTUAL,
+            Opcode.INVOKE_STATIC, Opcode.MOVE_RESULT_OBJECT, Opcode.INVOKE_STATIC, Opcode.MOVE_RESULT_OBJECT,
+            Opcode.INVOKE_VIRTUAL, Opcode.MOVE_RESULT_OBJECT, Opcode.INVOKE_VIRTUAL, Opcode.MOVE_RESULT_OBJECT,
+            Opcode.INVOKE_VIRTUAL, Opcode.MOVE_RESULT, Opcode.INVOKE_VIRTUAL, Opcode.MOVE_RESULT,
+            Opcode.INVOKE_VIRTUAL, Opcode.MOVE_RESULT_OBJECT, Opcode.CHECK_CAST, Opcode.SGET_OBJECT,
+            Opcode.INVOKE_VIRTUAL, Opcode.MOVE_RESULT_OBJECT, Opcode.CHECK_CAST, Opcode.NEW_INSTANCE,
+            Opcode.CONST_16, Opcode.INVOKE_STATIC, Opcode.MOVE_RESULT, Opcode.INVOKE_DIRECT,
+            Opcode.INVOKE_VIRTUAL, Opcode.MOVE_RESULT_OBJECT, Opcode.CHECK_CAST, Opcode.INVOKE_VIRTUAL)
+        layout(k + expected.size <= load.size && expected.indices.all { load[k + it].opcode == expected[it] }, "inline image span load")
+        fun ref(offset: Int) = (load[k + offset] as ReferenceInstruction).reference.toString()
+        val span = "Lnb/c;"
+        layout(load[k + 3].methodRef()?.let { it.definingClass == span && it.name == "p" } == true &&
+            load[k + 8].methodRef()?.let { it.definingClass == span && it.name == "h" && it.returnType == "Ljava/lang/String;" } == true &&
+            load[k + 12].methodRef()?.let { it.definingClass == span && it.name == "e" } == true &&
+            load[k + 14].methodRef()?.let { it.definingClass == span && it.name == "e" } == true &&
+            load[k + 10].methodRef()?.parameterTypes?.map { it.toString() } == listOf("Ljava/lang/String;") &&
+            load[k + 31].methodRef()?.parameterTypes?.size == 1, "inline image span load calls")
+        val radius = (load[k + 24] as NarrowLiteralInstruction).narrowLiteral
+        val spanClass = proxy(classes.singleOrNull { it.type == span && it.sourceFile == "EmoteImageSpan.java" }
+            ?: throw PatchException("Expected Sync inline image span was not found.")).mutableClass
+        if (spanClass.methods.any { it.name == "syncCompatLoad" }) throw PatchException("Comment video patch is already installed.")
+        val loadMethod = MutableMethod(ImmutableMethod(span, "syncCompatLoad",
+            listOf(com.android.tools.smali.dexlib2.immutable.ImmutableMethodParameter("Ljava/lang/String;", null, null)),
+            "V", AccessFlags.PUBLIC.value, emptySet(), emptySet(), null))
+        loadMethod.resetBody(6, """
+            invoke-static {}, ${ref(4)}
+            move-result-object v0
+            invoke-static {v0}, ${ref(6)}
+            move-result-object v0
+            invoke-virtual {v0, p1}, ${ref(10)}
+            move-result-object v0
+            invoke-virtual {p0}, ${ref(12)}
+            move-result v1
+            invoke-virtual {v0, v1, v1}, ${ref(16)}
+            move-result-object v0
+            check-cast v0, ${ref(18)}
+            sget-object v1, ${ref(19)}
+            invoke-virtual {v0, v1}, ${ref(20)}
+            move-result-object v0
+            check-cast v0, ${ref(22)}
+            new-instance v1, ${ref(23)}
+            const/16 v2, $radius
+            invoke-static {v2}, ${ref(25)}
+            move-result v2
+            invoke-direct {v1, v2}, ${ref(27)}
+            invoke-virtual {v0, v1}, ${ref(28)}
+            move-result-object v0
+            check-cast v0, ${ref(30)}
+            invoke-virtual {v0, p0}, ${ref(31)}
+            return-void
+        """.trimIndent())
+        spanClass.methods.add(loadMethod)
+
+        // Comment parser (c9.c): record video sizes and queue posters from media_metadata, so
+        // the box is reserved and the poster is usually ready before the comment is drawn.
+        val parserTarget = classes.singleOrNull { it.type == "Lc9/c;" && it.sourceFile == "PostParserHelper.java" }
+            ?: throw PatchException("Expected Sync PostParserHelper was not found.")
+        val parser = proxy(parserTarget).mutableClass
+        val sites = parser.methods.flatMap { m ->
+            val body = m.implementation?.instructions ?: return@flatMap emptyList()
+            body.indices.filter { i ->
+                body[i].stringValue() == "media_metadata" && i + 2 < body.size &&
+                    body[i + 1].methodRef()?.name == "optJSONObject" && body[i + 2].opcode == Opcode.MOVE_RESULT_OBJECT &&
+                    body.subList(maxOf(0, i - 8), i).any { it.stringValue() == "body" }
+            }.map { m to it }
+        }
+        if (sites.size != 1) throw PatchException("Expected one comment media_metadata read, found ${sites.size}.")
+        val (parse, index) = sites.single()
+        val metadata = parse.implementation!!.instructions[index + 2].registerA()!!
+        parse.addInstructions(index + 3,
+            "invoke-static/range {v$metadata .. v$metadata}, $VIDEO->rememberMetadata(Lorg/json/JSONObject;)V")
     }
 }
 

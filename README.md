@@ -12,12 +12,14 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Release candidate — v0.6.4-rc.1 comment video previews (issue #23)
+## Release candidate — v0.6.4-rc.2 comment video previews (issue #23)
 
 Adds **Sync: show comment video previews**, the poster-frame part of
 [issue #23](https://github.com/TheLastWallaby/revanced-redditsync/issues/23).
-It ships in the **v0.6.4-rc.1** prerelease for phone testing. Stable remains
-v0.6.3 until the candidate is confirmed on a phone.
+It ships in the **v0.6.4-rc.2** prerelease for phone testing. Stable remains
+v0.6.3 until the candidate is confirmed on a phone. The tester confirmed
+v0.6.4-rc.1 on a phone: the preview and tap work, but the comment showed as a
+link for a few seconds before the frame appeared. rc.2 addresses that.
 
 Reddit writes videos posted in comments as
 `https://reddit.com/link/<post>/video/<media>/player`. Sync 23033 sends that
@@ -39,13 +41,22 @@ post that doesn't exist), which Sync opened as an empty comments page showing
   of at least 360 px, and downloads at most its first 2 MB (a Range request, with
   no cookies or credentials and no redirects followed). Android's media
   decoder takes the first frame. The JPEG poster is kept in the app's cache
-  (`sync-compat-video-posters`, at most 300 files). A video first seen while
-  drawing appears as a preview on a later redraw, like Giphy GIFs. If anything
-  fails, the link stays a link for the rest of the session.
+  (`sync-compat-video-posters`, at most 300 files). Two videos are fetched at
+  a time.
+- **Earlier start and reserved space (rc.2).** Posters are queued as soon as
+  Sync parses the comment's `media_metadata`, before the comment is drawn. When
+  that metadata gives the video's size, the comment immediately reserves the
+  box with a placeholder (a dark frame with the play button, one per shape,
+  also cached). The frame is then loaded into the same box when it is ready,
+  without waiting for Sync to redraw the comment. If the frame can't be made,
+  the placeholder stays and tapping still opens the video. Without a size in
+  the metadata, the comment shows the link until the frame is ready, as in rc.1.
 - Videos don't play inline. Imgur clips (`.mp4`, `.gifv`) are unchanged.
 
-Not yet verified on a device: frame extraction from Reddit's fragmented MP4,
-and Sync's video viewer opening a `v.redd.it` link that has no post attached.
+Verified on a phone with rc.1: frame extraction, the inline preview and the
+tap into Sync's video viewer. Not yet verified: whether Reddit's comment
+`media_metadata` includes the video's size (needed for the reserved box), and
+the in-place swap from placeholder to frame.
 
 ## v0.6.3 award data fix
 
@@ -233,7 +244,7 @@ route is the CLI; Manager import and patching still need device verification.
 - **Sync: handle unavailable award data** keeps listings usable when
   award fields are missing and gives the awards sheet accurate messages and an
   Open on Reddit row, as described above.
-- **Sync: show comment video previews** (v0.6.4-rc.1 candidate) opens Reddit comment video
+- **Sync: show comment video previews** (v0.6.4-rc.2 candidate) opens Reddit comment video
   links in Sync's video viewer and draws them as a still frame with a play
   button, as described above.
 
@@ -255,7 +266,7 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
    Do not reapply to an APK already containing any earlier compatibility bundle.
 3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
    and apply all five named patches (four in v0.6.2, three in v0.6.1; six in
-   v0.6.4-rc.1, which adds the comment video patch). Check that each reports success.
+   v0.6.4-rc.1 and rc.2, which add the comment video patch). Check that each reports success.
 4. Sign the result with your own keystore. Matching the key used by your current
    installation allows an in-place update.
 
@@ -342,7 +353,7 @@ with an existing installation.
 1. Set `VERSION` to an unused candidate version, run the required checks and
    merge the tested PR.
 2. Run **Actions → Publish patch release** on `main` with the exact matching tag
-   (for example `v0.6.4-rc.2` for a future candidate). The workflow rebuilds, checks the tested
+   (for example `v0.6.4-rc.3` for a future candidate). The workflow rebuilds, checks the tested
    revision, publishes all four assets and updates the Manager feeds.
 3. Manually run **Build my Sync APK** in the provisioned private repository with
    the same candidate tag. Scheduled builds follow stable releases only.
