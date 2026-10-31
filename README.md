@@ -12,12 +12,13 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Release candidate — v0.6.2-rc.4 inline comment media (issue #8)
+## Release candidate — v0.6.2-rc.5 inline comment media (issue #8)
 
 Adds **Sync: improve inline comment media** for [issue #8](https://github.com/TheLastWallaby/revanced-redditsync/issues/8).
-It ships in the **v0.6.2-rc.4** prerelease for phone testing. rc.1 showed
-pictures correctly; rc.4 draws Reddit `giphy|ID` comment GIFs full size.
-Stable remains v0.6.1 until the candidate is confirmed on a phone.
+It ships in the **v0.6.2-rc.5** prerelease for phone testing. rc.4's
+pictures and full-size Reddit/Giphy comment GIFs were confirmed on a phone;
+rc.5 adds direct Imgur pictures. Stable remains v0.6.1 until the candidate is
+confirmed on a phone.
 
 - Reddit picture links (`preview.redd.it`, `external-preview.redd.it`,
   `i.redd.it`) read `width`/`height` in any parameter order. Missing,
@@ -251,7 +252,7 @@ with an existing installation.
 1. Set `VERSION` to an unused candidate version, run the required checks and
    merge the tested PR.
 2. Run **Actions → Publish patch release** on `main` with the exact matching tag
-   (for example `v0.6.2-rc.5` for a future candidate). The workflow rebuilds, checks the tested
+   (for example `v0.6.2-rc.6` for a future candidate). The workflow rebuilds, checks the tested
    revision, publishes all four assets and updates the Manager feeds.
 3. Manually run **Build my Sync APK** in the provisioned private repository with
    the same candidate tag. Scheduled builds follow stable releases only.
