@@ -4,19 +4,19 @@ Unofficial ReVanced compatibility patches for **Sync for Reddit
 v23.06.30-13:39**, version code **23033**, free package
 `com.laurencedawson.reddit_sync`.
 
-**Stable v0.6.2** adds the inline comment media fix below. Its runtime code is
-identical to v0.6.2-rc.5, which the tester confirmed working on their phone:
-Reddit picture comments, full-size Reddit/Giphy comment GIFs and direct Imgur
-pictures. It keeps v0.6.1's share-link security fix.
+**Stable v0.6.3** adds the award data fix below. Its runtime code is identical
+to v0.6.3-rc.1, which the tester ran on their phone before approving this
+release. It keeps v0.6.2's inline comment media and v0.6.1's share-link
+security fixes.
 This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Release candidate — v0.6.3-rc.1 award data (issue #11)
+## v0.6.3 award data fix
 
 Adds **Sync: handle unavailable award data** for [issue #11](https://github.com/TheLastWallaby/revanced-redditsync/issues/11).
-It ships in the **v0.6.3-rc.1** prerelease for phone testing. Stable remains
-v0.6.2 until the candidate is confirmed on a phone.
+The tester's v0.6.3-rc.1 phone notes are recorded in
+`validation-phone-tests.json`.
 
 Sync 23033 reads legacy award fields in two places. Both used to throw when a
 field was missing or had changed shape.
@@ -50,9 +50,11 @@ field was missing or had changed shape.
   missing. Only awards for the requested item are shown.
 
 Sync 23033 has no native action for giving awards, so the patch adds none.
-Viewing and giving Reddit's current awards is left to reddit.com. Reddit's live
-award fields were not checked: its JSON API needs authentication, which this
-change was not tested with.
+Viewing and giving Reddit's current awards is left to reddit.com. On the phone,
+a post showing a current-style award in Reddit's own app showed no award in
+Sync. Reddit appears not to report its current awards in the fields Sync reads,
+so the awards sheets and the Open on Reddit row were not exercised on a device.
+Reddit's live award fields were not checked directly.
 
 ## v0.6.2 inline comment media fix
 
@@ -149,13 +151,13 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Stable v0.6.2 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.2)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.2/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.2/sync-gallery-comments-compat-v0.6.2-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.2/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.2/build-info.json)
-- [Archived v0.6.2-rc.5 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.2-rc.5)
-- [Previous stable v0.6.1](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.1)
+- [Stable v0.6.3 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.3)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.3/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.3/sync-gallery-comments-compat-v0.6.3-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.3/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.3/build-info.json)
+- [Archived v0.6.3-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.3-rc.1)
+- [Previous stable v0.6.2](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.2)
 
 For unpublished changes, download the `patch-bundle-<run>-<attempt>` artifact from
 the PR's passing [CI run](https://github.com/TheLastWallaby/revanced-redditsync/actions/workflows/ci.yml).
@@ -181,7 +183,7 @@ download that file from Releases and import it as a local patch bundle.
 Use the Sync base and patch selections described below. The validated patching
 route is the CLI; Manager import and patching still need device verification.
 
-## Included patches — cumulative v0.6.2
+## Included patches — cumulative v0.6.3
 
 - **Sync: secure Reddit share links** validates share URLs and redirects before
   sending credentials, as described above.
@@ -193,7 +195,7 @@ route is the CLI; Manager import and patching still need device verification.
 - **Sync: improve inline comment media** draws comment pictures, Reddit/Giphy
   GIFs and direct Imgur pictures inline at their real aspect ratio within the
   reply width, as described above.
-- **Sync: handle unavailable award data** (v0.6.3-rc.1 candidate) keeps listings usable when
+- **Sync: handle unavailable award data** keeps listings usable when
   award fields are missing and gives the awards sheet accurate messages and an
   Open on Reddit row, as described above.
 
@@ -214,13 +216,13 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 2. Use a base that has **none of this bundle's earlier compatibility patches**.
    Do not reapply to an APK already containing any earlier compatibility bundle.
 3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
-   and apply every named patch: four in v0.6.2 (three in v0.6.1), five in
-   v0.6.3-rc.1, which adds the award-data patch. Check that each reports success.
+   and apply all five named patches (four in v0.6.2, three in v0.6.1). Check
+   that each reports success.
 4. Sign the result with your own keystore. Matching the key used by your current
    installation allows an in-place update.
 
-This bundle adds the gallery/comment fixes, share-link hardening and inline
-comment media. It expects
+This bundle adds the gallery/comment fixes, share-link hardening, inline
+comment media and award data handling. It expects
 the existing ReVanced shared Logger class; its source stub is for compilation only. It does not
 supply OAuth configuration or unrelated Sync patches such as RedGifs fixes.
 
@@ -232,7 +234,7 @@ repository, using your own paths for the other files:
 java -jar revanced-cli-6.0.0-all.jar patch \
   -p output/patches.rvp -b \
   --keystore your-signing-key.keystore \
-  -o Sync-v23.06.30-compat-v0.6.2.apk \
+  -o Sync-v23.06.30-compat-v0.6.3.apk \
   Sync-v23.06.30-revanced-base.apk
 ```
 
@@ -302,7 +304,7 @@ with an existing installation.
 1. Set `VERSION` to an unused candidate version, run the required checks and
    merge the tested PR.
 2. Run **Actions → Publish patch release** on `main` with the exact matching tag
-   (for example `v0.6.3-rc.2` for a future candidate). The workflow rebuilds, checks the tested
+   (for example `v0.6.4-rc.1` for a future candidate). The workflow rebuilds, checks the tested
    revision, publishes all four assets and updates the Manager feeds.
 3. Manually run **Build my Sync APK** in the provisioned private repository with
    the same candidate tag. Scheduled builds follow stable releases only.
@@ -337,8 +339,10 @@ The v0.6.1-rc.1 candidate additionally passed the reported share-link, cold-star
 gallery and comment phone checks recorded in `validation-phone-tests.json`.
 Stable v0.6.1 rebuilt the same runtime code under its stable version.
 The v0.6.2 candidates passed the tester's picture, Giphy and Imgur comment
-checks recorded in `validation-phone-tests.json`; stable v0.6.2 rebuilds the
-v0.6.2-rc.5 runtime code under its stable version.
+checks recorded in `validation-phone-tests.json`; stable v0.6.2 rebuilt the
+v0.6.2-rc.5 runtime code under its stable version. Stable v0.6.3 rebuilds the
+v0.6.3-rc.1 runtime code, which the tester ran on their phone before approving
+it; see `validation-phone-tests.json` for what was and wasn't exercised.
 This standalone bundle does not represent a full upstream Gradle build.
 
 ## Sharing and license
