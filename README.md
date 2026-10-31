@@ -4,18 +4,16 @@ Unofficial ReVanced compatibility patches for **Sync for Reddit
 v23.06.30-13:39**, version code **23033**, free package
 `com.laurencedawson.reddit_sync`.
 
-**Stable v0.6.6** replaces Sync's defunct media proxies with direct HTTPS
-resolution: Imgur albums and gallery posts, album link-card thumbnails and
-enhanced autoplay of RedGifs posts. Its runtime code is identical to
-v0.6.6-rc.1, which the tester confirmed on their phone before approving stable
-promotion. It includes v0.6.5's Imgur comment video posters, v0.6.4's Reddit
-video support, v0.6.3's award data, v0.6.2's inline comment media and v0.6.1's
-share-link security fixes.
+**Stable v0.6.7** preserves dollar signs and backslashes in fenced code,
+spoiler-link labels and emote URLs. It rebuilds the runtime code from the
+phone-tested v0.6.7-rc.1 candidate, retaining v0.6.6's direct media resolution,
+v0.6.5's Imgur comment video posters, v0.6.4's Reddit video support, v0.6.3's
+award data, v0.6.2's inline comment media and v0.6.1's share-link security fixes.
 This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## v0.6.7-rc.1 candidate: literal Markdown replacements (issue #2)
+## v0.6.7 literal Markdown replacements (issue #2)
 
 Adds the selectable **Sync: preserve literal Markdown replacements** patch for
 [issue #2](https://github.com/TheLastWallaby/revanced-redditsync/issues/2).
@@ -32,12 +30,22 @@ matches and unchanged ordinary links, and rejects duplicate application.
 The fenced-code/spoiler fixtures contain the original build-23033 method bodies;
 the emote fixture isolates the two original replacement sequences. A small strict
 instruction runner covers these string methods, not the Android renderer or full
-post parser. Phone rendering and authenticated Reddit validation are pending.
-The [v0.6.7-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.7-rc.1)
-contains all seven stable patches plus this eighth selectable patch. Rebuild from
-the prepared base and check all eight patch results. Stable remains v0.6.6 while
-this candidate awaits phone testing; the stable download instructions below apply
-to that stable release.
+post parser.
+
+On v0.6.7-rc.1, the tester supplied a phone screenshot showing literal dollar
+signs, backslashes and Unicode in a fenced-code preview, ordinary bold/link
+formatting and the spoiler label. The tester then reported gallery navigation
+and load-more comments passing, followed by the emote comment in
+[this test thread](https://www.reddit.com/r/deadbydaylight/comments/otk1ev/this_post_is_only_a_test/h6w2e7b/).
+Reddit currently supplies a generic animated dizzy-face image for that old custom
+emote; that is the image tested. Live emote URLs containing dollar signs or
+backslashes were not observed; the offline fixtures cover those replacements.
+See `validation-phone-tests.json` for the scope and remaining checks.
+
+The [v0.6.7 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.7)
+rebuilds the runtime code from the tested
+[v0.6.7-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.7-rc.1).
+Rebuild from the prepared base and check all eight named patch results.
 
 ## v0.6.6 direct media resolution (issue #4)
 
@@ -324,14 +332,13 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Test candidate v0.6.7-rc.1](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.7-rc.1)
-- [Stable v0.6.6 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.6)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.6/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.6/sync-gallery-comments-compat-v0.6.6-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.6/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.6/build-info.json)
-- [Archived v0.6.6-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.6-rc.1)
-- [Previous stable v0.6.5](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.5)
+- [Stable v0.6.7 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.7)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.7/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.7/sync-gallery-comments-compat-v0.6.7-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.7/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.7/build-info.json)
+- [Archived v0.6.7-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.7-rc.1)
+- [Previous stable v0.6.6](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.6)
 
 For unpublished changes, download the `patch-bundle-<run>-<attempt>` artifact from
 the PR's passing [CI run](https://github.com/TheLastWallaby/revanced-redditsync/actions/workflows/ci.yml).
@@ -357,7 +364,7 @@ download that file from Releases and import it as a local patch bundle.
 Use the Sync base and patch selections described below. The validated patching
 route is the CLI; Manager import and patching still need device verification.
 
-## Included patches — cumulative v0.6.6
+## Included patches — cumulative v0.6.7
 
 - **Sync: secure Reddit share links** validates share URLs and redirects before
   sending credentials, as described above.
@@ -378,6 +385,8 @@ route is the CLI; Manager import and patching still need device verification.
 - **Sync: replace legacy media proxies** resolves Imgur albums, gallery posts,
   album thumbnails and RedGifs enhanced autoplay directly instead of through
   Sync's defunct proxies, as described above.
+- **Sync: preserve literal Markdown replacements** preserves dollar signs and
+  backslashes in fenced code, spoiler-link labels and emote URLs.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
@@ -396,14 +405,14 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 2. Use a base that has **none of this bundle's earlier compatibility patches**.
    Do not reapply to an APK already containing any earlier compatibility bundle.
 3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
-   and apply all seven named patches (six in v0.6.4 and v0.6.5, five in v0.6.3,
-   four in v0.6.2, three in v0.6.1). Check that each reports success.
+   and apply all eight named patches (seven in v0.6.6, six in v0.6.4 and v0.6.5,
+   five in v0.6.3, four in v0.6.2, three in v0.6.1). Check that each reports success.
 4. Sign the result with your own keystore. Matching the key used by your current
    installation allows an in-place update.
 
 This bundle adds the gallery/comment fixes, share-link hardening, inline
-comment media, award data handling, comment video previews and direct media
-resolution. It expects
+comment media, award data handling, comment video previews, direct media
+resolution and literal Markdown replacements. It expects
 the existing ReVanced shared Logger class; its source stub is for compilation only. It does not
 supply OAuth configuration or unrelated Sync patches such as RedGifs fixes.
 
@@ -529,6 +538,9 @@ their phone before approving it. Stable v0.6.5 rebuilds the tested v0.6.5-rc.4
 runtime code after the tester reported it looking good and authorized promotion.
 Stable v0.6.6 rebuilds the v0.6.6-rc.1 runtime code, whose full phone
 checklist the tester ran before approving promotion.
+Stable v0.6.7 rebuilds the v0.6.7-rc.1 runtime code after the tester's Markdown
+preview screenshot and reported gallery, load-more and emote checks passed.
+These are checks of the supplied cases, not exhaustive Android/live Reddit tests.
 This standalone bundle does not represent a full upstream Gradle build.
 
 ## Sharing and license

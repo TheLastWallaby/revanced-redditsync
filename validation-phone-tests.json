@@ -2,6 +2,28 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.6.7",
+      "tested_release": "v0.6.7-rc.1",
+      "results": {
+        "candidate_installed_and_used": "tester supplied a Sync phone preview screenshot and then reported passes for the requested checks",
+        "fenced_code_preview": "screenshot preserves echo $HOME, price $12, a literal dollar sign, C:\\temp\\file and Unicode characters",
+        "ordinary_formatting_and_spoiler_label": "screenshot shows normal bold/link formatting and the spoiler label retaining $12 and a backslash",
+        "reddit_gallery_navigation": "tester reported \"1 and 2 pass\" for the supplied gallery-navigation and load-more checks",
+        "load_more_comments": "tester reported \"1 and 2 pass\" for the supplied gallery-navigation and load-more checks",
+        "custom_emote_comment": "tester reported \"Pass\" after opening the linked comment; Reddit supplied a valid animated generic dizzy-face image for that old custom emote"
+      },
+      "emote_test_comment": "https://www.reddit.com/r/deadbydaylight/comments/otk1ev/this_post_is_only_a_test/h6w2e7b/",
+      "promotion": "Prepared stable v0.6.7 rebuilds the same runtime patch and extension source as phone-tested v0.6.7-rc.1. Candidate assets remain immutable.",
+      "unverified": [
+        "live emote URLs containing dollar signs or backslashes; these replacements have offline fixture coverage",
+        "the image-source emote branch separately from the tested animated GIF-source case",
+        "published post/comment rendering of the Markdown sample beyond the editor preview",
+        "settings-off paths, account switching and Android Manager import/patching",
+        "separate device installation of the stable rebuild",
+        "exhaustive Reddit account/post combinations"
+      ]
+    },
+    {
       "stable": "v0.6.6",
       "tested_release": "v0.6.6-rc.1",
       "results": {
