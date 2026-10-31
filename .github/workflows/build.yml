@@ -1,0 +1,75 @@
+name: Build patch bundle
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ''
+    outputs:
+      version:
+        value: ${{ jobs.build.outputs.version }}
+      artifact:
+        value: ${{ jobs.build.outputs.artifact }}
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      artifact: ${{ steps.metadata.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: toolchain
+          key: toolchain-linux-${{ hashFiles('toolchain.lock.json') }}
+      - name: Test build infrastructure
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Build, run Java suites, and load the RVP with ReVanced CLI
+        run: python3 build.py --bootstrap
+      - name: Record bundle version
+        id: metadata
+        run: |
+          python3 - <<'PY'
+          import os
+          from scripts.release_artifacts import version
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write('version=' + version() + '\n')
+              out.write('artifact=patch-bundle-' + os.environ['GITHUB_RUN_ID'] + '-' + os.environ['GITHUB_RUN_ATTEMPT'] + '\n')
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.metadata.outputs.artifact }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            output/patches.rvp
+            output/*-source.zip
+            output/SHA256SUMS
+            output/build-info.json
+      - name: Write download summary
+        env:
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          summary = f"Built cumulative bundle **v{os.environ['VERSION']}**.\n\n"
+          summary += "Download the patch-bundle artifact from this run. It contains patches.rvp, the source ZIP, checksums, and build information.\n\n"
+          summary += "Automated JVM and build checks passed. Android installation and live Reddit behavior require a device test.\n"
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as out:
+              out.write(summary)
+          PY

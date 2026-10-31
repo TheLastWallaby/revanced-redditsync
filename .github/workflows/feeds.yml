@@ -1,0 +1,40 @@
+name: Refresh Manager feeds
+on:
+  release:
+    types: [published, edited, deleted]
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: write
+concurrency:
+  group: manager-feeds
+  cancel-in-progress: false
+jobs:
+  feeds:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: main
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Refresh remote bundle metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --slurp > "$RUNNER_TEMP/release-pages.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          pages = json.loads((Path(os.environ['RUNNER_TEMP']) / 'release-pages.json').read_text())
+          (Path(os.environ['RUNNER_TEMP']) / 'releases.json').write_text(json.dumps([r for page in pages for r in page]))
+          PY
+          python3 scripts/update_bundle_json.py --releases-json "$RUNNER_TEMP/releases.json"
+          git add bundles/stable.json bundles/latest.json
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Update Manager bundle feeds'
+          git push origin HEAD:main

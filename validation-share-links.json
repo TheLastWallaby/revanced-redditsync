@@ -1,7 +1,8 @@
 {
-  "version": "0.6.1",
+  "historical_local_build_version": "0.6.1",
+  "evidence_scope": "Earlier local smoke build only. For the current candidate use CI/release build-info.json and SHA256SUMS, and the private APK verification.json and patch logs.",
   "issue": 1,
-  "status": "candidate built and verified locally; not yet device- or live-account-tested",
+  "status": "historical local build verified with a disposable key; not device- or live-account-tested",
   "share_link_security_checks": 746,
   "existing_volley_loopback_checks": 92,
   "security_transport": "stub HttpURLConnection recording destinations and Authorization; no real token or live Reddit request",
