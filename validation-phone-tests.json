@@ -2,6 +2,22 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.6.5",
+      "tested_release": "v0.6.5-rc.4",
+      "results": {
+        "candidate_installed_and_used": "tester reported \"Looks good\" after the rc.4 preview fixes and explicitly authorized stable promotion",
+        "comment_video_preview_refresh_and_layout": "accepted for the tested thread after automatic sizing and blank-preview fixes; no detailed per-clip retest report was provided"
+      },
+      "promotion": "Stable v0.6.5 rebuilds the same runtime patch and extension source as the phone-tested v0.6.5-rc.4 candidate; existing candidate assets remain immutable.",
+      "unverified": [
+        "specific formerly blank clip source/decoder and whether JPEG or terminal fallback was used",
+        "Inline image previews off",
+        "separate device installation of the stable rebuild",
+        "regression spot-checks of Reddit videos, pictures/GIFs, share links and load more comments",
+        "account-switch behavior and Android Manager import/patching"
+      ]
+    },
+    {
       "stable": null,
       "tested_release": "v0.6.5-rc.3",
       "results": {

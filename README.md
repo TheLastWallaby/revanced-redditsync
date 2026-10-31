@@ -4,78 +4,60 @@ Unofficial ReVanced compatibility patches for **Sync for Reddit
 v23.06.30-13:39**, version code **23033**, free package
 `com.laurencedawson.reddit_sync`.
 
-**Stable v0.6.4** adds the comment video previews below. Its runtime code is
-identical to v0.6.4-rc.3, which the tester confirmed working on their phone
-before approving this release. It keeps v0.6.3's award data, v0.6.2's inline
+**Stable v0.6.5** adds Imgur comment video posters, automatic frame refresh and
+live aspect-ratio sizing. Its runtime code is identical to v0.6.5-rc.4, which
+the tester confirmed working on their phone before approving stable promotion.
+It includes v0.6.4's Reddit video support, v0.6.3's award data, v0.6.2's inline
 comment media and v0.6.1's share-link security fixes.
 This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Release candidate — v0.6.5-rc.4 Imgur comment video previews (issue #23)
+## v0.6.5 Imgur comment video previews (issue #23)
 
 Extends **Sync: show comment video previews** to direct Imgur `.mp4` and `.gifv`
 links on `i.imgur.com`, `imgur.com` and `www.imgur.com`, using the same
-poster-and-play-button option as Reddit comment videos. It ships in the
-[v0.6.5-rc.4 prerelease](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.5-rc.4)
-for phone testing; stable v0.6.4 contains only the Reddit part.
+poster-and-play-button option as Reddit comment videos. The
+[v0.6.5 stable release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.5)
+rebuilds the runtime code from the tested
+[v0.6.5-rc.4 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.5-rc.4).
 
 - With **Inline image previews** on, the comment reserves a placeholder box and
-  loads a still frame into it. **Live sizing (rc.4)** updates the span's width and
-  height to the decoded aspect ratio and rebuilds its TextView layout. The first
-  square box no longer needs to survive until the comment scrolls offscreen.
-- **Cleaner loading (rc.2).** The first image load gets a ready, opaque neutral
-  PNG, then the shaped play placeholder and poster. It no longer points Glide at
-  a poster file that does not exist yet, and unchanged placeholders are not
-  repeatedly loaded. The shared neutral image is 69 bytes, written atomically
-  once before its first use; shaped images are still drawn in the background.
-- **Automatic repaint (rc.3).** Replacing an image request makes Glide clear its
-  old target. Sync's image span also cleared its weak TextView binding then, so
-  a later frame could load without repainting until the user scrolled or tapped.
-  The loader now preserves that weak binding across replacement and schedules
-  a repaint afterward, including when a cached frame completes synchronously.
-  The patch validates the exact build-23033 binding field before applying.
-  rc.4 additionally validates the span's width/height fields against the original
-  constructor before allowing their metrics to change; ordinary image spans keep
-  their original dimensions. Unknown span implementations retain the old fitted
+  loads a still frame into it. The visible span takes the decoded aspect ratio
+  and its TextView layout is rebuilt, so a wide frame need not stay in the first
+  square box until the user scrolls away and back.
+- The first image load uses a ready 69-byte opaque neutral PNG, then a shaped
+  play placeholder and poster. Images are written atomically; the loader never
+  starts with a future/missing poster file or repeatedly loads an unchanged placeholder.
+- Image replacement preserves the span's weak TextView binding across Glide's
+  target-clear callback and schedules a repaint, including cached synchronous
+  completion. The patch validates the build-23033 view binding and dimension
+  fields against the original constructor before enabling live metrics.
+  Ordinary image spans keep their dimensions; unknown targets retain the fitted
   poster fallback.
-- **Completion race (rc.4).** A frame finishing between placeholder selection and
-  span registration must still be delivered. Readiness during registration no
-  longer assumes that the span already received the poster.
-- A background worker first requests the clip's small WebP still from
-  `i.imgur.com` (complete images only, at most 256 KB). Android decodes a bounded
-  first frame, adds the play badge and caches it. Missing, oversized or invalid
-  stills fall back to rc.1's first 2 MB of the MP4 and video-frame decoder.
-  HTTP 429 stops that job instead of immediately requesting another rendition.
-  rc.3 also reaches the MP4 fallback after optional-still timeouts, read errors
-  or decoder exceptions. Requests explicitly ask for image or video MIME types.
-  rc.4 tries the bounded `<id>h.jpg` thumbnail if WebP and the MP4 prefix cannot
-  produce a frame. The JPEG uses the same 256 KB/image-decode limits; any media
-  HTTP 429 stops the remaining fallbacks.
-  Requests use no redirects, cookies or authorization. The patch does not fetch
-  GIF renditions or Imgur website HTML. Case-sensitive Imgur IDs have separate cache
-  keys from Reddit videos; `.mp4` and `.gifv` share a poster for the same ID.
-- The original link, query and fragment remain the tap target, using Sync's
-  existing viewer. Albums, page-only links and other unsupported URLs keep their
-  original cards. A failed fetch or decode keeps the link on subsequent draws;
-  an already drawn placeholder becomes a compact play tile in rc.4, preserving
-  the video tap target instead of occupying a large empty square.
-- Turning **Inline image previews** off keeps the link card and queues no poster
-  fetch. Posters are static: animated-image and autoplay settings do not start
-  playback. Playing the video still requires a tap.
+- A frame finishing between placeholder selection and span registration is
+  still delivered; readiness during registration no longer assumes it is displayed.
+- Background jobs prefer a complete Imgur WebP still (at most 256 KB), then the
+  first 2 MB of its MP4, then a bounded `<id>h.jpg` thumbnail if needed. Android
+  decodes a bounded first frame and adds a play badge. HTTP 429 stops remaining
+  fallbacks. Requests use fixed HTTPS media hosts, explicit media MIME types,
+  no redirects, cookies or authorization, and no GIF renditions or website HTML.
+  Case-sensitive Imgur IDs have separate cache keys from Reddit videos;
+  `.mp4` and `.gifv` share a poster for the same ID.
+- The original link, query and fragment stay the tap target for Sync's existing
+  viewer. Unsupported URLs keep their cards. If no frame can be made, existing
+  spans shrink to a compact play tile and subsequent bindings use the link card.
+- With **Inline image previews** off, the card remains and no poster is queued.
+  Posters are static; animated-image and autoplay settings do not start playback.
 
-Loopback tests exercise the actual URL, download, cache, sizing and span-update
-logic with fake Android image/video decoders. A target-lifecycle regression
-reproduces the shipped span's lost weak view binding and covers asynchronous,
-cached, failed, recycled and detached loads. A separate layout suite covers the
-registration race, real frame dimensions, row relayout and compact terminal fallback.
-The tester reported rc.1 working
-with a messy placeholder, then rc.2 showing frames after scrolling away and back
-or tapping. The tester confirmed rc.3's frames appear automatically, but gray bars
-disappear only after scrolling away and back and one preview never loads. rc.4
-addresses those paths; its live sizing still needs phone validation. The specific
-failed clip and active decoder branch were not captured. Retest a Reddit comment video,
-comment pictures/GIFs, share links and load more comments on that build.
+All nine Java suites exercise the URL, download, cache, sizing and span-update
+logic with fake Android decoders, including weak view binding, cached completion,
+registration races, row relayout, recycled/detached targets and terminal failures.
+The tester confirmed automatic refresh on rc.3, then reported rc.4 looking good
+and authorized stable promotion. This is phone confirmation for the tested case,
+not exhaustive Android/live-service validation. The exact failed clip's decoder
+path and settings-off behavior were not separately confirmed; see
+`validation-phone-tests.json` for the scope of the report.
 
 ## v0.6.4 comment video previews
 
@@ -271,13 +253,13 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Stable v0.6.4 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.4)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.4/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.4/sync-gallery-comments-compat-v0.6.4-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.4/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.4/build-info.json)
-- [Archived v0.6.4-rc.3 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.4-rc.3)
-- [Previous stable v0.6.3](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.3)
+- [Stable v0.6.5 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.5)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.5/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.5/sync-gallery-comments-compat-v0.6.5-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.5/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.5/build-info.json)
+- [Archived v0.6.5-rc.4 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.5-rc.4)
+- [Previous stable v0.6.4](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.4)
 
 For unpublished changes, download the `patch-bundle-<run>-<attempt>` artifact from
 the PR's passing [CI run](https://github.com/TheLastWallaby/revanced-redditsync/actions/workflows/ci.yml).
@@ -303,7 +285,7 @@ download that file from Releases and import it as a local patch bundle.
 Use the Sync base and patch selections described below. The validated patching
 route is the CLI; Manager import and patching still need device verification.
 
-## Included patches — cumulative v0.6.4
+## Included patches — cumulative v0.6.5
 
 - **Sync: secure Reddit share links** validates share URLs and redirects before
   sending credentials, as described above.
@@ -357,7 +339,7 @@ repository, using your own paths for the other files:
 java -jar revanced-cli-6.0.0-all.jar patch \
   -p output/patches.rvp -b \
   --keystore your-signing-key.keystore \
-  -o Sync-v23.06.30-compat-v0.6.4.apk \
+  -o Sync-v23.06.30-compat-v0.6.5.apk \
   Sync-v23.06.30-revanced-base.apk
 ```
 
@@ -427,7 +409,7 @@ with an existing installation.
 1. Set `VERSION` to an unused candidate version, run the required checks and
    merge the tested PR.
 2. Run **Actions → Publish patch release** on `main` with the exact matching tag
-   (for example `v0.6.4-rc.4` for a future candidate). The workflow rebuilds, checks the tested
+   (for example `v0.6.6-rc.1` for a future candidate). The workflow rebuilds, checks the tested
    revision, publishes all four assets and updates the Manager feeds.
 3. Manually run **Build my Sync APK** in the provisioned private repository with
    the same candidate tag. Scheduled builds follow stable releases only.
@@ -467,7 +449,8 @@ v0.6.2-rc.5 runtime code under its stable version. Stable v0.6.3 rebuilds the
 v0.6.3-rc.1 runtime code, which the tester ran on their phone before approving
 it; see `validation-phone-tests.json` for what was and wasn't exercised. Stable
 v0.6.4 rebuilds the v0.6.4-rc.3 runtime code, which the tester confirmed on
-their phone before approving it.
+their phone before approving it. Stable v0.6.5 rebuilds the tested v0.6.5-rc.4
+runtime code after the tester reported it looking good and authorized promotion.
 This standalone bundle does not represent a full upstream Gradle build.
 
 ## Sharing and license
