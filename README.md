@@ -12,6 +12,36 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
+## Release candidate — v0.6.2-rc.1 inline comment media (issue #8)
+
+Adds **Sync: improve inline comment media** for [issue #8](https://github.com/TheLastWallaby/revanced-redditsync/issues/8).
+It ships in the **v0.6.2-rc.1** prerelease for phone testing. Stable remains
+v0.6.1 until the candidate is confirmed on a phone.
+
+- Reddit picture links (`preview.redd.it`, `external-preview.redd.it`,
+  `i.redd.it`) read `width`/`height` in any parameter order. Missing,
+  non-numeric, zero or oversized values no longer reach `Integer.parseInt`.
+- When a link has no height, the comment's `media_metadata` supplies the source
+  size and MIME type. Sync's parser feeds a small in-memory cache that holds
+  media IDs, sizes and types only. The stored comment text is not changed.
+- The picture keeps its aspect ratio. It fits the available reply width and is
+  not stretched past its native size. Tall images stop at 1.5× the reply
+  width. Extreme banners or strips, and boxes that rounding would distort by
+  more than 10%, stay links.
+- The URL is never rebuilt. The old `&height` slice that dropped the signed
+  `s=` parameter is gone, and the tap target stays the original link.
+- WebP and other picture formats are recognized from the parsed path or the
+  `format=` value, not from substrings. `format=mp4` renditions are not drawn as
+  pictures. Detection only adds to Sync's own list and still respects the
+  **Inline image previews** setting. Inline-sized pictures also require that
+  setting; with it off, links stay links.
+- Giphy `id|width|height` markers with bad sizes fall back to Sync's unsized
+  Giphy image instead of throwing.
+
+Not covered: inline playback of comment videos. Video links stay tappable and
+open in Sync's existing viewer. Rendering in deeply nested replies, rotation
+and Reddit's current comment payloads still need phone validation.
+
 ## v0.6.1 share-link security fix
 
 Adds **Sync: secure Reddit share links** for [issue #1](https://github.com/TheLastWallaby/revanced-redditsync/issues/1).
@@ -116,7 +146,8 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 2. Use a base that has **none of this bundle's earlier compatibility patches**.
    Do not reapply to an APK already containing any earlier compatibility bundle.
 3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
-   and apply all three named patches. Check that each reports success.
+   and apply every named patch: three in v0.6.1, four in v0.6.2-rc.1 and later.
+   Check that each reports success.
 4. Sign the result with your own keystore. Matching the key used by your current
    installation allows an in-place update.
 
@@ -205,7 +236,7 @@ with an existing installation.
    revision, publishes all four assets and updates the Manager feeds.
 3. Manually run **Build my Sync APK** in the provisioned private repository with
    the same candidate tag. Scheduled builds follow stable releases only.
-   Inspect all three patch results and `verification.json` before installing.
+   Inspect every patch result and `verification.json` before installing.
 4. Test on the phone. After the candidate is confirmed working and stable
    publication is authorized, set VERSION to the stable version and publish it
    through a separate release-preparation change and release build.
