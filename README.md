@@ -12,6 +12,35 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
+## Release candidate — v0.6.5-rc.1 Imgur comment video previews (issue #23)
+
+Extends **Sync: show comment video previews** to direct Imgur `.mp4` and `.gifv`
+links on `i.imgur.com`, `imgur.com` and `www.imgur.com`, using the same
+poster-and-play-button option as Reddit comment videos. It ships in the
+[v0.6.5-rc.1 prerelease](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.5-rc.1)
+for phone testing; stable v0.6.4 contains only the Reddit part.
+
+- With **Inline image previews** on, the comment reserves a placeholder box and
+  loads a still frame into it. The frame keeps its aspect ratio, with dark bars
+  when the reserved box has another shape. Later draws use the decoded shape.
+- A background worker reads at most the first 2 MB of the clip's HTTPS MP4 from
+  `i.imgur.com`, with no redirects, cookies or authorization. It uses Android's
+  frame decoder and the existing bounded poster cache. It does not fetch GIF
+  renditions or Imgur website HTML. Case-sensitive Imgur IDs have separate cache
+  keys from Reddit videos; `.mp4` and `.gifv` share a poster for the same ID.
+- The original link, query and fragment remain the tap target, using Sync's
+  existing viewer. Albums, page-only links and other unsupported URLs keep their
+  original cards. A failed fetch or decode keeps the link on subsequent draws;
+  an already drawn placeholder remains tappable.
+- Turning **Inline image previews** off keeps the link card and queues no poster
+  fetch. Posters are static: animated-image and autoplay settings do not start
+  playback. Playing the video still requires a tap.
+
+Loopback tests exercise the actual URL, download, cache, sizing and span-update
+logic with a fake Android frame decoder. Imgur frame decoding, taps and the
+settings-off path still need phone validation. Retest a Reddit comment video,
+comment pictures/GIFs, share links and load more comments on that build.
+
 ## v0.6.4 comment video previews
 
 Adds **Sync: show comment video previews**, the poster-frame part of

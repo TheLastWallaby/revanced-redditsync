@@ -60,6 +60,8 @@ class InfrastructureTests(unittest.TestCase):
     def test_comment_video_suite_is_discovered_with_its_package(self):
         self.assertIn("app.revanced.extension.synccompat.CommentVideoTest",
                       discover_java_tests(ROOT / "tests"))
+        self.assertIn("app.revanced.extension.synccompat.ImgurCommentVideoTest",
+                      discover_java_tests(ROOT / "tests"))
 
     def test_java_runner_rejects_an_empty_test_directory(self):
         with tempfile.TemporaryDirectory() as temporary:
