@@ -428,14 +428,13 @@ public final class CommentVideoTest {
 
             // Background path: first draw queues the poster, a later draw shows it.
             String asyncLink = "https://www.reddit.com/link/q1234/video/async1234/player";
-            // Without media_metadata the first draw keeps the link unless the manifest already answered.
-            CommentVideo.posterSize(asyncLink, 600);
-            int[] ready = null;
-            for (int i = 0; i < 100 && ready == null; i++) {
-                Thread.sleep(50);
-                ready = CommentVideo.posterSize(asyncLink, 600);
-            }
-            check(ready != null && ready[0] == 600, "poster appears on a later draw");
+            // Without a known size the first draw reserves the default square box and queues the poster.
+            int[] first = CommentVideo.posterSize(asyncLink, 600);
+            check(first != null && first[0] == 600 && first[1] == 600, "default square box: " + Arrays.toString(first));
+            File asyncPoster = new File(directory, "async1234.jpg");
+            check(waitFor(asyncPoster::isFile), "poster made in the background");
+            int[] ready = CommentVideo.posterSize(asyncLink, 600);
+            check(ready != null && ready[0] == 600, "poster drawn on a later draw");
             check(hits.get("/async1234/DASHPlaylist.mpd").get() == 1, "one background job per video");
             check(leaked.isEmpty(), "no cookies or credentials sent: " + leaked);
         } finally {

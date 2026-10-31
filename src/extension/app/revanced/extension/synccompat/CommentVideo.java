@@ -218,11 +218,15 @@ public final class CommentVideo {
         try {
             String id = mediaId(href);
             if (id == null || maxWidth <= 0 || !platform.previewsEnabled()) return null;
+            // Nothing can be drawn without somewhere to keep the images.
+            if (platform.posterDirectory() == null) return null;
             int[] size = cachedSize(id);
             if (size == null) {
                 requestPoster(id);
                 synchronized (LOCK) {
                     size = VIDEO_SIZES.get(id);
+                    // A video whose poster failed and whose shape is unknown stays a link.
+                    if (size == null && FAILED.containsKey(id)) return null;
                 }
                 if (size == null) size = DEFAULT_SHAPE;
             }
