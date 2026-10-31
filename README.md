@@ -12,6 +12,41 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
+## Release candidate — v0.6.4-rc.1 comment video previews (issue #23)
+
+Adds **Sync: show comment video previews**, the poster-frame part of
+[issue #23](https://github.com/TheLastWallaby/revanced-redditsync/issues/23).
+It ships in the **v0.6.4-rc.1** prerelease for phone testing. Stable remains
+v0.6.3 until the candidate is confirmed on a phone.
+
+Reddit writes videos posted in comments as
+`https://reddit.com/link/<post>/video/<media>/player`. Sync 23033 sends that
+link to the browser. Reddit then redirects it to
+`www.reddit.com/r/subreddit/comments/<post>/` (a placeholder subreddit and a
+post that doesn't exist), which Sync opened as an empty comments page showing
+"Error loading page: 404".
+
+- **Tapping the link** now opens `https://v.redd.it/<media>`, which goes to
+  Sync's own Reddit video route instead of the browser. Only the `/link/.../video/...`
+  form on Reddit's own hosts changes; every other link is routed as before.
+- **Inline preview.** With **Inline image previews** on, the link is drawn as the
+  video's first frame with a play button, at the video's aspect ratio within the
+  reply width, using the same sizing rules as comment pictures. Tapping the
+  preview opens the video as above. `v.redd.it/<media>` links get the same
+  preview.
+- **How the frame is made.** In the background, the patch reads the video's
+  DASH manifest from `v.redd.it`, picks the cheapest rendition with a short side
+  of at least 360 px, and downloads at most its first 2 MB (a Range request, with
+  no cookies or credentials and no redirects followed). Android's media
+  decoder takes the first frame. The JPEG poster is kept in the app's cache
+  (`sync-compat-video-posters`, at most 300 files). A video first seen while
+  drawing appears as a preview on a later redraw, like Giphy GIFs. If anything
+  fails, the link stays a link for the rest of the session.
+- Videos don't play inline. Imgur clips (`.mp4`, `.gifv`) are unchanged.
+
+Not yet verified on a device: frame extraction from Reddit's fragmented MP4,
+and Sync's video viewer opening a `v.redd.it` link that has no post attached.
+
 ## v0.6.3 award data fix
 
 Adds **Sync: handle unavailable award data** for [issue #11](https://github.com/TheLastWallaby/revanced-redditsync/issues/11).
@@ -198,6 +233,9 @@ route is the CLI; Manager import and patching still need device verification.
 - **Sync: handle unavailable award data** keeps listings usable when
   award fields are missing and gives the awards sheet accurate messages and an
   Open on Reddit row, as described above.
+- **Sync: show comment video previews** (v0.6.4-rc.1 candidate) opens Reddit comment video
+  links in Sync's video viewer and draws them as a still frame with a play
+  button, as described above.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
@@ -216,8 +254,8 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 2. Use a base that has **none of this bundle's earlier compatibility patches**.
    Do not reapply to an APK already containing any earlier compatibility bundle.
 3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
-   and apply all five named patches (four in v0.6.2, three in v0.6.1). Check
-   that each reports success.
+   and apply all five named patches (four in v0.6.2, three in v0.6.1; six in
+   v0.6.4-rc.1, which adds the comment video patch). Check that each reports success.
 4. Sign the result with your own keystore. Matching the key used by your current
    installation allows an in-place update.
 
@@ -304,7 +342,7 @@ with an existing installation.
 1. Set `VERSION` to an unused candidate version, run the required checks and
    merge the tested PR.
 2. Run **Actions → Publish patch release** on `main` with the exact matching tag
-   (for example `v0.6.4-rc.1` for a future candidate). The workflow rebuilds, checks the tested
+   (for example `v0.6.4-rc.2` for a future candidate). The workflow rebuilds, checks the tested
    revision, publishes all four assets and updates the Manager feeds.
 3. Manually run **Build my Sync APK** in the provisioned private repository with
    the same candidate tag. Scheduled builds follow stable releases only.

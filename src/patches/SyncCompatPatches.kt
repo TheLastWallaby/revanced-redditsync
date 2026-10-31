@@ -540,6 +540,104 @@ val improveSyncCommentMedia = bytecodePatch(
     }
 }
 
+private const val VIDEO = "Lapp/revanced/extension/synccompat/CommentVideo;"
+
+val showSyncCommentVideoPreviews = bytecodePatch(
+    name = "Sync: show comment video previews",
+    description = "Draw Reddit-hosted comment videos as a still frame with a play button at their aspect ratio within the reply width, and open reddit.com/link/.../video/... links in Sync's video viewer instead of a browser redirect to a missing post.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        // Link router (y7.b.c). Reddit redirects reddit.com/link/POST/video/MEDIA/player to a
+        // placeholder post, so the link is mapped to v.redd.it/MEDIA, which reaches Sync's own
+        // "reddit video" route. Every other URL passes through unchanged.
+        val helper = classes.singleOrNull { it.type == "Ly7/b;" && it.sourceFile == "LinkHelper.java" }
+            ?: throw PatchException("Expected Sync LinkHelper was not found. This patch targets build 23033 only.")
+        val router = proxy(helper).mutableClass.methods.singleOrNull { m ->
+            m.name == "c" && m.returnType == "Z" &&
+                m.implementation?.instructions?.any { it.stringValue() == "Opening strange reddit video link" } == true
+        } ?: throw PatchException("Unsupported Sync link router.")
+        val routerCode = router.implementation!!.instructions
+        if (routerCode.any { it.methodRef()?.definingClass == VIDEO }) throw PatchException("Comment video patch is already installed.")
+        // Static method: p3 is the URL only when parameters 0-2 are single-register types.
+        layout(AccessFlags.STATIC.isSet(router.accessFlags) && router.parameterTypes.size == 10 &&
+            router.parameterTypes.take(4).map { it.toString() } ==
+                listOf("Landroid/content/Context;", "[Lr0/d;", "Ljava/lang/String;", "Ljava/lang/String;") &&
+            routerCode.any { it.stringValue() == "reddit.com/link/" } &&
+            routerCode.any { it.stringValue() == "Was reddit video" }, "link router")
+        router.addInstructions(0, """
+            invoke-static {p3}, $VIDEO->tapUrl(Ljava/lang/String;)Ljava/lang/String;
+            move-result-object p3
+        """.trimIndent())
+
+        // Comment link handler (nc.d.e). Register roles are fixed by build 23033 and checked:
+        // p0 = builder, p1 = layout (reply width in e), v0 = link span, v2 = href,
+        // v4 = "href starts with sync-settings", v6 = object replacement character, v7/v8/v9 = 2/0/1.
+        val target = classes.singleOrNull { it.type == "Lnc/d;" && it.sourceFile == "SyncHtmlToSpannedConverter.java" }
+            ?: throw PatchException("Expected Sync comment HTML converter was not found. This patch targets build 23033 only.")
+        val link = proxy(target).mutableClass.methods.singleOrNull {
+            it.name == "e" && it.parameterTypes == listOf("Loc/c;", "Lnc/a;", "Lnc/b;") && it.returnType == "V"
+        } ?: throw PatchException("Unsupported comment HTML converter method: e")
+        val code = link.implementation!!.instructions
+        if (code.any { it.methodRef()?.definingClass == VIDEO }) throw PatchException("Comment video patch is already installed.")
+        val settings = code.singleIndex("settings link check") { code[it].stringValue() == "sync-settings" }
+        fun literal(i: Int, register: Int, value: Int) = code[i].opcode == Opcode.CONST_4 &&
+            code[i].registerA() == register && (code[i] as NarrowLiteralInstruction).narrowLiteral == value
+        layout(link.implementation!!.registerCount == 15 && settings + 8 < code.size &&
+            code.subList(0, settings).any {
+                it.opcode == Opcode.IGET_OBJECT && it.registerA() == 2 &&
+                    ((it as ReferenceInstruction).reference as FieldReference).let { f -> f.definingClass == "Lnc/d\$h;" && f.name == "a" }
+            } &&
+            code[settings].registerA() == 4 &&
+            code[settings + 1].methodRef()?.let { it.name == "startsWith" } == true &&
+            (code[settings + 1] as FiveRegisterInstruction).let { it.registerCount == 2 && it.registerC == 2 && it.registerD == 4 } &&
+            code[settings + 2].opcode == Opcode.MOVE_RESULT && code[settings + 2].registerA() == 4 &&
+            code[settings + 3].registerA() == 5 && code[settings + 3].stringValue() == "\n\n" &&
+            code[settings + 4].registerA() == 6 && code[settings + 4].stringValue() == "￼" &&
+            literal(settings + 5, 7, 2) && literal(settings + 6, 8, 0) && literal(settings + 7, 9, 1) &&
+            code[settings + 8].opcode == Opcode.IF_EQZ && code[settings + 8].registerA() == 4, "comment link handler")
+        layout(code.subList(0, settings).let { start ->
+            start.indices.any { i ->
+                i + 1 < start.size && start[i].methodRef()?.let { it.definingClass == "Lnc/d;" && it.name == "i" } == true &&
+                    start[i + 1].opcode == Opcode.MOVE_RESULT_OBJECT && start[i + 1].registerA() == 0
+            }
+        }, "comment link span")
+        // Only v4 changes on the fall-through path. It is false there already: a video link
+        // never starts with sync-settings, and a settings link skips the new code.
+        link.addInstructionsWithLabels(settings + 8, """
+            if-nez v4, :continue
+            invoke-static {v2}, $VIDEO->isVideoLink(Ljava/lang/String;)Z
+            move-result v4
+            if-eqz v4, :continue
+            iget v4, p1, Lnc/a;->e:I
+            invoke-static {v2, v4}, $VIDEO->posterSize(Ljava/lang/String;I)[I
+            move-result-object v4
+            if-nez v4, :poster
+            const/4 v4, 0x0
+            goto :continue
+            :poster
+            invoke-static {v2}, $VIDEO->posterUrl(Ljava/lang/String;)Ljava/lang/String;
+            move-result-object v3
+            invoke-virtual {p0, v0}, Loc/c;->r(Loc/c${'$'}a;)Ljava/lang/String;
+            invoke-virtual {p0, v0}, Loc/c;->q(Loc/c${'$'}a;)V
+            aget v10, v4, v8
+            aget v11, v4, v9
+            new-array v5, v7, [Ljava/lang/Object;
+            new-instance v1, Lnb/c;
+            invoke-direct {v1, v3, v10, v11}, Lnb/c;-><init>(Ljava/lang/String;II)V
+            aput-object v1, v5, v8
+            new-instance v1, Lmb/d;
+            invoke-direct {v1, v2}, Lmb/d;-><init>(Ljava/lang/String;)V
+            aput-object v1, v5, v9
+            invoke-virtual {p0, v6, v5}, Loc/c;->c(Ljava/lang/String;[Ljava/lang/Object;)V
+            return-void
+            :continue
+            nop
+        """.trimIndent())
+    }
+}
+
 private const val AWARD = "Lo8/a;"
 private const val SELECTION_ITEM = "Lcom/laurencedawson/reddit_sync/ui/fragment_dialogs/bottom/material_dialogs/base/AbstractSelectionDialogBottomSheet\$h;"
 private const val SHEET_DISMISS = "Lcom/google/android/material/bottomsheet/BottomSheetDialogFragment;->x3()V"
