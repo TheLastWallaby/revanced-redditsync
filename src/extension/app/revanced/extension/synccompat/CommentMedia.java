@@ -387,8 +387,10 @@ public final class CommentMedia {
             connection.setReadTimeout(PROBE_TIMEOUT_MS);
             connection.setUseCaches(false);
             connection.setRequestProperty("Range", "bytes=0-9");
+            // Ask for the file itself: a default Accept with text/html makes CDNs redirect to a web page.
+            connection.setRequestProperty("Accept", "image/*");
             int status = connection.getResponseCode();
-            if ((status == 200 || status == 206) && url.getProtocol().equals(connection.getURL().getProtocol())) {
+            if ((status == 200 || status == 206) && sameOrigin(url, connection.getURL())) {
                 byte[] header = new byte[10];
                 int read = 0;
                 try (InputStream in = connection.getInputStream()) {
@@ -419,6 +421,13 @@ public final class CommentMedia {
         return sized;
     }
 
+    /** The probe must not follow a redirect to another scheme, host or port. */
+    static boolean sameOrigin(URL requested, URL served) {
+        return requested.getProtocol().equalsIgnoreCase(served.getProtocol())
+                && requested.getHost().equalsIgnoreCase(served.getHost())
+                && requested.getPort() == served.getPort();
+    }
+
     /** Logical screen size from a GIF87a/GIF89a header, or null. */
     static int[] gifSize(byte[] header) {
         if (header == null || header.length < 10) return null;
@@ -436,6 +445,272 @@ public final class CommentMedia {
         }
     }
 
+    // ----------------------------------------------- direct picture links (Imgur)
+
+    /** Hosts whose direct picture links are sized by reading the file header. */
+    private static final Set<String> PROBE_IMAGE_HOSTS = new HashSet<>(Arrays.asList("i.imgur.com"));
+    private static final String IMAGE_KEY = "img:";
+    /** Larger files stay a card: Imgur can serve a 10-16 MB GIF even for a .jpg link. */
+    static final long MAX_INLINE_BYTES = 8L * 1024 * 1024;
+    /** Enough for JPEG EXIF and frame headers; PNG, GIF and WebP need under 40 bytes. */
+    static final int IMAGE_HEADER_LIMIT = 64 * 1024;
+    /** Tests point https://i.imgur.com/ at a loopback server; null in the app. */
+    static String imageProbeBase;
+
+    /** Cache key for a direct Imgur picture such as https://i.imgur.com/AbC123x.png, otherwise null. */
+    static String imageKey(Url url) {
+        if (url == null || !PROBE_IMAGE_HOSTS.contains(url.host)) return null;
+        String path = url.path;
+        int dot = path.lastIndexOf('.');
+        if (!path.startsWith("/") || dot < 2 || path.indexOf('/', 1) >= 0) return null;
+        String id = path.substring(1, dot);
+        String ext = path.substring(dot + 1).toLowerCase(Locale.ROOT);
+        if (id.length() < 5 || id.length() > 16 || !IMAGE_TYPES.contains(ext) || ext.equals("pjpg")) return null;
+        for (int i = 0; i < id.length(); i++) {
+            char c = id.charAt(i);
+            if (c > 127 || !Character.isLetterOrDigit(c)) return null;
+        }
+        return IMAGE_KEY + url.host + "/" + id + "." + ext;
+    }
+
+    /** Picture probes only need Sync's Inline image previews setting; GIFs are gated when drawn. */
+    static boolean imagesAllowed() {
+        if (settingsOverride != null) return settingsOverride;
+        try {
+            Class<?> singleton = Class.forName("com.laurencedawson.reddit_sync.singleton.SettingsSingleton");
+            Object settings = singleton.getMethod("x").invoke(null);
+            return settings != null && settings.getClass().getField("inlineImagePreviews").getBoolean(settings);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            return false;
+        }
+    }
+
+    /** Queues one background header probe per picture link; never blocks the caller. */
+    static void requestImageSize(String link, String key) {
+        if (link == null || key == null) return;
+        synchronized (METADATA) {
+            if (METADATA.containsKey(key) || PROBE_FAILED.containsKey(key) || !PROBING.add(key)) return;
+        }
+        try {
+            PROBES.execute(() -> {
+                try {
+                    probeImage(link, key);
+                } finally {
+                    synchronized (METADATA) {
+                        PROBING.remove(key);
+                    }
+                }
+            });
+        } catch (RuntimeException e) {
+            synchronized (METADATA) {
+                PROBING.remove(key);
+            }
+        }
+    }
+
+    /**
+     * Reads at most the first 64 KB (Range request, no cookies or credentials) to learn the
+     * picture's size and whether it is animated. Files over 8 MB, or of unknown total size,
+     * are not drawn inline. Never logs.
+     */
+    static boolean probeImage(String link, String key) {
+        HttpURLConnection connection = null;
+        boolean sized = false;
+        try {
+            String target = link;
+            if (imageProbeBase != null && link.startsWith("https://i.imgur.com/")) {
+                target = imageProbeBase + link.substring("https://i.imgur.com/".length());
+            }
+            URL url = new URL(target);
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setConnectTimeout(PROBE_TIMEOUT_MS);
+            connection.setReadTimeout(PROBE_TIMEOUT_MS);
+            connection.setUseCaches(false);
+            connection.setRequestProperty("Range", "bytes=0-" + (IMAGE_HEADER_LIMIT - 1));
+            // Imgur redirects requests that accept text/html (Java's default) to its web page.
+            connection.setRequestProperty("Accept", "image/*");
+            int status = connection.getResponseCode();
+            long total = -1;
+            if (status == 206) {
+                String range = connection.getHeaderField("Content-Range");
+                int slash = range == null ? -1 : range.lastIndexOf('/');
+                if (slash >= 0) {
+                    try {
+                        total = Long.parseLong(range.substring(slash + 1).trim());
+                    } catch (NumberFormatException ignored) {
+                        total = -1;
+                    }
+                }
+            } else if (status == 200) {
+                total = connection.getContentLengthLong();
+            }
+            if (total > 0 && total <= MAX_INLINE_BYTES && sameOrigin(url, connection.getURL())) {
+                byte[] header = new byte[IMAGE_HEADER_LIMIT];
+                int read = 0;
+                try (InputStream in = connection.getInputStream()) {
+                    while (read < header.length) {
+                        int count = in.read(header, read, header.length - read);
+                        if (count < 0) break;
+                        read += count;
+                    }
+                }
+                ImageInfo info = imageInfo(header, read);
+                if (info != null) {
+                    synchronized (METADATA) {
+                        METADATA.put(key, new Metadata(info.width, info.height, info.mime, info.animated, null));
+                    }
+                    sized = true;
+                }
+            }
+        } catch (IOException | RuntimeException ignored) {
+            // A failed probe keeps Sync's card for this picture.
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+        if (!sized) {
+            synchronized (METADATA) {
+                PROBE_FAILED.put(key, Boolean.TRUE);
+            }
+        }
+        return sized;
+    }
+
+    static final class ImageInfo {
+        final int width;
+        final int height;
+        final String mime;
+        final boolean animated;
+        ImageInfo(int width, int height, String mime, boolean animated) {
+            this.width = width;
+            this.height = height;
+            this.mime = mime;
+            this.animated = animated;
+        }
+    }
+
+    private static int u8(byte[] b, int i) {
+        return b[i] & 0xff;
+    }
+
+    private static int be16(byte[] b, int i) {
+        return u8(b, i) << 8 | u8(b, i + 1);
+    }
+
+    private static int le16(byte[] b, int i) {
+        return u8(b, i) | u8(b, i + 1) << 8;
+    }
+
+    private static int le24(byte[] b, int i) {
+        return le16(b, i) | u8(b, i + 2) << 16;
+    }
+
+    private static boolean ascii(byte[] b, int i, String text) {
+        if (i + text.length() > b.length) return false;
+        for (int j = 0; j < text.length(); j++) {
+            if (b[i + j] != text.charAt(j)) return false;
+        }
+        return true;
+    }
+
+    /** Size, type and animation from GIF, PNG/APNG, WebP or JPEG header bytes, or null. */
+    static ImageInfo imageInfo(byte[] b, int length) {
+        if (b == null || length <= 0) return null;
+        int len = Math.min(length, b.length);
+        if (len >= 10) {
+            int[] gif = gifSize(b);
+            if (gif != null) return new ImageInfo(gif[0], gif[1], "image/gif", true);
+        }
+        if (len >= 24 && u8(b, 0) == 0x89 && ascii(b, 1, "PNG\r\n\u001a\n") && ascii(b, 12, "IHDR")) {
+            long width = (long) be16(b, 16) << 16 | be16(b, 18);
+            long height = (long) be16(b, 20) << 16 | be16(b, 22);
+            boolean animated = false;
+            for (int i = 24; i + 4 <= len && !animated; i++) {
+                if (ascii(b, i, "IDAT")) break;
+                animated = ascii(b, i, "acTL");
+            }
+            return sized(width, height, "image/png", animated);
+        }
+        if (len >= 30 && ascii(b, 0, "RIFF") && ascii(b, 8, "WEBP")) {
+            if (ascii(b, 12, "VP8 ") && u8(b, 23) == 0x9d && u8(b, 24) == 0x01 && u8(b, 25) == 0x2a) {
+                return sized(le16(b, 26) & 0x3fff, le16(b, 28) & 0x3fff, "image/webp", false);
+            }
+            if (ascii(b, 12, "VP8L") && u8(b, 20) == 0x2f) {
+                long bits = (long) le16(b, 21) | (long) le16(b, 23) << 16;
+                return sized((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1, "image/webp", false);
+            }
+            if (ascii(b, 12, "VP8X")) {
+                return sized(le24(b, 24) + 1L, le24(b, 27) + 1L, "image/webp", (u8(b, 20) & 0x02) != 0);
+            }
+            return null;
+        }
+        if (len >= 4 && u8(b, 0) == 0xff && u8(b, 1) == 0xd8) return jpegInfo(b, len);
+        return null;
+    }
+
+    private static ImageInfo sized(long width, long height, String mime, boolean animated) {
+        if (width <= 0 || height <= 0 || width > MAX_SOURCE_DIMENSION || height > MAX_SOURCE_DIMENSION) return null;
+        return new ImageInfo((int) width, (int) height, mime, animated);
+    }
+
+    /** Walks JPEG segments to the frame header, swapping sides for EXIF orientations 5-8. */
+    private static ImageInfo jpegInfo(byte[] b, int len) {
+        int i = 2;
+        boolean rotated = false;
+        while (i + 4 <= len) {
+            if (u8(b, i) != 0xff) return null;
+            int marker = u8(b, i + 1);
+            if (marker == 0xff) {
+                i++;
+                continue;
+            }
+            if (marker == 0x01 || (marker >= 0xd0 && marker <= 0xd8)) {
+                i += 2;
+                continue;
+            }
+            if (marker == 0xd9 || marker == 0xda) return null;
+            int segment = be16(b, i + 2);
+            if (segment < 2) return null;
+            if (marker == 0xe1 && i + 4 + segment <= len) rotated |= exifRotated(b, i + 4, segment - 2);
+            boolean frame = marker >= 0xc0 && marker <= 0xcf && marker != 0xc4 && marker != 0xc8 && marker != 0xcc;
+            if (frame) {
+                if (i + 9 > len) return null;
+                int height = be16(b, i + 5);
+                int width = be16(b, i + 7);
+                return rotated ? sized(height, width, "image/jpeg", false) : sized(width, height, "image/jpeg", false);
+            }
+            i += 2 + segment;
+        }
+        return null;
+    }
+
+    /** True when an APP1 EXIF block's IFD0 orientation is 5-8 (stored sideways). */
+    private static boolean exifRotated(byte[] b, int start, int length) {
+        if (length < 14 || !ascii(b, start, "Exif") || b[start + 4] != 0 || b[start + 5] != 0) return false;
+        int tiff = start + 6;
+        int end = start + length;
+        boolean little;
+        if (ascii(b, tiff, "II")) little = true;
+        else if (ascii(b, tiff, "MM")) little = false;
+        else return false;
+        int ifd = tiff + (int) read32(b, tiff + 4, little);
+        if (ifd < tiff || ifd + 2 > end) return false;
+        int entries = little ? le16(b, ifd) : be16(b, ifd);
+        for (int e = 0; e < entries; e++) {
+            int entry = ifd + 2 + e * 12;
+            if (entry + 12 > end) return false;
+            int tag = little ? le16(b, entry) : be16(b, entry);
+            if (tag == 0x0112) {
+                int orientation = little ? le16(b, entry + 8) : be16(b, entry + 8);
+                return orientation >= 5 && orientation <= 8;
+            }
+        }
+        return false;
+    }
+
+    private static long read32(byte[] b, int i, boolean little) {
+        return little ? (le16(b, i) | (long) le16(b, i + 2) << 16) : ((long) be16(b, i) << 16 | be16(b, i + 2));
+    }
+
     /** HTTPS Giphy or Reddit media URL from metadata, otherwise null. */
     static String trustedRendition(String value) {
         if (value == null || !value.regionMatches(true, 0, "https://", 0, 8)) return null;
@@ -448,8 +723,8 @@ public final class CommentMedia {
         String id = mediaId(url);
         if (id == null) {
             String giphy = giphyId(url);
-            if (giphy == null) return null;
-            id = GIPHY_KEY + giphy;
+            id = giphy != null ? GIPHY_KEY + giphy : imageKey(url);
+            if (id == null) return null;
         }
         synchronized (METADATA) {
             return METADATA.get(id);
@@ -534,7 +809,8 @@ public final class CommentMedia {
         Url url = parse(value);
         if (url == null) return null;
         boolean reddit = REDDIT_MEDIA_HOSTS.contains(url.host);
-        if (!reddit && !isGiphyHost(url.host)) return null;
+        String imageKey = imageKey(url);
+        if (!reddit && !isGiphyHost(url.host) && imageKey == null) return null;
         if (!animatedAllowed && isAnimated(url)) return null;
         Metadata metadata = metadata(url);
         int width = -1;
@@ -547,7 +823,12 @@ public final class CommentMedia {
         if (width <= 0 || height <= 0) {
             // Giphy links carry no dimensions; only metadata or a header probe gives a safe ratio.
             if (metadata == null) {
-                if (!reddit && probesAllowed()) requestGiphySize(giphyId(url));
+                if (imageKey != null) {
+                    // Probe the canonical HTTPS file, without the link's query or fragment.
+                    if (imagesAllowed()) requestImageSize("https://" + imageKey.substring(IMAGE_KEY.length()), imageKey);
+                } else if (!reddit && probesAllowed()) {
+                    requestGiphySize(giphyId(url));
+                }
                 return null;
             }
             width = metadata.width;
