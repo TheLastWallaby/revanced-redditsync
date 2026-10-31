@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-10-31T04:23:43",
-  "description": "## What's Changed\n* Automate patch builds, releases and private APK signing by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/13\n* Use supported Node 24 cache and artifact actions by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/14\n* Clarify AI agent builds, release candidates and private APK handoff by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/15\n* Secure Reddit share-link resolution and redirects by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/12\n\n## New Contributors\n* @TheLastWallaby made their first contribution in https://github.com/TheLastWallaby/revanced-redditsync/pull/13\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.0...v0.6.1-rc.1",
-  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.1-rc.1/patches.rvp",
+  "created_at": "2026-10-31T04:41:35",
+  "description": "## What's Changed\n* Automate patch builds, releases and private APK signing by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/13\n* Use supported Node 24 cache and artifact actions by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/14\n* Clarify AI agent builds, release candidates and private APK handoff by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/15\n* Secure Reddit share-link resolution and redirects by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/12\n* Promote phone-tested share-link fixes to stable v0.6.1 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/16\n\n## New Contributors\n* @TheLastWallaby made their first contribution in https://github.com/TheLastWallaby/revanced-redditsync/pull/13\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.0...v0.6.1",
+  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.1/patches.rvp",
   "signature_download_url": "N/A",
-  "version": "v0.6.1-rc.1"
+  "version": "v0.6.1"
 }
