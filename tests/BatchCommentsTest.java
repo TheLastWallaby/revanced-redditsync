@@ -99,6 +99,10 @@ public final class BatchCommentsTest {
             } finally { exchange.close();active.decrementAndGet(); }
         });server.start();
         base="http://127.0.0.1:"+server.getAddress().getPort()+"/api/morechildren?always_show_media=1&profile_img=true";
+        // Continuation rules here are independent of the per-tap request budget,
+        // which BoundedCommentsTest covers.
+        Class<?> transport=Class.forName("app.revanced.extension.syncforreddit.CommentTransport");
+        java.lang.reflect.Field budget=transport.getDeclaredField("maxRequests");budget.setAccessible(true);budget.setInt(null,1000);
         try {
             check(base.equals(FixLoadMoreCommentsPatch.getUrl(base,null)),"constructor-time null parameters");
             Map<String,String> p=params("t1_a, a,b");p.put("sort","best");
@@ -130,9 +134,17 @@ public final class BatchCommentsTest {
             all=things(load(thread(comment("a","t3_post123",more("b","t3_post123","b","c"))),"a,b"));
             check(ids(all,"more").equals(Collections.singletonList("c")),"later loaded ID removed from nested retry");
 
+            // An ID already inside a returned tree is reused (issue #3); Reddit marks
+            // truncated replies with their own continuation rows.
             bodies.put("b",thread(comment("b","t1_a",comment("c","t1_b"))));
+            before=calls.get();
             all=things(load(thread(comment("a","t3_post123",comment("b","t1_a"))),"a,b"));
-            check(ids(all,"t1").equals(Arrays.asList("a","b","c")),"duplicate root still contributes newly loaded descendants");
+            check(ids(all,"t1").equals(Arrays.asList("a","b")) && calls.get()==before,"ID already in a returned tree is not requested again");
+            reset();
+            bodies.put("b",thread(comment("b","t3_post123",comment("c","t1_b"))));
+            bodies.put("c",thread(comment("c","t1_b",comment("e","t1_c"))));
+            all=things(load(thread(comment("a","t3_post123")),"a,b,c"));
+            check(ids(all,"t1").equals(Arrays.asList("a","b","c","e")),"duplicate root fetched at the same time still contributes newly loaded descendants");
 
             reset();bodies.put("b",thread());bodies.put("fallback:b",thread());
             all=things(load(thread(comment("a","t3_post123")),"a,b"));
@@ -247,7 +259,7 @@ public final class BatchCommentsTest {
             check(calls.get()-before==99,"100-ID batch limit includes first response");
             check(ids(all,"t1").size()==100,"100 requested comments returned");
             check(ids(all,"more").equals(many.subList(100,105)),"all IDs beyond batch remain available to retry");
-            check(maximum.get()>1 && maximum.get()<=8,"parallel requests bounded at eight");
+            check(maximum.get()>1 && maximum.get()<=4,"parallel requests bounded at four");
             check(authorized.get()==calls.get(),"original authorization copied to every additional request");
 
             reset();all=things(load(thread(comment("a","t3_post123",more("_","t1_a"),comment("d","t1_a",more("_","t1_d")))),"a"));
@@ -349,7 +361,7 @@ public final class BatchCommentsTest {
             System.out.println("PASS: "+checks+" checks with real Volley and loopback HTTP; peak parallel requests="+maximum.get());
         } finally {
             server.stop(0);serverThreads.shutdownNow();
-            java.lang.reflect.Field field=FixLoadMoreCommentsPatch.class.getDeclaredField("executor");field.setAccessible(true);
+            java.lang.reflect.Field field=transport.getDeclaredField("executor");field.setAccessible(true);
             ((ExecutorService)field.get(null)).shutdownNow();
         }
     }

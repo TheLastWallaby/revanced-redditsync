@@ -182,7 +182,7 @@ val fixSyncGalleries = bytecodePatch(
 
 val fixSyncMoreComments = bytecodePatch(
     name = "Sync: load more comments in batches",
-    description = "Experimental: batch-load hidden comments through the normal thread endpoint, retaining failed requests for retry.",
+    description = "Experimental: batch-load hidden comments through the normal thread endpoint, retaining failed requests for retry. Each tap makes a bounded number of requests, follows Reddit's rate limits and stops when Sync cancels the load.",
 ) {
     compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
     dependsOn(extensionPatch)
@@ -217,15 +217,19 @@ val fixSyncMoreComments = bytecodePatch(
         val adapter = MutableMethod(ImmutableMethod(clazz.type, "patch_getMoreChildrenResponse",
             listOf(com.android.tools.smali.dexlib2.immutable.ImmutableMethodParameter(NETWORK, null, null)),
             NETWORK, AccessFlags.PUBLIC.value, emptySet(), emptySet(), null))
-        adapter.resetBody(6, """
+        // Passing the request itself lets the bounded fetcher stop when Sync cancels
+        // it, and read Sync's refreshed headers once after a 401.
+        adapter.resetBody(8, """
+            move-object v0, p1
             invoke-super {p0}, Lcom/android/volley/Request;->getUrl()Ljava/lang/String;
-            move-result-object v0
-            invoke-super {p0}, Lx8/a;->getParams()Ljava/util/Map;
             move-result-object v1
-            invoke-super {p0}, Lx8/a;->getHeaders()Ljava/util/Map;
+            invoke-super {p0}, Lx8/a;->getParams()Ljava/util/Map;
             move-result-object v2
-            iget-object v3, p0, $parentField
-            invoke-static {p1, v0, v1, v2, v3}, $BATCH->getMoreChildrenResponse(${NETWORK}Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ljava/lang/String;)$NETWORK
+            invoke-super {p0}, Lx8/a;->getHeaders()Ljava/util/Map;
+            move-result-object v3
+            iget-object v4, p0, $parentField
+            move-object v5, p0
+            invoke-static/range {v0 .. v5}, $BATCH->getMoreChildrenResponse(${NETWORK}Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ljava/lang/String;Lcom/android/volley/Request;)$NETWORK
             move-result-object v0
             return-object v0
         """.trimIndent())
