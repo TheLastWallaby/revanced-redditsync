@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "java_major": 17,
+  "artifacts": [
+    {
+      "name": "revanced-cli",
+      "version": "6.0.0",
+      "url": "https://github.com/ReVanced/revanced-cli/releases/download/v6.0.0/revanced-cli-6.0.0-all.jar",
+      "sha256": "c25549bc17d59d2eb94fa5f86e60e9b77a02772ca88f7050f8f1276f923a9958",
+      "target": "revanced-cli.jar"
+    },
+    {
+      "name": "kotlin",
+      "version": "2.4.21",
+      "url": "https://github.com/JetBrains/kotlin/releases/download/v2.4.21/kotlin-compiler-2.4.21.zip",
+      "sha256": "7cc140e76daf416a0424a5557f99afd7ca89ebd463ea1101261e3e01c33e75cd",
+      "extract_to": "kotlin"
+    },
+    {
+      "name": "r8",
+      "version": "8.3.37",
+      "url": "https://dl.google.com/dl/android/maven2/com/android/tools/r8/8.3.37/r8-8.3.37.jar",
+      "sha256": "59753e70a74f918389cc87f1b7d66b5c0862932559167425708ded159e3de439",
+      "target": "r8.jar"
+    },
+    {
+      "name": "json",
+      "version": "20240303",
+      "url": "https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar",
+      "sha256": "3cf6cd6892e32e2b4c1c39e0f52f5248a2f5b37646fdfbb79a66b46b618414ed",
+      "target": "json.jar"
+    },
+    {
+      "name": "android",
+      "version": "4.1.1.4",
+      "url": "https://repo.maven.apache.org/maven2/com/google/android/android/4.1.1.4/android-4.1.1.4.jar",
+      "sha256": "84072541cbb711eff89f7277100ff854929a446dba7ceb1b195c340e0b4fd3cb",
+      "target": "android.jar"
+    },
+    {
+      "name": "volley",
+      "version": "1.2.1",
+      "url": "https://dl.google.com/dl/android/maven2/com/android/volley/volley/1.2.1/volley-1.2.1.aar",
+      "sha256": "dbf04a23ff91b6717571afe722fe4bd5776257f59111d7c2cdfb3a9d5f8888ee",
+      "member": "classes.jar",
+      "target": "volley.jar"
+    }
+  ]
+}
+
