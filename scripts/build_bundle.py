@@ -79,8 +79,9 @@ def main():
                           for path in directory.rglob("*") if path.is_file()}, epoch)
 
     javac = [java, "-XX:-UsePerfData", "-m", "jdk.compiler/com.sun.tools.javac.Main"]
+    # Compile-only signatures (ReVanced Logger, Sync's Award model); never packaged.
     run(*javac, "--release", "8", "-d", build / "stubs",
-        ROOT / "src/stubs/app/revanced/extension/shared/Logger.java")
+        *sorted((ROOT / "src/stubs").rglob("*.java")))
     extension_cp = cp(build / "stubs", tools / "android.jar", tools / "volley.jar", tools / "json.jar")
     run(*javac, "--release", "8", "-cp", extension_cp, "-d", build / "extension",
         *sorted((ROOT / "src/extension").rglob("*.java")))

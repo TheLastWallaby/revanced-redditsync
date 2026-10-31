@@ -12,6 +12,47 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
+## Unreleased: award data (issue #11)
+
+Adds **Sync: handle unavailable award data** for [issue #11](https://github.com/TheLastWallaby/revanced-redditsync/issues/11).
+It is not in a release yet; use a PR CI artifact or a local build to test it.
+
+Sync 23033 reads legacy award fields in two places. Both used to throw when a
+field was missing or had changed shape.
+
+- **Post and comment listings.** When an item reports awards, Sync required every
+  `all_awardings` entry to be an object with `resized_static_icons` and
+  `resized_icons` arrays, and `gildings` to be an object. One entry missing an
+  icon array threw from the post/comment parse. These fields are now optional:
+  unusable entries and icons are skipped, and the item loads without award icons.
+  Icon URLs must be HTTPS on a Reddit image host (`redd.it`, `redditstatic.com`,
+  `redditmedia.com`, `reddit.com`). Sync's own icon-size choice is unchanged.
+- **Awards sheet** (post menu → Awards, or tapping a comment's awards). Its
+  `/api/info` lookup threw on any missing field and reported "Could not load
+  gallery". It now separates the cases:
+
+  | Reddit's response | Sheet shows |
+  |---|---|
+  | Awards with a name | The awards. Count, description and icons are optional. |
+  | `all_awardings` is empty | One row, **No awards listed. Open on Reddit** |
+  | `all_awardings` is missing or unsupported | One row, **Award details unavailable. Open on Reddit** |
+  | Another item, or no item | "Couldn't find this item's awards on Reddit." |
+  | Malformed JSON | "Couldn't read Reddit's award details." |
+  | HTTP or network failure | "Couldn't load awards from Reddit (HTTP *n*)." or without a status |
+
+  The Open on Reddit row opens the item's `www.reddit.com` page with Sync's own
+  "Open in browser" helper. The link is built only from the item's permalink and
+  only if that permalink matches the requested post or comment ID. Without a
+  verified permalink, the sheet shows "Reddit lists no awards for this item." or
+  "Reddit didn't provide award details for this item." instead.
+- Award text no longer crashes the award detail sheet when the description is
+  missing. Only awards for the requested item are shown.
+
+Sync 23033 has no native action for giving awards, so the patch adds none.
+Viewing and giving Reddit's current awards is left to reddit.com. Reddit's live
+award fields were not checked: its JSON API needs authentication, which this
+change was not tested with.
+
 ## v0.6.2 inline comment media fix
 
 Adds **Sync: improve inline comment media** for [issue #8](https://github.com/TheLastWallaby/revanced-redditsync/issues/8).
@@ -151,6 +192,9 @@ route is the CLI; Manager import and patching still need device verification.
 - **Sync: improve inline comment media** draws comment pictures, Reddit/Giphy
   GIFs and direct Imgur pictures inline at their real aspect ratio within the
   reply width, as described above.
+- **Sync: handle unavailable award data** (unreleased) keeps listings usable when
+  award fields are missing and gives the awards sheet accurate messages and an
+  Open on Reddit row, as described above.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
@@ -169,8 +213,8 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 2. Use a base that has **none of this bundle's earlier compatibility patches**.
    Do not reapply to an APK already containing any earlier compatibility bundle.
 3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
-   and apply all four named patches (three in v0.6.1). Check that each reports
-   success.
+   and apply every named patch: four in v0.6.2 (three in v0.6.1), five in builds
+   that include the unreleased award-data patch. Check that each reports success.
 4. Sign the result with your own keystore. Matching the key used by your current
    installation allows an in-place update.
 
@@ -214,7 +258,8 @@ versioning. The manual `--tools` route below remains available.
 
 - `src/patches/SyncCompatPatches.kt`: standalone ReVanced patch hooks.
 - `src/extension/`: the Java runtime helpers.
-- `src/stubs/`: compile-only shared Logger signatures, excluded from the APK.
+- `src/stubs/`: compile-only signatures (shared Logger, Sync's Award model),
+  excluded from the APK.
 - `tests/`: JVM/loopback HTTP tests and minimal Android test adapters.
 - `tools/UpdateVerifier.java`: APK/code/signature verification.
 - `upstream/`: original files from the upstream implementation.

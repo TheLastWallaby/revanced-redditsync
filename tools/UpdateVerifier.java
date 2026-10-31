@@ -162,6 +162,18 @@ public class UpdateVerifier {
     if(calls(parser,"a",media+"rememberMetadata(")!=1)throw new AssertionError("Comment media_metadata hook missing");
     System.out.println("PASS: comment media sizing, display URL, format, Giphy marker/guard and media_metadata hooks installed once each");
   }
+  static void checkAwards(ClassDef request,ClassDef commentSheet,ClassDef postSheet,ClassDef parser) {
+    String awards="Lapp/revanced/extension/synccompat/AwardCompat;->";
+    if(calls(request,"parseNetworkResponse",awards+"parseAwards(")!=1)throw new AssertionError("Awards lookup parser hook missing");
+    if(calls(request,"parseNetworkResponse","Lorg/json/")!=0)throw new AssertionError("Legacy awards JSON parsing still present");
+    for(ClassDef sheet:List.of(commentSheet,postSheet)) {
+      if(calls(sheet,"D4",awards+"errorMessage(")!=1)throw new AssertionError("Awards sheet error message hook missing: "+sheet.getType());
+      if(calls(sheet,"r0",awards+"handoffUrl(")!=1)throw new AssertionError("Awards sheet Open on Reddit hook missing: "+sheet.getType());
+    }
+    if(calls(parser,"a",awards+"hasObject(")!=1 || calls(parser,"a",awards+"listingAwardings(")!=1)
+      throw new AssertionError("Listing award guards missing");
+    System.out.println("PASS: awards lookup, sheet error/Open on Reddit and listing award guards installed once each");
+  }
   public static void main(String[] args) throws Exception {
     var result=new ApkVerifier.Builder(new File(args[1])).build().verify();
     if(!result.isVerified())throw new AssertionError(result.getErrors());
@@ -173,10 +185,11 @@ public class UpdateVerifier {
     List<String> changed=new ArrayList<>();
     for(String type:before.keySet())if(!body(before.get(type)).equals(body(after.get(type))))changed.add(type);
     String slink="Lapp/revanced/extension/shared/fixes/slink/BaseFixSLinksPatch;";
-    if(!new TreeSet<>(changed).equals(new TreeSet<>(List.of("Ly8/q;","Ly8/f;","Lya/d$f;","Lya/d;",slink,"Lnc/d;","Lc9/c;"))))throw new AssertionError("Unexpected changed code: "+changed);
-    System.out.println("PASS: "+before.size()+" existing classes preserved; only 7 intended classes changed; runtime classes added: "+newClasses+"");
+    if(!new TreeSet<>(changed).equals(new TreeSet<>(List.of("Ly8/q;","Ly8/f;","Lya/d$f;","Lya/d;",slink,"Lnc/d;","Lc9/c;","Ly8/c;","Lt9/g;","Lt9/i;"))))throw new AssertionError("Unexpected changed code: "+changed);
+    System.out.println("PASS: "+before.size()+" existing classes preserved; only 10 intended classes changed; runtime classes added: "+newClasses+"");
     checkShareLinks(before.get(slink),after.get(slink));
     checkCommentMedia(after.get("Lnc/d;"),after.get("Lc9/c;"));
+    checkAwards(after.get("Ly8/c;"),after.get("Lt9/g;"),after.get("Lt9/i;"),after.get("Lc9/c;"));
     checkPresenter(before.get("Lya/d;"),after.get("Lya/d;"));
     ClassDef error=after.get("Lya/d$f;");
     for(Method m:error.getMethods())if(m.getName().equals("onErrorResponse")) {
