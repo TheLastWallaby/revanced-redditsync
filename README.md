@@ -12,12 +12,13 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Unreleased — Imgur comment video previews (issue #23)
+## Release candidate — v0.6.5-rc.1 Imgur comment video previews (issue #23)
 
 Extends **Sync: show comment video previews** to direct Imgur `.mp4` and `.gifv`
 links on `i.imgur.com`, `imgur.com` and `www.imgur.com`, using the same
-poster-and-play-button option as Reddit comment videos. This change is available
-in the PR's cumulative CI bundle; stable v0.6.4 contains only the Reddit part.
+poster-and-play-button option as Reddit comment videos. It ships in the
+[v0.6.5-rc.1 prerelease](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.5-rc.1)
+for phone testing; stable v0.6.4 contains only the Reddit part.
 
 - With **Inline image previews** on, the comment reserves a placeholder box and
   loads a still frame into it. The frame keeps its aspect ratio, with dark bars
