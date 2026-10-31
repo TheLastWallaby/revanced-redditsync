@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-10-31T18:51:09",
-  "description": "## What's Changed\n* Refresh comment video frames without scrolling; prepare v0.6.5-rc.3 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/32\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.5-rc.2...v0.6.5-rc.3",
-  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.5-rc.3/patches.rvp",
+  "created_at": "2026-10-31T19:14:17",
+  "description": "## What's Changed\n* Resize visible video previews and close blank-frame race; prepare v0.6.5-rc.4 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/33\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.5-rc.3...v0.6.5-rc.4",
+  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.5-rc.4/patches.rvp",
   "signature_download_url": "N/A",
-  "version": "v0.6.5-rc.3"
+  "version": "v0.6.5-rc.4"
 }
