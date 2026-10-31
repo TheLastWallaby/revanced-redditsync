@@ -81,6 +81,14 @@ build removes old compiler outputs so deleted code cannot remain in a bundle.
 Archive timestamps use the source commit time. CI artifacts are retained for 30
 days; published releases remain available after those preview artifacts expire.
 
+On Windows, run the same commands with `python`. To read Sync's own code for a
+fix, run `python3 scripts/inspect_base.py` with `gh` access to the private
+builder. It downloads `base.apk` and `inputs.json` from the private
+`build-inputs` release, checks the configured base checksum and that the base
+holds none of this bundle's patches, and disassembles every DEX file into the
+ignored `local-inspect/smali/` with the baksmali included in the pinned ReVanced
+CLI. The APK and its smali never leave that ignored directory.
+
 ## One-time private builder setup
 
 The public repository never contains the base APK, signing key or account

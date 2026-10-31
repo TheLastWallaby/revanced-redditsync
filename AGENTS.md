@@ -7,11 +7,26 @@ This repository distributes a cumulative ReVanced patch bundle for the free Sync
   Start from current main. Update an existing issue PR instead of opening a
   duplicate, and preserve the build/release infrastructure when resolving conflicts.
   Preserve gallery/comment behavior, continuation parents, retries and diagnostic privacy.
+- If the main checkout has uncommitted changes, do the issue in a separate git
+  worktree from current main (for example ../revanced-redditsync-issue<N>) and
+  leave those changes untouched.
+- When a fix depends on Sync's own code (method signatures, call sites, helpers
+  such as rate or token handling), inspect the prepared base instead of guessing:
+  python3 scripts/inspect_base.py downloads base.apk and inputs.json from the
+  private build-inputs release, checks the configured base checksum and that no
+  bundle patch is present, and writes smali to the ignored local-inspect/. Never
+  commit, attach or publish that APK or its disassembly. If private access is
+  unavailable, say which code could not be inspected.
 - Add a named, optional patch for unrelated functionality. Test the actual logic
   being changed. Do not assume code presence proves live Reddit functionality.
 - Run: python3 -m unittest discover -s tests -p 'test_*.py' -v
 - Run: python3 build.py --bootstrap
-  This installs the locked tools, executes Java *Test.java mains under tests/,
+  Run both locally before pushing whenever Java 17 and Python 3.12 are available;
+  CI confirms a passing build rather than debugging one. On Windows use python
+  (Git Bash has no python3). VideoPreviewLoadingTest's placeholder-repair check
+  fails on Windows only, because File.renameTo cannot replace an existing file
+  there; Linux CI (like Android) is authoritative for that check.
+  The build installs the locked tools, executes Java *Test.java mains under tests/,
   compiles both DEX files, validates the RVP and loads it with ReVanced CLI.
   Confirm every intended suite actually ran. Package-declared suites must execute
   by fully qualified class name; extend discovery and its regression coverage if
@@ -35,6 +50,17 @@ This repository distributes a cumulative ReVanced patch bundle for the free Sync
 - Keep independently developed fixes in separate PRs. Do not merge another fix as
   part of infrastructure work.
 
+## Test conventions
+
+- JVM tests use small Android stand-ins under tests/android/ (android.net.Uri,
+  android.text.TextUtils, android.util.Log). Extend these rather than adding an
+  Android runtime; Log lets real Volley Request objects be constructed.
+- Network behavior is tested against a loopback com.sun.net.httpserver server with
+  test-only tokens, never live Reddit or real accounts.
+- Limits a test must shorten (budgets, deadlines, timeouts) are non-final static
+  fields set by reflection; javac inlines static final primitives.
+- Print a one-line PASS summary with the check count so CI logs show each suite ran.
+
 ## Release and phone-test handoff
 
 - A normal fix task delivers a PR, passing checks and a built cumulative RVP.
@@ -51,11 +77,18 @@ This repository distributes a cumulative ReVanced patch bundle for the free Sync
   checksum, original signing identity, preserved classes and unchanged resources/
   manifest. Current APK verification does not itself prove each patch succeeded.
 - Return the PR, passing CI run, candidate release, private build run and private
-  APK download links, plus concise checks for the changed feature on the phone.
-  Keep personal APK links in the private handoff, not public PRs or release notes.
+  APK download links, plus concise numbered checks for the changed feature on the
+  phone. Keep personal APK links in the private handoff, not public PRs or release notes.
+- Ask for a result per numbered check and record those results, or record that
+  only an overall result was given, in validation-phone-tests.json.
 - Leave the stable release until the user confirms the candidate works on the
-  phone and stable publication is authorized. Promotion uses a separate VERSION
-  change and release build; do not rename or overwrite the candidate assets.
+  phone and stable publication is authorized. A reply such as "looks good"
+  confirms the candidate; ask "publish stable vX.Y.Z?" unless publication was
+  already authorized. Promotion uses a separate VERSION change and release build;
+  do not rename or overwrite the candidate assets.
+- Merge the stable promotion PR only once publication is authorized, then publish
+  the stable release immediately, so main's README never links to a missing
+  release. If publishing is then blocked, report it and offer to revert the merge.
 
 ## Private builder maintenance
 
