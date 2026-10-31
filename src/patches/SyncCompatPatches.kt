@@ -675,6 +675,42 @@ val showSyncCommentVideoPreviews = bytecodePatch(
         layout(spanClass.fields.any { it.name == "c" && it.type == "Ljava/lang/ref/WeakReference;" } &&
             spanClass.methods.any { it.name == "p" && it.parameterTypes == listOf("Landroid/widget/TextView;") &&
                 it.returnType == "V" }, "inline image span weak TextView binding")
+        // Verified against nb.c's constructor, getSize and draw: s/t are the actual box metrics.
+        val dimensions = listOf("s", "t").map { name ->
+            spanClass.fields.singleOrNull { it.name == name && it.type == "I" && AccessFlags.FINAL.isSet(it.accessFlags) }
+                ?: throw PatchException("Unsupported Sync image span dimension: $name")
+        }
+        val constructor = spanClass.methods.singleOrNull {
+            it.name == "<init>" && it.parameterTypes == listOf("Ljava/lang/String;", "I", "I", "Z")
+        } ?: throw PatchException("Unsupported Sync image span constructor.")
+        val writes = constructor.implementation!!.instructions.filter { it.opcode == Opcode.IPUT }
+        layout(writes.size == 2 && writes.indices.all { i ->
+            val instruction = writes[i] as TwoRegisterInstruction
+            instruction.registerA == i + 2 && instruction.registerB == 0 &&
+                ((writes[i] as ReferenceInstruction).reference as FieldReference).name == dimensions[i].name
+        }, "inline image span dimensions")
+        dimensions.forEach { it.accessFlags = it.accessFlags and AccessFlags.FINAL.value.inv() }
+        if (spanClass.methods.any { it.name == "syncCompatResize" }) throw PatchException("Comment video resize patch is already installed.")
+        val resizeMethod = MutableMethod(ImmutableMethod(span, "syncCompatResize",
+            listOf("I", "I").map { com.android.tools.smali.dexlib2.immutable.ImmutableMethodParameter(it, null, null) },
+            "Z", AccessFlags.PUBLIC.value, emptySet(), emptySet(), null))
+        resizeMethod.resetBody(4, """
+            if-lez p1, :unchanged
+            if-lez p2, :unchanged
+            iget v0, p0, $span->s:I
+            if-ne v0, p1, :resize
+            iget v0, p0, $span->t:I
+            if-eq v0, p2, :unchanged
+            :resize
+            iput p1, p0, $span->s:I
+            iput p2, p0, $span->t:I
+            const/4 v0, 0x1
+            return v0
+            :unchanged
+            const/4 v0, 0x0
+            return v0
+        """.trimIndent())
+        spanClass.methods.add(resizeMethod)
         if (spanClass.methods.any { it.name == "syncCompatLoad" }) throw PatchException("Comment video patch is already installed.")
         val loadMethod = MutableMethod(ImmutableMethod(span, "syncCompatLoad",
             listOf(com.android.tools.smali.dexlib2.immutable.ImmutableMethodParameter("Ljava/lang/String;", null, null)),

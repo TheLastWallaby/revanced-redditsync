@@ -3,6 +3,22 @@
   "releases": [
     {
       "stable": null,
+      "tested_release": "v0.6.5-rc.3",
+      "results": {
+        "automatic_frame_refresh": "tester confirmed frames appear automatically without scrolling/tapping",
+        "initial_aspect_ratio": "screenshots show widescreen frames inside large square boxes; tester reports gray bars disappear after scrolling past and back",
+        "unavailable_preview": "one preview did not load; its exact media URL and decoder path were not captured"
+      },
+      "promotion": "Not promoted; v0.6.5-rc.4 prepares live span sizing/relayout, delivery across the registration race, a bounded Imgur JPEG fallback and a compact terminal play tile.",
+      "unverified": [
+        "rc.4 live aspect-ratio update while the comment remains visible",
+        "cause and availability of the specific blank clip",
+        "Inline image previews off",
+        "regression spot-checks of Reddit videos, pictures/GIFs, share links and load more comments"
+      ]
+    },
+    {
+      "stable": null,
       "tested_release": "v0.6.5-rc.2",
       "results": {
         "initial_video_preview": "screenshots show large gray play placeholders",

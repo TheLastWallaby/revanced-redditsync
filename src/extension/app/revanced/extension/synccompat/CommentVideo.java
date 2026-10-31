@@ -106,6 +106,7 @@ public final class CommentVideo {
     static final int PLACEHOLDER_WIDTH = 480;
     /** Method the patch adds to Sync's inline image span (nb.c) to load another file into it. */
     static final String SPAN_LOAD = "syncCompatLoad";
+    static final String SPAN_RESIZE = "syncCompatResize";
     /** Sync 23033 nb.c's weak TextView binding, cleared by Glide when a request is replaced. */
     static final String SPAN_OWNER = "c";
 
@@ -164,6 +165,8 @@ public final class CommentVideo {
         void post(Runnable runnable);
         /** Repaint a bound view after a cached/synchronous replacement also completes. */
         void invalidate(Object view);
+        /** Rebuild text metrics after a ReplacementSpan changes its width/height. */
+        void relayout(Object view);
         float density();
     }
 
@@ -258,9 +261,8 @@ public final class CommentVideo {
             if (size == null) {
                 requestPoster(id);
                 synchronized (LOCK) {
+                    if (FAILED.containsKey(id)) return null;
                     size = VIDEO_SIZES.get(id);
-                    // A video whose poster failed and whose shape is unknown stays a link.
-                    if (size == null && FAILED.containsKey(id)) return null;
                 }
                 if (size == null) size = DEFAULT_SHAPE;
             }
@@ -409,10 +411,8 @@ public final class CommentVideo {
             String id = mediaId(href);
             if (span == null || id == null || width <= 0 || height <= 0) return;
             synchronized (LOCK) {
-                if (isFinal(id, choice(id, width, height))) {
-                    // posterUrl already gave this span its final image.
-                    return;
-                }
+                // A poster can finish after posterUrl chose the placeholder but before track.
+                // Always register: readiness here does not prove the span has that image.
                 List<Waiting> spans = WAITING.get(id);
                 if (spans == null) WAITING.put(id, spans = new ArrayList<>());
                 for (Iterator<Waiting> it = spans.iterator(); it.hasNext(); ) {
@@ -440,7 +440,9 @@ public final class CommentVideo {
     static void reload(String id) {
         List<Object> spans = new ArrayList<>();
         List<String> paths = new ArrayList<>();
+        List<int[]> sizes = new ArrayList<>();
         List<int[]> fits = new ArrayList<>();
+        List<int[]> placeholders = new ArrayList<>();
         File directory = platform.posterDirectory();
         if (directory == null) return;
         synchronized (LOCK) {
@@ -454,8 +456,22 @@ public final class CommentVideo {
                     it.remove();
                     continue;
                 }
-                String name = choice(id, entry.width, entry.height);
-                boolean last = isFinal(id, name);
+                String name;
+                int[] size = null;
+                boolean terminal = FAILED.containsKey(id);
+                if (canResize(span) && (poster || terminal)) {
+                    size = poster ? CommentMedia.fitBox(SIZES.get(id)[0], SIZES.get(id)[1], entry.width, platform.density())
+                            : new int[] {entry.width, Math.max(1, Math.round(entry.width / 5f))};
+                    if (size == null) continue;
+                    name = poster ? id : placeholderKey(size[0], size[1]);
+                    if (!poster && !PLACEHOLDERS.containsKey(name)) {
+                        placeholders.add(size);
+                        continue;
+                    }
+                } else {
+                    name = choice(id, entry.width, entry.height);
+                }
+                boolean last = isFinal(id, name) || (terminal && size != null);
                 if (poster && !last) fits.add(new int[] {entry.width, entry.height});
                 if (name == null) continue;
                 String path = new File(directory, name + ".jpg").getAbsolutePath();
@@ -463,15 +479,28 @@ public final class CommentVideo {
                 entry.loadedPath = path;
                 spans.add(span);
                 paths.add(path);
+                sizes.add(size);
                 if (last) it.remove();
             }
             if (waiting.isEmpty()) WAITING.remove(id);
         }
         for (int[] box : fits) requestFitted(id, box[0], box[1]);
+        for (int[] box : placeholders) requestPlaceholder(box[0], box[1]);
         if (spans.isEmpty()) return;
         platform.post(() -> {
-            for (int i = 0; i < spans.size(); i++) load(spans.get(i), paths.get(i));
+            for (int i = 0; i < spans.size(); i++) {
+                int[] size = sizes.get(i);
+                load(spans.get(i), paths.get(i), size == null ? 0 : size[0], size == null ? 0 : size[1]);
+            }
         });
+    }
+
+    private static boolean canResize(Object span) {
+        try {
+            return span.getClass().getMethod(SPAN_RESIZE, int.class, int.class).getReturnType() == boolean.class;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            return false;
+        }
     }
 
     /**
@@ -481,9 +510,14 @@ public final class CommentVideo {
      * loads can complete synchronously before it is restored, so also schedule a repaint after.
      */
     static void load(Object span, String path) {
+        load(span, path, 0, 0);
+    }
+
+    static void load(Object span, String path, int width, int height) {
         Field owner = null;
         WeakReference<?> binding = null;
         Object boundView = null;
+        boolean resized = false;
         try {
             owner = span.getClass().getDeclaredField(SPAN_OWNER);
             if (owner.getType() == WeakReference.class) {
@@ -497,6 +531,10 @@ public final class CommentVideo {
             // Unknown spans can still use their loader; the patch validates nb.c's real field.
         }
         try {
+            if (width > 0 && height > 0 && canResize(span)) {
+                resized = Boolean.TRUE.equals(span.getClass().getMethod(SPAN_RESIZE, int.class, int.class)
+                        .invoke(span, width, height));
+            }
             Method method = span.getClass().getMethod(SPAN_LOAD, String.class);
             method.invoke(span, path);
         } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
@@ -505,7 +543,10 @@ public final class CommentVideo {
             if (owner != null && binding != null) {
                 try {
                     owner.set(span, boundView == null ? binding : new WeakReference<>(boundView));
-                    if (boundView != null) platform.invalidate(boundView);
+                    if (boundView != null) {
+                        if (resized) platform.relayout(boundView);
+                        else platform.invalidate(boundView);
+                    }
                 } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
                     // A recycled or detached span must never crash the comment renderer.
                 }
@@ -725,8 +766,22 @@ public final class CommentVideo {
                         target = videoBase + id + "/" + pick.base;
                     }
                 }
-                if (size == null && target != null && download(target, video, MAX_VIDEO_BYTES)) {
-                    size = validSize(platform.makePoster(video, temp, nativeWidth));
+                if (size == null && target != null) {
+                    try {
+                        if (download(target, video, MAX_VIDEO_BYTES)) {
+                            size = validSize(platform.makePoster(video, temp, nativeWidth));
+                        }
+                    } catch (RateLimitedException e) {
+                        throw e;
+                    } catch (IOException | RuntimeException | LinkageError ignored) {
+                        // Imgur can still use its bounded JPEG if MP4 fetching/decoding fails.
+                    }
+                }
+                if (size == null && id.startsWith(IMGUR_KEY)) {
+                    // Some clips have no decodable WebP/MP4 prefix but retain a small JPEG.
+                    if (downloadStill(imgurBase + id.substring(IMGUR_KEY.length()) + "h.jpg", video)) {
+                        size = validSize(platform.makeStillPoster(video, temp));
+                    }
                 }
                 if (size != null) {
                     File poster = new File(directory, id + ".jpg");
@@ -828,6 +883,7 @@ public final class CommentVideo {
             connection.setRequestProperty("Accept", "video/mp4");
             connection.setRequestProperty("Range", "bytes=0-" + (limit - 1));
             int status = connection.getResponseCode();
+            if (status == 429) throw new RateLimitedException();
             if (status != 200 && status != 206) return false;
             long written = 0;
             byte[] buffer = new byte[8192];
@@ -1202,6 +1258,16 @@ public final class CommentVideo {
 
         @Override public void invalidate(Object view) {
             if (view instanceof android.view.View) ((android.view.View) view).postInvalidate();
+        }
+
+        @Override public void relayout(Object view) {
+            if (!(view instanceof android.widget.TextView)) return;
+            android.widget.TextView text = (android.widget.TextView) view;
+            // requestLayout alone can reuse TextView's old Layout and stale span metrics.
+            // Keep the same spanned text/link objects and selection, and rebuild that Layout.
+            text.setTextKeepState(text.getText());
+            text.requestLayout();
+            text.invalidate();
         }
 
         @Override public float density() {
