@@ -924,3 +924,288 @@ val handleSyncAwardData = bytecodePatch(
         }
     }
 }
+
+private const val PROXY = "Lapp/revanced/extension/synccompat/MediaProxyCompat;"
+private const val LISTENER = "Lcom/android/volley/Response\$Listener;"
+private const val ERROR_LISTENER = "Lcom/android/volley/Response\$ErrorListener;"
+private const val GLIDE_REQUEST = "Lcom/bumptech/glide/f;"
+
+val replaceSyncMediaProxies = bytecodePatch(
+    name = "Sync: replace legacy media proxies",
+    description = "Resolve Imgur albums, gallery posts and album link-card thumbnails directly over HTTPS instead of the defunct images.syncforreddit.com and ap.syncforreddit.com proxies; resolve enhanced autoplay of RedGifs posts through Sync's RedGifs resolver; show link cards instead of proxy website previews, Gfycat thumbnails and web pages handed to the image decoder.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        fun target(type: String, source: String): MutableClassDef = proxy(
+            classes.singleOrNull { it.type == type && it.sourceFile == source }
+                ?: throw PatchException("Expected Sync $source was not found. This patch targets build 23033 only.")
+        ).mutableClass
+        fun MutableClassDef.method(name: String, parameters: List<String>, returns: String): MutableMethod =
+            methods.singleOrNull { it.name == name && it.parameterTypes == parameters && it.returnType == returns }
+                ?: throw PatchException("Unsupported Sync method $type->$name.")
+        fun MutableMethod.code() = implementation!!.instructions
+        fun MutableMethod.calls(owner: String, name: String) = code().any {
+            it.methodRef()?.let { m -> m.definingClass == owner && m.name == name } == true
+        }
+        fun MutableMethod.hasString(value: String) = code().any { it.stringValue() == value }
+        fun MutableMethod.requireUnpatched() {
+            if (code().any { it.methodRef()?.definingClass == PROXY }) {
+                throw PatchException("Media proxy patch is already installed.")
+            }
+        }
+
+        // Imgur albums and gallery posts (s8.b): images.syncforreddit.com/a/<md5>/<id> becomes the
+        // album's public embed page; its item list is adapted to the JSON shape parsed below.
+        val album = target("Ls8/b;", "ImgurGalleryRequest.java")
+        val albumUrl = album.method("a", listOf("Ljava/lang/String;"), "Ljava/lang/String;")
+        val albumParse = album.method("parseNetworkResponse", listOf(NETWORK), "Lcom/android/volley/Response;")
+        val albumError = album.method("parseNetworkError", listOf(VOLLEY_ERROR), VOLLEY_ERROR)
+        listOf(albumUrl, albumParse, albumError).forEach { it.requireUnpatched() }
+        layout(albumUrl.calls("Lg8/b;", "a") && albumParse.hasString("images") && albumParse.hasString("mp4") &&
+            albumParse.hasString("description") && albumError.hasString("Unable to find an album with the id"), "Imgur album request")
+        albumUrl.resetBody(1, """
+            invoke-static {p0}, $PROXY->albumRequestUrl(Ljava/lang/String;)Ljava/lang/String;
+            move-result-object p0
+            return-object p0
+        """.trimIndent())
+        albumParse.addInstructions(0, """
+            invoke-static/range {p1 .. p1}, $PROXY->albumResponse($NETWORK)$NETWORK
+            move-result-object p1
+        """.trimIndent())
+        // A missing album (HTTP 404) takes Sync's existing "single image" fallback below.
+        albumError.addInstructions(0, """
+            invoke-static/range {p1 .. p1}, $PROXY->albumError($VOLLEY_ERROR)$VOLLEY_ERROR
+            move-result-object p1
+        """.trimIndent())
+
+        // Single Imgur items (s8.d), Sync's fallback when a gallery link is not an album.
+        val image = target("Ls8/d;", "ImgurSingleImageRequest.java")
+        val imageUrl = image.method("a", listOf("Ljava/lang/String;"), "Ljava/lang/String;")
+        val imageParse = image.method("parseNetworkResponse", listOf(NETWORK), "Lcom/android/volley/Response;")
+        listOf(imageUrl, imageParse).forEach { it.requireUnpatched() }
+        layout(imageUrl.calls("Lg8/d;", "a") && imageParse.hasString("link") &&
+            imageParse.implementation!!.registerCount <= 15, "Imgur single image request")
+        imageUrl.resetBody(1, """
+            invoke-static {p0}, $PROXY->imageRequestUrl(Ljava/lang/String;)Ljava/lang/String;
+            move-result-object p0
+            return-object p0
+        """.trimIndent())
+        // v0 is written before it is read in the original body.
+        imageParse.addInstructions(0, """
+            invoke-virtual {p0}, Lcom/android/volley/Request;->getUrl()Ljava/lang/String;
+            move-result-object v0
+            invoke-static {p1, v0}, $PROXY->imageResponse(${NETWORK}Ljava/lang/String;)$NETWORK
+            move-result-object p1
+        """.trimIndent())
+
+        // Website previews (wc.q): ap.syncforreddit.com/image?url=<page> rendered a page as a
+        // picture. Only YouTube's own thumbnail stays; other links get Sync's link card.
+        val website = target("Lwc/q;", "WebsitePreviewHelper.java")
+        val previewAllowed = website.method("a", listOf("Ljava/lang/String;"), "Z")
+        val previewImage = website.method("b", listOf("Ljava/lang/String;"), "Ljava/lang/String;")
+        listOf(previewAllowed, previewImage).forEach { it.requireUnpatched() }
+        layout(previewAllowed.code().any { (it as? ReferenceInstruction)?.reference.let { r ->
+                r is FieldReference && r.name == "ultra_website_previews" } } &&
+            previewAllowed.calls("Lwc/q;", "c") &&
+            previewImage.hasString("https://ap.syncforreddit.com/image?url=") &&
+            previewImage.hasString("https://i.ytimg.com/vi/") && previewImage.hasString("/hqdefault.jpg") &&
+            previewImage.calls("Ly7/c;", "K") && previewImage.calls("Ly7/a;", "v"), "website preview helper")
+        previewAllowed.addInstructionsWithLabels(0, """
+            invoke-static {p0}, $PROXY->websitePreviewAllowed(Ljava/lang/String;)Z
+            move-result v0
+            if-nez v0, :original
+            const/4 v0, 0x0
+            return v0
+            :original
+            nop
+        """.trimIndent())
+        previewImage.resetBody(3, """
+            invoke-static {p0}, Ly7/c;->K(Ljava/lang/String;)Z
+            move-result v0
+            if-eqz v0, :link
+            invoke-static {p0}, Ly7/a;->v(Ljava/lang/String;)Ljava/lang/String;
+            move-result-object p0
+            new-instance v0, Ljava/lang/StringBuilder;
+            invoke-direct {v0}, Ljava/lang/StringBuilder;-><init>()V
+            const-string v1, "https://i.ytimg.com/vi/"
+            invoke-virtual {v0, v1}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+            invoke-virtual {v0, p0}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+            const-string v1, "/hqdefault.jpg"
+            invoke-virtual {v0, v1}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+            invoke-virtual {v0}, Ljava/lang/StringBuilder;->toString()Ljava/lang/String;
+            move-result-object p0
+            return-object p0
+            :link
+            const-string p0, ""
+            return-object p0
+        """.trimIndent())
+
+        // Link-card thumbnails (oc.c.o, nb.d branch). Register roles are fixed by build 23033 and
+        // checked: v1 = card span, v9 = thumbnail model, v2 = Glide context, v10 free.
+        val builder = target("Loc/c;", "SpannableTextViewStringBuilder.java")
+        val load = builder.methods.singleOrNull {
+            it.name == "o" && it.parameterTypes.size == 1 && it.returnType == "V" &&
+                it.implementation?.instructions?.any { i -> i.opcode == Opcode.INSTANCE_OF &&
+                    (i as ReferenceInstruction).reference.toString() == "Lnb/d;" } == true
+        } ?: throw PatchException("Unsupported Sync span loader.")
+        load.requireUnpatched()
+        val code = load.code()
+        val albumProxy = code.singleIndex("album thumbnail proxy") {
+            code[it].stringValue() == "https://ap.syncforreddit.com/image?url=imgur-album-"
+        }
+        val context = (albumProxy until code.size).firstOrNull {
+            code[it].methodRef()?.let { m -> m.definingClass == "Lcom/laurencedawson/reddit_sync/RedditApplication;" && m.name == "f" } == true
+        } ?: throw PatchException("Unsupported link-card thumbnail load.")
+        val into = (context until code.size).firstOrNull {
+            code[it].methodRef()?.let { m -> m.definingClass == GLIDE_REQUEST && m.name == "y0" } == true
+        } ?: throw PatchException("Unsupported link-card thumbnail load.")
+        fun FiveRegisterInstruction.registers() = listOf(registerC, registerD, registerE, registerF, registerG).take(registerCount)
+        val chain = code.subList(context, into + 1).mapNotNull { it.methodRef()?.toString() }
+        val glideWith = "Lcom/bumptech/glide/b;->u(Landroid/content/Context;)Lcom/bumptech/glide/g;"
+        val glideLoad = "Lcom/bumptech/glide/g;->w(Ljava/lang/Object;)$GLIDE_REQUEST"
+        val dp = "Lt7/f0;->c(I)I"
+        val size = "Lt3/a;->Y(II)Lt3/a;"
+        val priority = "Lt3/a;->Z(Lw2/c;)Lt3/a;"
+        val transforms = "Lt3/a;->n0([La3/m;)Lt3/a;"
+        val crop = "Lk3/i;-><init>()V"
+        val corners = "Lk3/s;-><init>(FFFF)V"
+        val glideInto = "$GLIDE_REQUEST->y0(Lu3/j;)Lu3/j;"
+        val loadIndex = (context until into).firstOrNull { code[it].methodRef()?.toString() == glideLoad }
+        layout(load.implementation!!.registerCount == 14 &&
+            code[context + 1].opcode == Opcode.MOVE_RESULT_OBJECT && code[context + 1].registerA() == 2 &&
+            code[context + 2].methodRef()?.toString() == glideWith &&
+            (code[context + 2] as FiveRegisterInstruction).registers() == listOf(2) &&
+            loadIndex != null && (code[loadIndex] as FiveRegisterInstruction).registers() == listOf(2, 9) &&
+            (code[into] as FiveRegisterInstruction).registers() == listOf(2, 1) &&
+            code[into + 1].opcode in setOf(Opcode.GOTO, Opcode.GOTO_16, Opcode.GOTO_32) &&
+            listOf(dp, size, priority, transforms, crop, corners, glideInto).all { it in chain } &&
+            code.subList(context, into).any { it.opcode == Opcode.SGET_OBJECT &&
+                (it as ReferenceInstruction).reference.toString() == "Lw2/c;->q:Lw2/c;" } &&
+            code.subList(0, albumProxy).any { it.opcode == Opcode.CHECK_CAST && it.registerA() == 1 &&
+                (it as ReferenceInstruction).reference.toString() == "Lnb/d;" } &&
+            code.subList(0, albumProxy).any { it.opcode == Opcode.CONST_16 && it.registerA() == 8 &&
+                (it as NarrowLiteralInstruction).narrowLiteral == 0x38 } &&
+            code.subList(0, albumProxy).any { it.opcode == Opcode.CONST_16 && it.registerA() == 7 &&
+                (it as NarrowLiteralInstruction).narrowLiteral == 0xc }, "link-card thumbnail load")
+        val next = code[into + 1].branchTarget()
+        // After Sync's own model choice and its Glide context: no branch targets this point.
+        load.addInstructionsWithLabels(context + 2, """
+            invoke-virtual {v1}, Lnb/d;->n()Ljava/lang/String;
+            move-result-object v10
+            invoke-static {v1, v10, v9}, $PROXY->thumbnail(Ljava/lang/Object;Ljava/lang/String;Ljava/lang/Object;)Ljava/lang/Object;
+            move-result-object v9
+            if-nez v9, :load
+            goto/16 :next
+            :load
+            nop
+        """.trimIndent(), ExternalLabel("next", next))
+
+        // Link-card span (nb.d): syncCompatThumbnail(model) repeats the card's Glide request above
+        // (56dp, low priority, centre crop, 12dp left corners) once an album cover is resolved.
+        val card = target("Lnb/d;", "InlineImageSpan.java")
+        layout(card.interfaces.contains("Lu3/j;") &&
+            card.methods.any { it.name == "n" && it.parameterTypes.isEmpty() && it.returnType == "Ljava/lang/String;" } &&
+            card.methods.any { it.name == "s" && it.parameterTypes == listOf("Landroid/widget/TextView;") }, "link-card span")
+        if (card.methods.any { it.name == "syncCompatThumbnail" }) throw PatchException("Media proxy patch is already installed.")
+        val thumbnail = MutableMethod(ImmutableMethod(card.type, "syncCompatThumbnail",
+            listOf(com.android.tools.smali.dexlib2.immutable.ImmutableMethodParameter("Ljava/lang/Object;", null, null)),
+            "V", AccessFlags.PUBLIC.value, emptySet(), emptySet(), null))
+        thumbnail.resetBody(7, """
+            invoke-static {}, Lcom/laurencedawson/reddit_sync/RedditApplication;->f()Landroid/content/Context;
+            move-result-object v0
+            invoke-static {v0}, $glideWith
+            move-result-object v0
+            invoke-virtual {v0, p1}, $glideLoad
+            move-result-object v0
+            const/16 v1, 0x38
+            invoke-static {v1}, $dp
+            move-result v1
+            invoke-virtual {v0, v1, v1}, $size
+            move-result-object v0
+            check-cast v0, $GLIDE_REQUEST
+            sget-object v1, Lw2/c;->q:Lw2/c;
+            invoke-virtual {v0, v1}, $priority
+            move-result-object v0
+            check-cast v0, $GLIDE_REQUEST
+            const/4 v1, 0x2
+            new-array v1, v1, [La3/m;
+            new-instance v2, Lk3/i;
+            invoke-direct {v2}, $crop
+            const/4 v3, 0x0
+            aput-object v2, v1, v3
+            new-instance v2, Lk3/s;
+            const/16 v3, 0xc
+            invoke-static {v3}, $dp
+            move-result v3
+            int-to-float v3, v3
+            const/4 v4, 0x0
+            invoke-direct {v2, v3, v4, v4, v3}, $corners
+            const/4 v3, 0x1
+            aput-object v2, v1, v3
+            invoke-virtual {v0, v1}, $transforms
+            move-result-object v0
+            check-cast v0, $GLIDE_REQUEST
+            invoke-virtual {v0, p0}, $glideInto
+            return-void
+        """.trimIndent())
+        card.methods.add(thumbnail)
+
+        // Enhanced autoplay (lc.f.z): ap.syncforreddit.com/image?url=redgifs-<id> and gfycat-<id>.
+        // RedGifs posts go through Sync's own resolver (t8.d via m8.a.e), whose RedGifs token is
+        // separate from Reddit's; the player starts from its callback. Others use Sync's normal URL.
+        val player = target("Llc/f;", "SimpleExoPlayerTextureView.java")
+        val autoplay = player.method("z", listOf("Lxa/d;", "Z", "Z"), "V")
+        autoplay.requireUnpatched()
+        val wrapper = classes.singleOrNull { it.type == "Lt8/d;" && it.sourceFile == "RedgifRequestWrapper.java" }
+        val manager = classes.singleOrNull { it.type == "Lm8/a;" && it.sourceFile == "OAuthRequestManager.java" }
+        val settings = classes.singleOrNull { it.type == SETTINGS_VALUES }
+        layout(autoplay.hasString("https://ap.syncforreddit.com/image?url=redgifs-") &&
+            autoplay.hasString("https://ap.syncforreddit.com/image?url=gfycat-") &&
+            autoplay.calls("Llc/f;", "x") && autoplay.calls("Lxa/d;", "e1") && autoplay.calls("Lxa/d;", "g1") &&
+            player.methods.any { it.name == "x" && it.parameterTypes == listOf("Ljava/lang/String;", "Z", "Z") &&
+                AccessFlags.PUBLIC.isSet(it.accessFlags) } &&
+            wrapper?.methods?.any { it.name == "<init>" &&
+                it.parameterTypes == listOf("Ljava/lang/String;", "Z", LISTENER, ERROR_LISTENER) } == true &&
+            manager?.methods?.any { it.name == "e" && it.parameterTypes == listOf("Lt8/d;") &&
+                AccessFlags.STATIC.isSet(it.accessFlags) } == true &&
+            settings?.fields?.any { it.name == "enhancedAutoPlay" && it.type == "Z" } == true, "enhanced autoplay")
+        autoplay.resetBody(13, """
+            invoke-virtual {p1}, Lxa/d;->e1()Ljava/lang/String;
+            move-result-object v4
+            invoke-virtual {p1}, Lxa/d;->g1()Ljava/lang/String;
+            move-result-object v5
+            invoke-static {}, $SETTINGS->x()$SETTINGS_VALUES
+            move-result-object v6
+            iget-boolean v6, v6, $SETTINGS_VALUES->enhancedAutoPlay:Z
+            move-object v3, p0
+            move v7, p2
+            move v8, p3
+            invoke-static/range {v3 .. v8}, $PROXY->autoplayUrl(Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;ZZZ)Ljava/lang/String;
+            move-result-object v0
+            if-eqz v0, :wait
+            invoke-virtual {p0, v0, p2, p3}, Llc/f;->x(Ljava/lang/String;ZZ)V
+            return-void
+            :wait
+            invoke-static {p0}, $PROXY->takeRedgifsRequest(Ljava/lang/Object;)Ljava/lang/String;
+            move-result-object v0
+            if-eqz v0, :done
+            invoke-static {v0}, $PROXY->redgifsListener(Ljava/lang/String;)$LISTENER
+            move-result-object v1
+            invoke-static {v0}, $PROXY->redgifsErrorListener(Ljava/lang/String;)$ERROR_LISTENER
+            move-result-object v2
+            new-instance v3, Lt8/d;
+            const/4 v4, 0x0
+            invoke-direct {v3, v0, v4, v1, v2}, Lt8/d;-><init>(Ljava/lang/String;Z${LISTENER}$ERROR_LISTENER)V
+            invoke-static {v3}, Lm8/a;->e(Lt8/d;)V
+            :done
+            return-void
+        """.trimIndent())
+
+        // The replaced builders no longer reach either proxy host.
+        for (method in listOf(albumUrl, imageUrl, previewImage, autoplay)) {
+            layout(method.code().none { it.stringValue()?.contains("syncforreddit.com") == true } &&
+                method.code().none { it.methodRef()?.definingClass in setOf("Lg8/b;", "Lg8/d;") }, "proxy-free media builder")
+        }
+    }
+}
