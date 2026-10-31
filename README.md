@@ -53,10 +53,12 @@ neither answers now: `images.syncforreddit.com` does not resolve and
 responses, album covers, website and Gfycat fallbacks, RedGifs autoplay and a
 loopback HTTP server (redirects, size limit, no cookies or credentials). The
 parsers were also run against 39 live Imgur album embed pages (278 items, all
-matching Imgur's own counts) and live single-item pages. The tester tried
-v0.6.6-rc.1 on their phone and approved stable promotion; no per-check results
-were reported, so `validation-phone-tests.json` lists each feature as
-unconfirmed individually. This is not exhaustive Android or live-service coverage.
+matching Imgur's own counts) and live single-item pages. The tester reported
+running every check on the v0.6.6-rc.1 phone checklist (Imgur albums and
+gallery links, album link-card thumbnails, website/YouTube link cards, RedGifs
+enhanced autoplay and the gallery/comment-media regression check) and approved
+stable promotion; see `validation-phone-tests.json`. This is phone confirmation
+for the tested posts, not exhaustive Android or live-service coverage.
 
 ## v0.6.5 Imgur comment video previews (issue #23)
 
@@ -500,8 +502,8 @@ it; see `validation-phone-tests.json` for what was and wasn't exercised. Stable
 v0.6.4 rebuilds the v0.6.4-rc.3 runtime code, which the tester confirmed on
 their phone before approving it. Stable v0.6.5 rebuilds the tested v0.6.5-rc.4
 runtime code after the tester reported it looking good and authorized promotion.
-Stable v0.6.6 rebuilds the v0.6.6-rc.1 runtime code, which the tester tried on
-their phone before approving promotion.
+Stable v0.6.6 rebuilds the v0.6.6-rc.1 runtime code, whose full phone
+checklist the tester ran before approving promotion.
 This standalone bundle does not represent a full upstream Gradle build.
 
 ## Sharing and license
