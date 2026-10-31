@@ -2,6 +2,23 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.6.8",
+      "tested_release": "v0.6.8-rc.1",
+      "results": {
+        "candidate_installed_and_used": "tester installed the private v0.6.8-rc.1 APK and reported \"Looks good\" after receiving the load-more checklist",
+        "bounded_load_more_comments": "covered only by the tester's overall \"Looks good\" report; per-item results were not supplied"
+      },
+      "promotion": "Prepared stable v0.6.8 rebuilds the same runtime patch and extension source as phone-tested v0.6.8-rc.1. Candidate assets remain immutable.",
+      "unverified": [
+        "individual checklist items (per-tap count, follow-up taps, leaving during a load, nested/continue rows) as separate results",
+        "rate-limit, 401 refresh, 429 backoff and deadline paths against live Reddit; these have loopback test coverage",
+        "whether Reddit's /api/morechildren is usable by Sync's client",
+        "Sync's internal rate helper, which this patch does not update",
+        "separate device installation of the stable rebuild",
+        "exhaustive Reddit account/post combinations"
+      ]
+    },
+    {
       "stable": "v0.6.7",
       "tested_release": "v0.6.7-rc.1",
       "results": {
