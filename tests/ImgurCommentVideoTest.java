@@ -87,7 +87,7 @@ public final class ImgurCommentVideoTest {
         server.createContext("/", exchange -> {
             String path = exchange.getRequestURI().getPath();
             hits.computeIfAbsent(path, key -> new AtomicInteger()).incrementAndGet();
-            ranges.add(String.valueOf(exchange.getRequestHeaders().getFirst("Range")));
+            if (path.endsWith(".mp4")) ranges.add(String.valueOf(exchange.getRequestHeaders().getFirst("Range")));
             for (String header : new String[] {"Cookie", "Authorization"}) {
                 if (exchange.getRequestHeaders().containsKey(header)) leaked.add(header);
             }
@@ -106,7 +106,7 @@ public final class ImgurCommentVideoTest {
                 exchange.close();
                 return;
             }
-            boolean missing = path.equals("/Missing.mp4");
+            boolean missing = path.equals("/Missing.mp4") || path.endsWith(".webp");
             byte[] body = path.equals("/Large12.mp4") ? large : new byte[] {0, 0, 0, 8, 'f', 't', 'y', 'p'};
             exchange.getResponseHeaders().set("Content-Type", "video/mp4");
             // Test both an honest Range response and a server that ignores Range.
@@ -129,8 +129,8 @@ public final class ImgurCommentVideoTest {
             CommentVideo.imgurBase = "http://127.0.0.1:" + server.getAddress().getPort() + "/";
 
             check(CommentVideo.generate("imgur-AbC123x"), "direct MP4 poster generated");
-            check(hits.get("/AbC123x.mp4").get() == 1 && hits.size() == 1,
-                    "one case-sensitive MP4 fetch; no GIF/image/manifest probes");
+            check(hits.get("/AbC123x.mp4").get() == 1 && hits.get("/AbC123x.webp").get() == 1 && hits.size() == 2,
+                    "one case-sensitive MP4 fallback after the unavailable WebP still");
             check(platform.lastNativeWidth == 0, "frame decoder supplies Imgur dimensions");
             check(platform.lastVideoBytes == 8, "complete short clip passed to decoder");
             File poster = new File(root, "imgur-AbC123x.jpg");
@@ -189,7 +189,8 @@ public final class ImgurCommentVideoTest {
             check(leaked.isEmpty(), "no credentials, cookies or comment query sent to media host: " + leaked);
             check(ranges.stream().allMatch(range -> range.equals("bytes=0-" + (CommentVideo.MAX_VIDEO_BYTES - 1))),
                     "all clip requests bounded with Range");
-            check(hits.keySet().stream().allMatch(path -> path.endsWith(".mp4")), "no GIF or website HTML fetched");
+            check(hits.keySet().stream().allMatch(path -> path.endsWith(".mp4") || path.endsWith(".webp")),
+                    "only WebP stills and MP4 fallbacks; no GIF or website HTML fetched");
         } finally {
             release.countDown();
             server.stop(0);

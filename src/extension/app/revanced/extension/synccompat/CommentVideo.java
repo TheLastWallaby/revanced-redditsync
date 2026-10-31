@@ -41,14 +41,23 @@ import org.json.JSONObject;
  * Posters are queued as soon as Sync parses a comment's media_metadata. When that metadata gives
  * the video's size, the comment reserves the box at once with a placeholder (a dark frame with
  * the play badge), and the poster is loaded into the same span when it is ready.
- * Imgur MP4/gifv links use the same spans and bounded decoder, fetching the canonical HTTPS MP4
- * directly. Their case-sensitive IDs are namespaced separately from Reddit's IDs. Neither
+ * Imgur MP4/gifv links use the same spans, preferring a small HTTPS WebP still and falling back
+ * to the bounded MP4 decoder. Their case-sensitive IDs are namespaced separately from Reddit's IDs. Neither
  * source plays automatically; animated-image and autoplay preferences never start motion here.
  */
 public final class CommentVideo {
     static final int MAX_MANIFEST_BYTES = 256 * 1024;
     /** Only the start of the clip is fetched; undecodable/truncated files keep their link. */
     static final int MAX_VIDEO_BYTES = 2 * 1024 * 1024;
+    static final int MAX_STILL_BYTES = 256 * 1024;
+    static final String LOADING_FILE = "loading-v1.png";
+    /** One opaque neutral pixel. A valid local image avoids Glide's missing-file loading graphic. */
+    private static final byte[] LOADING_PNG = {
+        -119, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
+        0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0, -112, 119, 83, -34,
+        0, 0, 0, 12, 73, 68, 65, 84, 120, -100, 99, 80, 80, 80, 0, 0,
+        0, -60, 0, 97, 41, -107, -7, -80, 0, 0, 0, 0, 73, 69, 78, 68, -82, 66, 96, -126
+    };
     /** Smallest rendition whose short side reaches this is used for the poster. */
     static final int MIN_POSTER_SIDE = 360;
     static final int MAX_POSTER_WIDTH = 720;
@@ -142,6 +151,8 @@ public final class CommentVideo {
         int[] imageSize(File poster);
         /** Writes a JPEG poster from the video's first frame; returns its size or null. */
         int[] makePoster(File video, File poster, int nativeWidth);
+        /** Writes a JPEG poster and play badge from a complete, bounded still image. */
+        int[] makeStillPoster(File source, File poster);
         /** Writes a JPEG placeholder (dark frame with the play badge) of this size. */
         boolean makePlaceholder(File placeholder, int width, int height);
         /** Writes the poster centred in a dark JPEG of this size, keeping its shape. */
@@ -257,8 +268,7 @@ public final class CommentVideo {
     /**
      * File for a new image span with this box, only called after posterSize returned it: the
      * poster when its shape matches, else the poster fitted into the box, else the placeholder for
-     * the box shape, else the poster's future path (the span shows Sync's loading image until
-     * track() loads a file into it). Never null.
+     * the box shape, else a ready neutral PNG. Never starts a load of a future/missing poster.
      */
     public static String posterUrl(String href, int width, int height) {
         try {
@@ -276,7 +286,29 @@ public final class CommentVideo {
         File directory = platform.posterDirectory();
         if (directory == null) return null;
         String name = choice(id, width, height);
-        return new File(directory, (name != null ? name : id) + ".jpg").getAbsolutePath();
+        return name != null ? new File(directory, name + ".jpg").getAbsolutePath() : loadingPath(directory);
+    }
+
+    /** A shared 69-byte PNG, written atomically once before the span's first local image load. */
+    static String loadingPath(File directory) {
+        synchronized (LOCK) {
+            try {
+                if (!(directory.isDirectory() || directory.mkdirs())) return null;
+                File file = new File(directory, LOADING_FILE);
+                if (file.isFile() && file.length() == LOADING_PNG.length) return file.getAbsolutePath();
+                File temporary = new File(directory, LOADING_FILE + ".tmp");
+                try (OutputStream out = new FileOutputStream(temporary)) {
+                    out.write(LOADING_PNG);
+                }
+                if (!temporary.renameTo(file)) {
+                    temporary.delete();
+                    return null;
+                }
+                return file.getAbsolutePath();
+            } catch (IOException | RuntimeException e) {
+                return null;
+            }
+        }
     }
 
     /** File name (without .jpg) ready for this box, or null when nothing is ready yet. */
@@ -354,6 +386,7 @@ public final class CommentVideo {
         final WeakReference<Object> span;
         final int width;
         final int height;
+        String loadedPath;
         Waiting(Object span, int width, int height) {
             this.span = new WeakReference<>(span);
             this.width = width;
@@ -420,8 +453,11 @@ public final class CommentVideo {
                 boolean last = isFinal(id, name);
                 if (poster && !last) fits.add(new int[] {entry.width, entry.height});
                 if (name == null) continue;
+                String path = new File(directory, name + ".jpg").getAbsolutePath();
+                if (path.equals(entry.loadedPath)) continue;
+                entry.loadedPath = path;
                 spans.add(span);
-                paths.add(new File(directory, name + ".jpg").getAbsolutePath());
+                paths.add(path);
                 if (last) it.remove();
             }
             if (waiting.isEmpty()) WAITING.remove(id);
@@ -616,7 +652,7 @@ public final class CommentVideo {
         }
     }
 
-    /** Fetches the start of the Imgur MP4 or one Reddit rendition, then saves the poster. Never logs. */
+    /** Fetches a small Imgur still (or MP4 fallback), or one Reddit rendition. Never logs. */
     static boolean generate(String id) {
         boolean made = false;
         File video = null;
@@ -628,9 +664,13 @@ public final class CommentVideo {
                 temp = new File(directory, id + ".tmp");
                 String target = null;
                 int nativeWidth = 0;
+                int[] size = null;
                 if (id.startsWith(IMGUR_KEY)) {
-                    // Use gifv's MP4 rendition directly, without downloading its HTML or a GIF.
-                    target = imgurBase + id.substring(IMGUR_KEY.length()) + ".mp4";
+                    String base = imgurBase + id.substring(IMGUR_KEY.length());
+                    // Imgur supplies a much smaller still for these clips. Decode only its first
+                    // frame, with the same play badge. Unavailable/invalid stills use the MP4 path.
+                    if (downloadStill(base + ".webp", video)) size = validSize(platform.makeStillPoster(video, temp));
+                    target = base + ".mp4";
                 } else {
                     String manifest = fetchText(videoBase + id + "/DASHPlaylist.mpd", MAX_MANIFEST_BYTES);
                     List<Rendition> renditions = manifest == null ? null : renditions(manifest);
@@ -645,8 +685,10 @@ public final class CommentVideo {
                         target = videoBase + id + "/" + pick.base;
                     }
                 }
-                if (target != null && download(target, video, MAX_VIDEO_BYTES)) {
-                    int[] size = validSize(platform.makePoster(video, temp, nativeWidth));
+                if (size == null && target != null && download(target, video, MAX_VIDEO_BYTES)) {
+                    size = validSize(platform.makePoster(video, temp, nativeWidth));
+                }
+                if (size != null) {
                     File poster = new File(directory, id + ".jpg");
                     if (size != null && temp.isFile() && (!poster.exists() || poster.delete()) && temp.renameTo(poster)) {
                         synchronized (LOCK) {
@@ -682,6 +724,36 @@ public final class CommentVideo {
         connection.setInstanceFollowRedirects(false);
         connection.setRequestProperty("Accept", "*/*");
         return connection;
+    }
+
+    /** Complete small still only; truncation, HTML and redirects fall back to the MP4. */
+    static boolean downloadStill(String target, File destination) throws IOException {
+        HttpURLConnection connection = open(target);
+        connection.setConnectTimeout(2000);
+        connection.setReadTimeout(2000);
+        try {
+            int status = connection.getResponseCode();
+            // Do not immediately issue another request to a host that just rate-limited us.
+            if (status == 429) throw new IOException("Media host rate limited");
+            if (status != 200) return false;
+            String type = connection.getContentType();
+            if (type == null || !type.toLowerCase(Locale.ROOT).startsWith("image/")) return false;
+            int length = connection.getContentLength();
+            if (length > MAX_STILL_BYTES) return false;
+            int written = 0;
+            byte[] buffer = new byte[8192];
+            try (InputStream in = connection.getInputStream(); OutputStream out = new FileOutputStream(destination)) {
+                int count;
+                while ((count = in.read(buffer, 0, Math.min(buffer.length, MAX_STILL_BYTES + 1 - written))) >= 0) {
+                    written += count;
+                    if (written > MAX_STILL_BYTES) return false;
+                    out.write(buffer, 0, count);
+                }
+            }
+            return written > 0 && (length < 0 || written == length);
+        } finally {
+            connection.disconnect();
+        }
     }
 
     /** UTF-8 body of a 200 response no larger than limit bytes, otherwise null. */
@@ -879,6 +951,14 @@ public final class CommentVideo {
         return height > 0 && height <= CommentMedia.MAX_SOURCE_DIMENSION ? new int[] {width, height} : null;
     }
 
+    /** Bound the still decoder's allocation before decoding any pixels; zero rejects the shape. */
+    static int stillSampleSize(int width, int height) {
+        if (CommentMedia.fitBox(width, height, MAX_POSTER_WIDTH, 0) == null) return 0;
+        int sample = 1;
+        while (Math.max(width, height) / sample > MAX_POSTER_WIDTH * 2) sample *= 2;
+        return sample;
+    }
+
     /** Play badge radius: 12% of the short side, at least 12 pixels, never past the poster edge. */
     static float badgeRadius(int width, int height) {
         int side = Math.min(width, height);
@@ -960,20 +1040,10 @@ public final class CommentVideo {
         @Override public int[] makePoster(File video, File poster, int nativeWidth) {
             android.media.MediaMetadataRetriever retriever = new android.media.MediaMetadataRetriever();
             android.graphics.Bitmap frame = null;
-            android.graphics.Bitmap image = null;
             try {
                 retriever.setDataSource(video.getAbsolutePath());
                 frame = retriever.getFrameAtTime(0, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
-                if (frame == null) return null;
-                int[] size = posterDimensions(frame.getWidth(), frame.getHeight(), nativeWidth);
-                if (size == null) return null;
-                image = android.graphics.Bitmap.createBitmap(size[0], size[1], android.graphics.Bitmap.Config.ARGB_8888);
-                android.graphics.Canvas canvas = new android.graphics.Canvas(image);
-                android.graphics.Paint paint = new android.graphics.Paint(
-                        android.graphics.Paint.ANTI_ALIAS_FLAG | android.graphics.Paint.FILTER_BITMAP_FLAG);
-                canvas.drawBitmap(frame, null, new android.graphics.Rect(0, 0, size[0], size[1]), paint);
-                drawBadge(canvas, paint, size[0], size[1]);
-                return save(image, poster) ? size : null;
+                return frame == null ? null : saveFrame(frame, poster, nativeWidth);
             } catch (IOException | RuntimeException e) {
                 return null;
             } finally {
@@ -983,7 +1053,42 @@ public final class CommentVideo {
                     // Newer Android declares IOException here.
                 }
                 if (frame != null) frame.recycle();
-                if (image != null) image.recycle();
+            }
+        }
+
+        @Override public int[] makeStillPoster(File source, File poster) {
+            android.graphics.Bitmap frame = null;
+            try {
+                android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+                options.inJustDecodeBounds = true;
+                android.graphics.BitmapFactory.decodeFile(source.getAbsolutePath(), options);
+                int sample = stillSampleSize(options.outWidth, options.outHeight);
+                if (sample == 0) return null;
+                int nativeWidth = options.outWidth;
+                options.inSampleSize = sample;
+                options.inJustDecodeBounds = false;
+                frame = android.graphics.BitmapFactory.decodeFile(source.getAbsolutePath(), options);
+                return frame == null ? null : saveFrame(frame, poster, nativeWidth);
+            } catch (IOException | RuntimeException e) {
+                return null;
+            } finally {
+                if (frame != null) frame.recycle();
+            }
+        }
+
+        private static int[] saveFrame(android.graphics.Bitmap frame, File poster, int nativeWidth) throws IOException {
+            int[] size = posterDimensions(frame.getWidth(), frame.getHeight(), nativeWidth);
+            if (size == null) return null;
+            android.graphics.Bitmap image = android.graphics.Bitmap.createBitmap(size[0], size[1], android.graphics.Bitmap.Config.ARGB_8888);
+            try {
+                android.graphics.Canvas canvas = new android.graphics.Canvas(image);
+                android.graphics.Paint paint = new android.graphics.Paint(
+                        android.graphics.Paint.ANTI_ALIAS_FLAG | android.graphics.Paint.FILTER_BITMAP_FLAG);
+                canvas.drawBitmap(frame, null, new android.graphics.Rect(0, 0, size[0], size[1]), paint);
+                drawBadge(canvas, paint, size[0], size[1]);
+                return save(image, poster) ? size : null;
+            } finally {
+                image.recycle();
             }
         }
 
