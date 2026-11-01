@@ -64,6 +64,9 @@ public final class RedgifsTokenRefreshTest {
     private static final String BAD_CHAR_TOKEN = "rgbad token\u0001secret";
     private static final String LONG_TOKEN = "rglong" + "x".repeat(5000);
     private static final String OVERSIZED_TOKEN = "rgoversized-token";
+    /** The client address the loopback token endpoint reports (a documentation address). */
+    private static final String ADDR = "192.0.2.7";
+    private static final List<String> userAddrs = Collections.synchronizedList(new ArrayList<>());
 
     private static void check(boolean pass, String message) {
         checks++;
@@ -88,6 +91,7 @@ public final class RedgifsTokenRefreshTest {
             bearerTokenRules();
             installOrder();
             baselineUsesInheritedToken();
+            infoAnsweredLocally();
             rejectedTokenRefreshesOnce(401);
             rejectedTokenRefreshesOnce(403);
             secondRejectionSurfacesWithoutLoop();
@@ -112,9 +116,10 @@ public final class RedgifsTokenRefreshTest {
         secrets.add(BAD_CHAR_TOKEN);
         secrets.add(LONG_TOKEN);
         secrets.add(OVERSIZED_TOKEN);
+        secrets.add(ADDR);
         for (String token : secrets) check(!logs.contains(token), "token text appeared in stdout/stderr");
         noLoggingReferences();
-        System.out.println("PASS: " + checks + " RedGifs token refresh checks (loopback RedGifs; test-only tokens)");
+        System.out.println("PASS: " + checks + " RedGifs token refresh checks (loopback RedGifs with /info retired; test-only tokens)");
     }
 
     // ---- scenarios ----
@@ -142,6 +147,22 @@ public final class RedgifsTokenRefreshTest {
         Request post = new Request.Builder().url("https://api.redgifs.com/v2/gifs/x").header("Authorization", "Bearer tok")
                 .method("POST", RequestBody.create("{}", MediaType.get("application/json"))).build();
         equal(null, RedgifsTokenRefresh.bearerToken(post), "POST not retried");
+        check(RedgifsTokenRefresh.isInfoLookup(get("https://api.redgifs.com/info", null)), "GrabIpRequest recognized");
+        check(RedgifsTokenRefresh.isInfoLookup(get("https://API.redgifs.com/info", "Bearer tok")), "with the inherited token");
+        for (String url : new String[]{"http://api.redgifs.com/info", "https://api.redgifs.com/info/", "https://api.redgifs.com/v2/info",
+                "https://redgifs.com/info", "https://api.redgifs.com.example.org/info", "https://example.org/info"}) {
+            check(!RedgifsTokenRefresh.isInfoLookup(get(url, null)), "not answered locally: " + url);
+        }
+        Request infoPost = new Request.Builder().url("https://api.redgifs.com/info")
+                .method("POST", RequestBody.create("{}", MediaType.get("application/json"))).build();
+        check(!RedgifsTokenRefresh.isInfoLookup(infoPost), "POST /info not answered locally");
+        for (String address : new String[]{"192.0.2.7", "2001:db8::1", "::ffff:192.0.2.7"}) {
+            check(RedgifsTokenRefresh.validAddress(address), "address accepted: " + address);
+        }
+        for (String address : new String[]{null, "", "1", "192.0.2.7\",\"x", "192.0.2.7 ", "host.example", "1.2.3.4; x",
+                "1".repeat(46) + "."}) {
+            check(!RedgifsTokenRefresh.validAddress(address), "address rejected: " + address);
+        }
     }
 
     private static void installOrder() throws InterruptedException {
@@ -164,13 +185,83 @@ public final class RedgifsTokenRefreshTest {
         reset();
         OkHttpClient sync = install();
         equal("https://media.redgifs.com/FirstClip.mp4", resolve(sync, "firstclip"), "first resolution plays");
-        equal(1, tokenHits.get(), "inherited fetched one token");
-        equal(1, RedgifsTokenManager.inheritedFetches.get(), "fetched by the inherited cache");
+        equal(2, tokenHits.get(), "inherited token plus one address request");
+        equal(1, RedgifsTokenManager.inheritedFetches.get(), "one fetched by the inherited cache");
         equal(0, clientHits.get(), "/v2/oauth/client answered locally");
-        equal(List.of("GET /info Bearer " + issuedAt(0), "GET /v2/gifs/firstclip bearer " + issuedAt(0)),
-                apiLog, "no retries while the token is accepted");
+        equal(0, infoHits.get(), "retired /info never requested");
+        equal(List.of("GET /v2/gifs/firstclip bearer " + issuedAt(0)), apiLog, "no retries while the token is accepted");
+        equal(issuedAt(1), RedgifsTokenManager.cached(UA), "address request's token cached for Sync");
+        equal(List.of(ADDR), userAddrs, "Sync sends the address from the token response");
         equal("https://media.redgifs.com/FirstClip.mp4", resolve(sync, "firstclip"), "second resolution plays");
-        equal(1, tokenHits.get(), "cached token reused");
+        equal(2, tokenHits.get(), "token and address reused");
+        equal(0, infoHits.get(), "/info still answered locally");
+        equal("GET /v2/gifs/firstclip bearer " + issuedAt(1), apiLog.get(1), "Sync now uses the cached new token");
+    }
+
+    private static void infoAnsweredLocally() throws Exception {
+        reset();
+        OkHttpClient sync = install();
+        seed(sync);
+        Result info = call(sync, new Request.Builder().url("https://api.redgifs.com/info").header("User-Agent", UA).build());
+        equal(200, info.code, "local /info answer");
+        equal("{\"remote-addr\":\"" + ADDR + "\"}", info.body, "GrabIpRequest's remote-addr");
+        equal(0, infoHits.get(), "no request to the retired endpoint");
+        equal(0, tokenHits.get(), "address reused");
+
+        // No address in the token response: Sync's request goes out as before and gets RedGifs' 404.
+        for (String mode : new String[]{"noAddr", "badAddr"}) {
+            reset();
+            sync = install();
+            tokenMode = mode;
+            equal("ERROR 404", resolve(sync, "noaddr"), mode + ": Sync's usual error when no address is known");
+            equal(1, infoHits.get(), mode + ": /info sent to RedGifs only as a fallback");
+            equal(2, tokenHits.get(), mode + ": one address request per lookup");
+            equal(lastIssued(), RedgifsTokenManager.cached(UA), mode + ": its valid token still cached");
+        }
+
+        // Addresses are reused for a while, then refreshed with a new token.
+        reset();
+        RedgifsTokenRefresh.ADDRESS_REUSE_MS = 200;
+        sync = install();
+        equal("https://media.redgifs.com/Again.mp4", resolve(sync, "again"), "first lookup");
+        equal("https://media.redgifs.com/Again.mp4", resolve(sync, "again"), "address reused");
+        equal(2, tokenHits.get(), "no new request within the reuse window");
+        Thread.sleep(300);
+        equal("https://media.redgifs.com/Again.mp4", resolve(sync, "again"), "address refreshed");
+        equal(3, tokenHits.get(), "one new request after the window");
+        equal(lastIssued(), RedgifsTokenManager.cached(UA), "refreshed token cached");
+        equal(0, infoHits.get(), "never the retired endpoint");
+
+        // Token endpoint down when the address must be refreshed: one attempt, then backoff.
+        reset();
+        sync = install();
+        seed(sync);
+        RedgifsTokenRefresh.ADDRESS_REUSE_MS = 0;
+        tokenMode = "status500";
+        equal("ERROR 404", resolve(sync, "down"), "no address: Sync's usual error");
+        equal(1, tokenHits.get(), "one address attempt");
+        for (int i = 0; i < 3; i++) equal("ERROR 404", resolve(sync, "down"), "backoff " + i);
+        equal(1, tokenHits.get(), "no address request storm");
+
+        // Many first lookups at once share one address request.
+        reset();
+        sync = install();
+        tokenDelayMs = 200;
+        int n = 8;
+        OkHttpClient client = sync;
+        CyclicBarrier barrier = new CyclicBarrier(n);
+        ExecutorService pool = Executors.newFixedThreadPool(n);
+        List<Future<String>> results = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            String id = "first" + i;
+            results.add(pool.submit(() -> { barrier.await(); return resolve(client, id); }));
+        }
+        for (int i = 0; i < n; i++) {
+            equal("https://media.redgifs.com/First" + i + ".mp4", results.get(i).get(20, TimeUnit.SECONDS), "concurrent first lookup " + i);
+        }
+        pool.shutdown();
+        equal(2, tokenHits.get(), n + " first lookups: one inherited token, one shared address request");
+        equal(0, infoHits.get(), "concurrent lookups never reach /info");
     }
 
     private static void rejectedTokenRefreshesOnce(int code) throws Exception {
@@ -180,19 +271,17 @@ public final class RedgifsTokenRefreshTest {
         String old = seed(sync);
         revokeAll(); // e.g. Wi-Fi to mobile data: RedGifs no longer accepts the cached token
         equal("https://media.redgifs.com/OtherClip.mp4", resolve(sync, "otherclip"), "HTTP " + code + ": resolution recovers");
-        String fresh = issuedAt(1);
+        String fresh = lastIssued();
         equal(1, tokenHits.get(), "HTTP " + code + ": exactly one refresh");
         equal(0, RedgifsTokenManager.inheritedFetches.get(), "HTTP " + code + ": refresh is the bounded one");
-        equal(List.of("GET /info Bearer " + old + " -> " + code, "GET /info Bearer " + fresh,
-                "GET /v2/gifs/otherclip bearer " + old + " -> " + code, "GET /v2/gifs/otherclip Bearer " + fresh),
-                apiLog, "HTTP " + code + ": each rejected request retried once with the new token");
+        equal(List.of("GET /v2/gifs/otherclip bearer " + old + " -> " + code, "GET /v2/gifs/otherclip Bearer " + fresh),
+                apiLog, "HTTP " + code + ": rejected request retried once with the new token");
         equal(fresh, RedgifsTokenManager.cached(UA), "HTTP " + code + ": inherited cache now holds the new token");
         equal(List.of(UA), tokenRequestAgents, "HTTP " + code + ": refresh sent Sync's User-Agent");
         apiLog.clear();
         equal("https://media.redgifs.com/ThirdClip.mp4", resolve(sync, "thirdclip"), "HTTP " + code + ": next resolution plays");
         equal(1, tokenHits.get(), "HTTP " + code + ": no further refresh");
-        equal(List.of("GET /info Bearer " + fresh, "GET /v2/gifs/thirdclip bearer " + fresh), apiLog,
-                "HTTP " + code + ": Sync now starts with the new token");
+        equal(List.of("GET /v2/gifs/thirdclip bearer " + fresh), apiLog, "HTTP " + code + ": Sync now starts with the new token");
     }
 
     private static void secondRejectionSurfacesWithoutLoop() throws Exception {
@@ -204,16 +293,16 @@ public final class RedgifsTokenRefreshTest {
         long start = System.nanoTime();
         equal("ERROR 401", resolve(sync, "rejected"), "second rejection reaches Sync's error");
         equal(1, tokenHits.get(), "one refresh only");
-        String fresh = issuedAt(1);
-        equal(List.of("GET /info Bearer " + old + " -> 401", "GET /info Bearer " + fresh + " -> 401"), apiLog,
-                "GrabIpRequest retried once");
-        apiLog.clear();
-        // A GrabRedgifRequest still carrying the old token: one retry with the new token, then the
-        // inherited interceptor's own second attempt, which does not refresh again.
-        equal(401, gif(sync, "rejected", "bearer " + old).code, "GrabRedgifRequest error surfaces");
+        String fresh = lastIssued();
+        // One retry with the new token, then the inherited interceptor's own resend, which does not refresh.
         equal(List.of("GET /v2/gifs/rejected bearer " + old + " -> 401", "GET /v2/gifs/rejected Bearer " + fresh + " -> 401",
                 "GET /v2/gifs/rejected Bearer " + fresh + " -> 401"), apiLog, "bounded attempts, no loop");
-        equal(1, tokenHits.get(), "no refresh while the new token is recent");
+        apiLog.clear();
+        // A request still carrying the old token is not retried with the rejected new one.
+        equal(401, gif(sync, "rejected", "bearer " + old).code, "GrabRedgifRequest error surfaces");
+        equal(List.of("GET /v2/gifs/rejected bearer " + old + " -> 401", "GET /v2/gifs/rejected Bearer " + fresh + " -> 401"),
+                apiLog, "no retry with a token RedGifs just rejected");
+        equal(1, tokenHits.get(), "no refresh after the new token was rejected");
         for (int i = 0; i < 5; i++) equal("ERROR 401", resolve(sync, "again" + i), "repeated failure " + i);
         equal(1, tokenHits.get(), "repeated failures do not refresh again");
         check(System.nanoTime() - start < TimeUnit.SECONDS.toNanos(10), "failures finish promptly");
@@ -243,7 +332,7 @@ public final class RedgifsTokenRefreshTest {
             }
             pool.shutdown();
             equal(1, tokenHits.get(), (direct ? "GrabRedgifRequest" : "full resolution") + ": " + n + " concurrent rejections, one refresh");
-            equal(issuedAt(1), RedgifsTokenManager.cached(UA), "shared token cached");
+            equal(lastIssued(), RedgifsTokenManager.cached(UA), "shared token cached");
         }
     }
 
@@ -329,7 +418,8 @@ public final class RedgifsTokenRefreshTest {
         equal("ERROR 401", resolve(sync, "bad"), mode + ": rejected token response surfaces Sync's error");
         equal(1, tokenHits.get(), mode + ": one refresh attempt");
         equal(old, RedgifsTokenManager.cached(UA), mode + ": cache keeps the previous token");
-        equal(List.of("GET /info Bearer " + old + " -> 401"), apiLog, mode + ": nothing retried with an unusable token");
+        equal(List.of("GET /v2/gifs/bad bearer " + old + " -> 401", "GET /v2/gifs/bad Bearer " + old + " -> 401"), apiLog,
+                mode + ": only the inherited resend; nothing retried with an unusable token");
         equal(0, otherHits.get(), mode + ": no request left RedGifs");
     }
 
@@ -353,6 +443,12 @@ public final class RedgifsTokenRefreshTest {
         accepted.add(old);
         equal(404, call(sync, get("https://api.redgifs.com/v2/gifs/missing", "bearer " + old)).code, "404 not refreshed");
         equal(500, call(sync, get("https://api.redgifs.com/v2/gifs/broken", "bearer " + old)).code, "500 not refreshed");
+        equal(404, call(sync, get("http://api.redgifs.com/info", null)).code, "plain-HTTP /info sent as is");
+        Request infoPost = new Request.Builder().url("https://api.redgifs.com/info")
+                .method("POST", RequestBody.create("{}", MediaType.get("application/json"))).build();
+        equal(404, call(sync, infoPost).code, "POST /info sent as is");
+        equal(404, call(sync, get("https://api.redgifs.com/info/", null)).code, "other /info path sent as is");
+        equal(3, infoHits.get(), "only Sync's exact lookup is answered locally");
         equal(0, tokenHits.get(), "no refresh for other hosts, schemes, methods or statuses");
         equal(inherited, RedgifsTokenManager.inheritedFetches.get(), "inherited cache untouched");
     }
@@ -444,6 +540,8 @@ public final class RedgifsTokenRefreshTest {
         String token = RedgifsTokenManager.cached(UA);
         check(token != null && accepted.contains(token), "seed token cached");
         tokenHits.set(0);
+        infoHits.set(0);
+        userAddrs.clear();
         tokenRequestAgents.clear();
         RedgifsTokenManager.inheritedFetches.set(0);
         apiLog.clear();
@@ -464,7 +562,8 @@ public final class RedgifsTokenRefreshTest {
         RedgifsTokenRefresh.TOKEN_READ_TIMEOUT_MS = 1_000;
         RedgifsTokenRefresh.TOKEN_CALL_TIMEOUT_MS = 2_000;
         RedgifsTokenRefresh.REFRESH_WAIT_MS = 3_000;
-        RedgifsTokenRefresh.MIN_REFRESH_INTERVAL_MS = 30_000;
+        RedgifsTokenRefresh.ADDRESS_REUSE_MS = 10 * 60_000;
+        userAddrs.clear();
         RedgifsTokenRefresh.FAILURE_BACKOFF_MS = 30_000;
         for (AtomicInteger counter : new AtomicInteger[]{tokenHits, infoHits, gifHits, clientHits, otherHits}) counter.set(0);
         accepted.clear();
@@ -486,6 +585,10 @@ public final class RedgifsTokenRefreshTest {
     /** The k-th token issued since the current scenario's reset. */
     private static String issuedAt(int k) {
         return issuedTokens.get(scenarioStart + k);
+    }
+
+    private static String lastIssued() {
+        return issuedTokens.get(issuedTokens.size() - 1);
     }
 
     // ---- loopback servers ----
@@ -539,15 +642,17 @@ public final class RedgifsTokenRefreshTest {
         String token = auth != null && auth.regionMatches(true, 0, "Bearer ", 0, 7) ? auth.substring(7) : null;
         boolean ok = token != null && accepted.contains(token);
         String status = ok ? "" : " -> " + rejectCode;
-        if (path.equals("/info")) {
+        if (path.equals("/info") || path.equals("/info/")) {
+            // Retired by RedGifs: the live API answers 404 with or without a token.
             infoHits.incrementAndGet();
-            log(method + " /info " + auth + status);
-            if (ok) send(exchange, 200, "{\"remote-addr\":\"192.0.2.7\"}");
-            else send(exchange, rejectCode, "{\"error\":{\"code\":\"TokenExpired\"}}");
+            log(method + " /info " + auth + " -> 404");
+            send(exchange, 404, "{\"error\":{\"code\":\"HttpNotFoundException\",\"message\":\"Not found.\"}}");
             return;
         }
         if (path.startsWith("/v2/gifs/")) {
             gifHits.incrementAndGet();
+            String query = exchange.getRequestURI().getRawQuery();
+            if (query != null && query.startsWith("user-addr=")) userAddrs.add(query.substring(10, query.indexOf('&')));
             String id = path.substring("/v2/gifs/".length());
             if (ok && id.equals("missing")) { log(method + " " + path + " " + auth + " -> 404"); send(exchange, 404, "{}"); return; }
             if (ok && id.equals("broken")) { log(method + " " + path + " " + auth + " -> 500"); send(exchange, 500, "{}"); return; }
@@ -566,11 +671,14 @@ public final class RedgifsTokenRefreshTest {
 
     private static void token(HttpExchange exchange, String mode) throws IOException {
         switch (mode) {
-            case "ok": {
+            case "ok": case "noAddr": case "badAddr": {
                 String token = "rgtest-" + issued.incrementAndGet() + ".Ab9_x~y";
                 issuedTokens.add(token);
                 if (acceptNew) accepted.add(token);
-                send(exchange, 200, "{\"token\":\"" + token + "\",\"addr\":\"192.0.2.7\",\"agent\":\"test\",\"session\":\"s\"}");
+                JSONObject body = new JSONObject().put("token", token).put("agent", "test").put("session", "s");
+                if (mode.equals("ok")) body.put("addr", ADDR);
+                if (mode.equals("badAddr")) body.put("addr", ADDR + "\",\"remote-addr\":\"x");
+                send(exchange, 200, body.toString());
                 return;
             }
             case "oversized":

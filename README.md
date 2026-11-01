@@ -16,84 +16,109 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## v0.6.13-rc.1 candidate: refresh RedGifs tokens (issue #49)
+## v0.6.13-rc.2 candidate: RedGifs full-screen lookups (issue #49)
 
-The [v0.6.13-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.13-rc.1)
+The [v0.6.13-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.13-rc.2)
 is for phone testing. Rebuild from the prepared base and check all ten named
 patch results. Stable remains v0.6.12 until the candidate passes and stable
-publication is authorized. It has not been tested on a phone or against live
-RedGifs yet.
+publication is authorized. It replaces the
+[v0.6.13-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.13-rc.1),
+which did not fix the problem (see below). rc.2 has not been tested on a phone yet.
 
 It adds the selectable **Sync: refresh RedGifs tokens** patch for
 [issue #49](https://github.com/TheLastWallaby/revanced-redditsync/issues/49):
-a RedGifs preview plays, but full screen shows "Error connecting to Redgifs"
-until the app cache is cleared. Users attribute this to RedGifs tokens being tied
-to the network address that requested them, for example after switching between
-Wi-Fi and mobile data.
+a RedGifs preview plays, but full screen shows "Error connecting to Redgifs".
 
 **Why it happened.** In Sync 23033 every RedGifs lookup (the full-screen viewer
 `ImageViewerFragment`, the long-press peek `ImagePeekDialogFragment`,
 `DownloadMediaJob` and v0.6.6's enhanced autoplay) goes through `m8.a.e` and
-three Volley requests: `OAuthRedgifTokenRequest` (`t8.c`, `POST /v2/oauth/client`),
-`GrabIpRequest` (`t8.a`, `GET /info`) and `GrabRedgifRequest` (`t8.b`,
-`GET /v2/gifs/<id>` with `Authorization: bearer <token>`). A failure in any of them
-reaches the viewer's error listener, which shows error 40, "Error connecting to
-Redgifs". Sync's Volley `BasicNetwork` sends these requests through the OkHttp
-client built by `OkHttpHelper.k()` (`a8.a`), where the prepared base installs the
-inherited ReVanced `FixRedgifsApiPatch`. That interceptor answers
-`/v2/oauth/client` itself with a token from `/v2/auth/temporary`, caches it per
-User-Agent for 23 hours in `RedgifsTokenManager.tokenMap` with no invalidation,
-and adds it to `/info`. When a bearer request fails, it sends it again with the
-same cached token. Once RedGifs stops accepting that token, every lookup fails
-until Sync's process restarts.
+three Volley requests:
+
+1. `OAuthRedgifTokenRequest` (`t8.c`, `POST /v2/oauth/client`)
+2. `GrabIpRequest` (`t8.a`, `GET /info`, which reads the client's `remote-addr`)
+3. `GrabRedgifRequest` (`t8.b`, `GET /v2/gifs/<id>?user-addr=…` with
+   `Authorization: bearer <token>`)
+
+A failure in any of them reaches the viewer's error listener, which shows error
+40, "Error connecting to Redgifs". The feed preview that plays is Reddit's own
+preview video, not this chain. Sync's Volley `BasicNetwork` sends the requests
+through the OkHttp client built by `OkHttpHelper.k()` (`a8.a`), where the
+prepared base installs the inherited ReVanced `FixRedgifsApiPatch`. That
+interceptor answers `/v2/oauth/client` itself with a token from
+`/v2/auth/temporary`, caches it per User-Agent for 23 hours in
+`RedgifsTokenManager.tokenMap` with no invalidation, and adds it to `/info`.
+
+Two things break this:
+
+- **RedGifs retired `/info`.** On 2026-11-01 the live API answered
+  `GET https://api.redgifs.com/info` with HTTP 404, with or without a token, so
+  every full-screen lookup stopped at step 2. `/v2/auth/temporary` now reports
+  the client address itself (`addr`), and `/v2/gifs/<id>` still answers with
+  `hd`/`sd` `.mp4` links. This is what the rc.1 phone test hit.
+- **Rejected tokens.** When a bearer request fails, the inherited interceptor
+  sends it again with the same cached token. Once RedGifs stops accepting that
+  token (users report this after switching between Wi-Fi and mobile data), every
+  lookup fails until Sync's process restarts.
 
 **What the patch changes.**
 
-- After HTTP 401 or 403 from `https://api.redgifs.com` for a GET that carries a
-  bearer token, it fetches one new temporary token and sends that request once
-  more with it. The new token replaces the inherited cache entry, so Sync's next
-  lookup starts with it.
-- **Shared refresh.** Only one refresh runs at a time. Requests rejected while it
-  runs wait for it (up to 10 seconds) and reuse its result.
+- **`/info` answered locally.** Sync's `GET https://api.redgifs.com/info` gets
+  `{"remote-addr": "<addr>"}`, with the address from one bounded
+  `/v2/auth/temporary` request that is reused for 10 minutes. That response's
+  token also replaces the inherited cache entry, so the lookup's next steps use a
+  token issued for the current network. If no valid address can be obtained, the
+  request goes to RedGifs as before and Sync shows its usual error.
+- **Rejected tokens.** After HTTP 401 or 403 from `https://api.redgifs.com` for a
+  GET that carries a bearer token, it fetches one new temporary token and sends
+  that request once more with it. The new token replaces the inherited cache entry.
+- **Shared requests.** Only one token request runs at a time. Requests that need
+  one while it runs wait for it (up to 10 seconds) and reuse its result.
 - **Bounded.** The token request has 5-second connect and read limits, an
   8-second limit for the whole call and a 16 KiB response limit. It follows no
   redirects and sends only Sync's User-Agent and `Accept` (no `Authorization`, no
-  cookies). The token must be a string of at most 4096 URL-safe characters, or
-  the refresh fails.
+  cookies). The token must be a string of at most 4096 URL-safe characters, and
+  the address an IPv4 or IPv6 literal, or they are not used.
 - **One retry, no loops.** Whatever RedGifs answers to the retry is what Sync
-  gets, so a second rejection shows Sync's normal error. A token fetched in the
-  last 30 seconds is not refreshed again when RedGifs rejects it too, and after a
-  failed refresh no new refresh starts for 30 seconds.
-- **Untouched:** other hosts, plain HTTP, other methods and statuses, and the
-  token endpoints themselves. Reddit's `Authorization` never reaches RedGifs
+  gets. If RedGifs rejects the new token too, it is marked bad and no new token
+  is requested for 30 seconds; the inherited interceptor's own resend and later
+  lookups then show Sync's normal error. A failed token request also starts that
+  30-second backoff.
+- **Untouched:** other hosts, plain HTTP, other methods, paths and statuses, and
+  the token endpoints themselves. Reddit's `Authorization` never reaches RedGifs
   (Sync's RedGifs requests carry none), and a RedGifs token is sent only to
   `api.redgifs.com`. **Tokens are never logged**, stored in diagnostics or
-  exported; the refresh writes no log at all.
+  exported. The address goes only to Sync, which passes it to RedGifs as before.
+  The patch writes no log at all.
 - The hook is one call in `OkHttpHelper.k()`: `FixRedgifsApiPatch.install(builder)`
   becomes `RedgifsTokenRefresh.install(builder)`, which runs the inherited install
-  and adds the refresh inside it, next to the network. Before editing, the patch
-  checks the inherited cache, token, interceptor and installer, and every OkHttp
-  member the refresh calls.
+  and adds the new interceptor inside it, next to the network. Before editing, the
+  patch checks the inherited cache, token, interceptor and installer,
+  `GrabIpRequest`'s `/info` URL and `remote-addr` field, and every OkHttp member
+  the interceptor calls.
 - v0.6.6's enhanced autoplay is unchanged: it still uses Sync's resolver, accepts
   only HTTPS `.mp4` results on a `redgifs.com` host, and keeps `MediaProxyCompat`'s
-  caches and failure backoff. It uses the same requests, so the refresh applies
-  to it too.
+  caches and failure backoff. It uses the same requests, so it benefits too.
 
 `RedgifsTokenRefreshTest` sends Sync's three requests through a double of the
-inherited interceptor (transcribed from the base) and the refresh, against
-loopback servers with test-only tokens. It covers 401 and 403 recovery with
-exactly one refresh, a second rejection reaching Sync's error without a loop,
-eight concurrent rejections sharing one refresh, and failed, timed-out and unusable
-token responses (oversized with or without a length, malformed, missing,
-non-string, invalid characters, too long, empty, non-200 or a redirect). Each of
-those surfaces the error, leaves the cache unchanged and causes no repeated
-refreshes. It also checks that other hosts, schemes, methods and statuses are
-untouched and that no token text reaches the output. The OkHttp classes in the
-tests are stand-ins, not OkHttp itself: they model the interceptor chain, timeouts,
+inherited interceptor (transcribed from the base) and the new interceptor, against
+loopback servers with test-only tokens whose `/info` answers 404 like the live
+API. It covers lookups that never reach `/info`, address reuse and expiry, a
+missing or invalid address, concurrent first lookups sharing one token request,
+401 and 403 recovery with exactly one refresh, a second rejection reaching Sync's
+error without a loop, concurrent rejections sharing one refresh, and failed,
+timed-out and unusable token responses with no repeated requests. It also checks
+that other hosts, schemes, methods, paths and statuses are untouched and that no
+token or address text reaches the output. The OkHttp classes in the tests are
+stand-ins, not OkHttp itself: they model the interceptor chain, timeouts,
 redirects and OkHttp's rule that a response must be closed before the same call
 sends again. `RedgifsTokenPatchTest` applies the patch to layout fixtures. Run
-with the base APK path, it checks the real `a8.a` and inherited classes; that was
-done locally on the checksum-verified base and is not part of CI.
+with the base APK path, it checks the real classes; that was done locally on the
+checksum-verified base and is not part of CI.
+
+On rc.1 the tester reported the feed preview playing and full screen still
+showing "Error connecting to Redgifs"; see `validation-phone-tests.json`. rc.1
+contained only the token refresh, which never ran because the lookup failed at
+`/info` first.
 
 Possible follow-up, not in this change: an optional "Open RedGifs player"
 action using RedGifs' embed page (`redgifs.com/ifr/<id>`), which keeps audio.
@@ -795,9 +820,10 @@ route is the CLI; Manager import and patching still need device verification.
   backslashes in fenced code, spoiler-link labels and emote URLs.
 - **Sync: normalize Reddit links** opens equivalent Reddit links at the same
   place in Sync, as described above.
-- **Sync: refresh RedGifs tokens** (v0.6.13-rc.1 candidate) fetches one new
-  RedGifs token when RedGifs rejects the base's cached one, and retries that
-  request once, as described above.
+- **Sync: refresh RedGifs tokens** (v0.6.13-rc.2 candidate) answers Sync's
+  retired RedGifs `/info` lookup locally, and fetches one new RedGifs token when
+  RedGifs rejects the base's cached one and retries that request once, as
+  described above.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
@@ -816,7 +842,7 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 2. Use a base that has **none of this bundle's earlier compatibility patches**.
    Do not reapply to an APK already containing any earlier compatibility bundle.
 3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
-   and apply all nine named patches (ten in the v0.6.13-rc.1 candidate, eight in v0.6.7 to v0.6.9, seven in v0.6.6, six in v0.6.4 and v0.6.5,
+   and apply all nine named patches (ten in the v0.6.13 candidates, eight in v0.6.7 to v0.6.9, seven in v0.6.6, six in v0.6.4 and v0.6.5,
    five in v0.6.3, four in v0.6.2, three in v0.6.1). Check that each reports success.
 4. Sign the result with your own keystore. Matching the key used by your current
    installation allows an in-place update.
@@ -826,7 +852,7 @@ comment media, award data handling, comment video previews, direct media
 resolution, literal Markdown replacements and Reddit link normalization. It expects
 the existing ReVanced shared Logger class; its source stub is for compilation only. It does not
 supply OAuth configuration or unrelated Sync patches. It relies on the base's own RedGifs fix,
-which the candidate's token refresh extends; the OkHttp and RedGifs stubs are also compile-only.
+which the candidate's RedGifs patch extends; the OkHttp and RedGifs stubs are also compile-only.
 
 The validated route is **ReVanced CLI 6.0.0 / Patcher 22.0.0**. Android Manager
 import/loading has not been tested. Example CLI command from a clone of this

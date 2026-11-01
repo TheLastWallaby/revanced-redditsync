@@ -1531,6 +1531,8 @@ private const val REDGIFS_TOKENS = "Lapp/revanced/extension/shared/fixes/redgifs
 private const val REDGIFS_TOKEN = "Lapp/revanced/extension/shared/fixes/redgifs/RedgifsTokenManager\$RedgifsToken;"
 private const val OKHTTP_CLIENT = "Lokhttp3/OkHttpClient;"
 private const val OKHTTP_BUILDER = "Lokhttp3/OkHttpClient\$Builder;"
+private const val OKHTTP_RESPONSE_BUILDER = "Lokhttp3/Response\$Builder;"
+private const val REDGIFS_IP_REQUEST = "Lt8/a;"
 
 /** OkHttp members the refresh calls; each must exist in the base's OkHttp. */
 private val REDGIFS_OKHTTP_MEMBERS = mapOf(
@@ -1550,12 +1552,20 @@ private val REDGIFS_OKHTTP_MEMBERS = mapOf(
         "build()Lokhttp3/Request;"),
     "Lokhttp3/HttpUrl;" to listOf("isHttps()Z", "host()Ljava/lang/String;", "encodedPath()Ljava/lang/String;"),
     "Lokhttp3/Response;" to listOf("code()I", "body()Lokhttp3/ResponseBody;", "request()Lokhttp3/Request;", "close()V"),
-    "Lokhttp3/ResponseBody;" to listOf("contentLength()J", "byteStream()Ljava/io/InputStream;"),
+    "Lokhttp3/ResponseBody;" to listOf("contentLength()J", "byteStream()Ljava/io/InputStream;",
+        "create(Ljava/lang/String;Lokhttp3/MediaType;)Lokhttp3/ResponseBody;"),
+    "Lokhttp3/MediaType;" to listOf("get(Ljava/lang/String;)Lokhttp3/MediaType;"),
+    OKHTTP_RESPONSE_BUILDER to listOf("<init>()V", "request(Lokhttp3/Request;)$OKHTTP_RESPONSE_BUILDER",
+        "protocol(Lokhttp3/Protocol;)$OKHTTP_RESPONSE_BUILDER", "code(I)$OKHTTP_RESPONSE_BUILDER",
+        "message(Ljava/lang/String;)$OKHTTP_RESPONSE_BUILDER",
+        "header(Ljava/lang/String;Ljava/lang/String;)$OKHTTP_RESPONSE_BUILDER",
+        "body(Lokhttp3/ResponseBody;)$OKHTTP_RESPONSE_BUILDER", "build()Lokhttp3/Response;"),
 )
 
 val refreshSyncRedgifsTokens = bytecodePatch(
     name = "Sync: refresh RedGifs tokens",
-    description = "When RedGifs rejects the base's cached RedGifs token with HTTP 401 or 403, fetch one new temporary token " +
+    description = "Answer Sync's RedGifs address lookup (RedGifs retired /info) from a temporary-token response, and when " +
+        "RedGifs rejects the base's cached RedGifs token with HTTP 401 or 403, fetch one new temporary token " +
         "(shared by concurrent requests, bounded in time and size, never logged) and retry the request once.",
 ) {
     compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
@@ -1606,6 +1616,17 @@ val refreshSyncRedgifsTokens = bytecodePatch(
                 throw PatchException("Sync's OkHttp lacks $type->$member. This patch targets Sync build 23033 only.")
             }
         }
+
+        val protocol = classes.singleOrNull { it.type == "Lokhttp3/Protocol;" }
+        layout(protocol?.fields?.any { it.name == "HTTP_1_1" && it.type == "Lokhttp3/Protocol;" && static.isSet(it.accessFlags) } == true,
+            "Sync OkHttp Protocol")
+
+        // Sync's GrabIpRequest asks the retired /info endpoint for remote-addr; the refresh answers it locally.
+        val ipRequest = classes.singleOrNull { it.type == REDGIFS_IP_REQUEST } ?: throw PatchException(
+            "Expected Sync GrabIpRequest was not found. This patch targets build 23033 only.")
+        layout(ipRequest.superclass == "Lcom/android/volley/Request;" && listOf("https://api.redgifs.com/info", "remote-addr").all { s ->
+            ipRequest.methods.any { m -> m.implementation?.instructions?.any { it.stringValue() == s } == true }
+        }, "Sync GrabIpRequest")
 
         // OkHttpHelper builds the client Sync's Volley network uses and installs the inherited interceptor once.
         val helper = proxy(classes.singleOrNull { it.type == OKHTTP_HELPER } ?: throw PatchException(

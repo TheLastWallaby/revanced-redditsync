@@ -102,6 +102,19 @@ public final class RedgifsTokenPatchTest {
             }, "RedGifs interceptor");
             rejects(dex, scratch, args, "no-call-timeout", c -> mutable(c, BUILDER).getMethods()
                     .removeIf(m -> m.getName().equals("callTimeout")), "callTimeout");
+            rejects(dex, scratch, args, "no-info-lookup", c -> {
+                for (MutableMethod m : mutable(c, "Lt8/a;").getMethods()) {
+                    if (m.getImplementation() == null) continue;
+                    List<Instruction> body = instructions(m);
+                    for (int i = 0; i < body.size(); i++) {
+                        Instruction insn = body.get(i);
+                        if (insn instanceof ReferenceInstruction && ((ReferenceInstruction) insn).getReference().toString()
+                                .equals("https://api.redgifs.com/info")) {
+                            m.getImplementation().replaceInstruction(i, new BuilderInstruction10x(Opcode.NOP));
+                        }
+                    }
+                }
+            }, "GrabIpRequest");
             rejects(dex, scratch, args, "result-not-stored", c -> {
                 MutableMethod k = installer(c);
                 k.getImplementation().replaceInstruction(indexOf(k, INHERITED, "install") + 1, new BuilderInstruction10x(Opcode.NOP));
