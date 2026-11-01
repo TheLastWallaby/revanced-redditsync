@@ -6,6 +6,7 @@ import app.revanced.com.android.tools.smali.dexlib2.mutable.MutableClassDef;
 import app.revanced.com.android.tools.smali.dexlib2.mutable.MutableMethod;
 import com.android.tools.smali.dexlib2.*;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction11x;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction22x;
 import com.android.tools.smali.dexlib2.iface.*;
 import com.android.tools.smali.dexlib2.iface.instruction.*;
 import com.android.tools.smali.dexlib2.iface.reference.*;
@@ -61,7 +62,8 @@ public final class CommentImageUrlPatchTest {
                 .super Ljava/lang/Object;
                 .source "PostParserHelper.java"
                 .method public static a(Landroid/content/Context;ILorg/json/JSONObject;Ljava/util/ArrayList;IZZLjava/lang/String;)V
-                    .registers 30
+                    .registers 37
+                    move-object/from16 v2, p2
                     new-instance v4, Ljava/lang/StringBuilder;
                     invoke-direct {v4}, Ljava/lang/StringBuilder;-><init>()V
                     invoke-virtual {v4, v0}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
@@ -109,18 +111,23 @@ public final class CommentImageUrlPatchTest {
                 String text = "[image](" + url + ") " + url + " &lt;3 \\ $1";
                 equal(text, execute(method, text, url, 917), "source URL and surrounding text preserved");
             }
-            // The renderer already obtains the size from media_metadata, without changing links.
-            app.revanced.extension.synccompat.CommentMedia.rememberMetadata(new org.json.JSONObject()
-                    .put("abc123", new org.json.JSONObject().put("e", "Image").put("m", "image/png")
-                            .put("s", new org.json.JSONObject().put("x", 1874).put("y", 917))));
-            int[] box = app.revanced.extension.synccompat.CommentMedia.inlineImageSize(signed, 1000, true);
-            check(box != null && box[0] == 1000 && box[1] == 489, "metadata still sizes the inline picture");
-            equal(signed, app.revanced.extension.synccompat.CommentMedia.displayUrl(signed), "display uses the original signed URL");
+            // rc.1 manually seeded this cache in its test and missed the selftext parser path.
+            // Feed raw item JSON through the actual installed DEX entry call instead.
+            SyncCompatPatchesKt.captureSyncInlineImageMetadata(parser);
+            metadataFlow(method, "selftext", "postonly01");
+            metadataFlow(method, "body", "replyonly02");
+            executeMetadataHook(method, null);
+            executeMetadataHook(method, new org.json.JSONObject().put("selftext", "plain text"));
+            executeMetadataHook(method, new org.json.JSONObject().put("selftext", "plain text").put("media_metadata", "bad"));
+            check(app.revanced.extension.synccompat.CommentMedia.inlineImageSize(signed, 1000, true) == null,
+                    "missing or malformed metadata keeps the link fallback");
             DexPool.writeTo(scratch.resolve("roundtrip.dex").toString(), new ImmutableDexFile(Opcodes.getDefault(), List.of(parser)));
             check(DexFileFactory.loadDexFile(scratch.resolve("roundtrip.dex").toFile(), Opcodes.getDefault()).getClasses().size() == 1,
                     "patched DEX serializes and reloads");
             try { SyncCompatPatchesKt.preserveSyncCommentImageUrls(parser); throw new AssertionError("duplicate accepted"); }
             catch (PatchException expected) { check(expected.getMessage().contains("already installed"), "duplicate rejected"); }
+            try { SyncCompatPatchesKt.captureSyncInlineImageMetadata(parser); throw new AssertionError("duplicate capture accepted"); }
+            catch (PatchException expected) { check(expected.getMessage().contains("already installed"), "duplicate capture rejected"); }
 
             var bad = parser(context(dex, scratch.resolve("malformed")));
             var badMethod = method(bad);
@@ -131,6 +138,14 @@ public final class CommentImageUrlPatchTest {
             catch (PatchException expected) { check(expected.getMessage().contains("height result"), "unsupported layout rejected"); }
             equal(unchanged, code(badMethod), "layout rejection makes no edits");
 
+            var badEntry = parser(context(dex, scratch.resolve("malformed-entry")));
+            method(badEntry).getImplementation().replaceInstruction(0,
+                    new BuilderInstruction22x(Opcode.MOVE_OBJECT_FROM16, 2, 30));
+            var unchangedEntry = code(method(badEntry));
+            try { SyncCompatPatchesKt.captureSyncInlineImageMetadata(badEntry); throw new AssertionError("wrong item parameter accepted"); }
+            catch (PatchException expected) { check(expected.getMessage().contains("item parameter"), "unsupported item register rejected"); }
+            equal(unchangedEntry, code(method(badEntry)), "entry rejection makes no edits");
+
             if (args.length != 0) {
                 // Also prove the complete named patch installs this edit and the metadata hook.
                 var full = context(source, scratch.resolve("full-patch"));
@@ -140,7 +155,9 @@ public final class CommentImageUrlPatchTest {
                 var fullMethod = method(parser(full));
                 equal(body, execute(fullMethod, body, signed, 917), "complete named patch preserves URLs on the base");
                 check(code(fullMethod).stream().anyMatch(i -> i instanceof ReferenceInstruction reference
-                        && reference.getReference().toString().contains("CommentMedia;->rememberMetadata(")), "metadata hook installed");
+                        && reference.getReference().toString().contains("CommentMedia;->rememberItemMetadata(")), "metadata hook installed");
+                metadataFlow(fullMethod, "selftext", "fullpost03");
+                metadataFlow(fullMethod, "body", "fullreply04");
             }
             System.out.println("PASS: " + checks + " comment image URL patch checks (executed DEX rewrite, "
                     + (args.length == 0 ? "authored model" : "verified base and complete named patch") + ")");
@@ -149,6 +166,41 @@ public final class CommentImageUrlPatchTest {
                 for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);
             }
         }
+    }
+
+    private static void metadataFlow(Method method, String field, String id) throws Exception {
+        String url = "https://preview.redd.it/" + id + ".png?width=1874&format=png&auto=webp&s=Case%2BSensitive";
+        String text = "Before [image](" + url + ") after";
+        check(app.revanced.extension.synccompat.CommentMedia.inlineImageSize(url, 1000, true) == null,
+                field + " without captured metadata reproduces rc.1's link-only fallback");
+        org.json.JSONObject item = new org.json.JSONObject().put(field, text).put("media_metadata",
+                new org.json.JSONObject().put(id, new org.json.JSONObject().put("id", id).put("status", "valid")
+                        .put("e", "Image").put("m", "image/png")
+                        .put("s", new org.json.JSONObject().put("x", 1874).put("y", 917).put("u", url))));
+        executeMetadataHook(method, item);
+        int[] box = app.revanced.extension.synccompat.CommentMedia.inlineImageSize(url, 1000, true);
+        check(box != null && box[0] == 1000 && box[1] == 489, field + " sizes the picture from raw item metadata");
+        equal(url, app.revanced.extension.synccompat.CommentMedia.displayUrl(url), field + " signed display URL retained");
+        equal(text, execute(method, text, url, 917), field + " text and tap URL retained");
+        equal(text, item.getString(field), field + " source JSON not mutated");
+    }
+
+    /** Execute the emitted call with the JSON bound to the real p2 parameter register. */
+    private static void executeMetadataHook(Method method, org.json.JSONObject item) throws Exception {
+        Instruction first = code(method).get(0);
+        equal(Opcode.INVOKE_STATIC_RANGE, first.getOpcode(), "metadata capture runs at parser entry");
+        var call = (RegisterRangeInstruction)first;
+        equal(1, call.getRegisterCount(), "one item argument");
+        int p2 = method.getImplementation().getRegisterCount() - method.getParameterTypes().size() + 2;
+        equal(p2, call.getStartRegister(), "capture receives p2, including high register numbers");
+        var reference = (MethodReference)((ReferenceInstruction)first).getReference();
+        equal("Lapp/revanced/extension/synccompat/CommentMedia;->rememberItemMetadata(Lorg/json/JSONObject;)V",
+                reference.toString(), "production metadata capture call");
+        Object[] registers = new Object[method.getImplementation().getRegisterCount()];
+        registers[p2] = item;
+        String type = reference.getDefiningClass();
+        Class.forName(type.substring(1, type.length() - 1).replace('/', '.'))
+                .getMethod(reference.getName(), org.json.JSONObject.class).invoke(null, registers[call.getStartRegister()]);
     }
 
     /** Execute only the straight string rewrite, using JVM String/StringBuilder implementations. */

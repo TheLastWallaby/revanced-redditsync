@@ -15,25 +15,34 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## v0.6.11-rc.1 candidate: signed comment image URLs
+## v0.6.11-rc.2 candidate: signed inline image URLs
 
-The [v0.6.11-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11-rc.1)
+The [v0.6.11-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11-rc.2)
 is for phone testing. Rebuild from the prepared base and check all nine named
 patch results. Stable remains v0.6.10 until the candidate passes and stable
 publication is authorized.
 
-Fixes comment pictures that show a black inline box and **GLIDE FAILED TO GRAB
-THIS IMAGE** when tapped. Sync appended `&height=<metadata height>` to signed
+Fixes pictures in text posts and comments that show a black inline box and
+**GLIDE FAILED TO GRAB THIS IMAGE** when tapped. Sync appended `&height=<metadata height>` to signed
 `preview.redd.it` URLs for layout. Reddit rejected the reported URL with HTTP
 403; the original URL served its PNG successfully. The inline-media patch now
-keeps the source URL intact during comment parsing, so both inline images and
+keeps the source URL intact during post/comment parsing, so both inline images and
 taps use it. Dimensions still come from `media_metadata`. Actual URL parameters,
 including a source's own `height`, remain unchanged.
 
 `CommentImageUrlPatchTest` executes the original and patched DEX rewrite, checks
 signed query bytes and surrounding text, metadata sizing, layout/duplicate
 rejection and DEX serialization. Its optional base-APK argument also applies the
-complete named patch to the verified prepared base. Phone validation is pending.
+complete named patch to the verified prepared base.
+
+On rc.1 the tester confirmed that tapping now loads the image, but it only
+appeared as a link. That candidate captured dimensions only in the comment
+parser branch, while this image is in a text post. rc.2 captures the item's
+metadata at the shared parser entry for both `selftext` posts and `body` comments.
+Its regression test feeds raw post/comment JSON through the emitted parser call
+before checking the inline box; it no longer manually seeds the cache. rc.2
+phone validation is pending. See `validation-phone-tests.json` for the partial
+rc.1 result.
 
 ## Unreleased: load-more without `/api/morechildren` (issue #51)
 
@@ -472,7 +481,7 @@ The tester confirmed the v0.6.2-rc.5 phone checks recorded in
   not stretched past its native size. Tall images stop at 1.5× the reply
   width. Extreme banners or strips, and boxes that rounding would distort by
   more than 10%, stay links.
-- The renderer does not rebuild the URL. See the v0.6.11-rc.1 correction above:
+- The renderer does not rebuild the URL. See the v0.6.11-rc.2 correction above:
   Sync's parser must also keep its synthetic `&height` out of signed image URLs.
   The tap target and inline image then both use the original source link.
 - WebP and other picture formats are recognized from the parsed path or the
@@ -552,7 +561,7 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [v0.6.11-rc.1 phone-test candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11-rc.1)
+- [v0.6.11-rc.2 phone-test candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11-rc.2)
 - [Stable v0.6.10 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.10)
 - [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.10/patches.rvp)
 - [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.10/sync-gallery-comments-compat-v0.6.10-source.zip)
