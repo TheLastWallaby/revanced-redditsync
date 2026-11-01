@@ -103,6 +103,15 @@ class InfrastructureTests(unittest.TestCase):
         # Test-only stand-ins live beside the suites but are not suites themselves.
         self.assertNotIn("app.revanced.extension.syncforreddit.FixSLinksPatch", tests)
 
+    def test_redgifs_token_suites_are_discovered(self):
+        tests = discover_java_tests(ROOT / "tests")
+        self.assertIn("app.revanced.extension.synccompat.RedgifsTokenRefreshTest", tests)
+        self.assertIn("RedgifsTokenPatchTest", tests)
+        # OkHttp and inherited RedGifs stand-ins are not suites.
+        for stand_in in ["okhttp3.OkHttpClient", "app.revanced.extension.syncforreddit.FixRedgifsApiPatch",
+                         "app.revanced.extension.shared.fixes.redgifs.RedgifsTokenManager"]:
+            self.assertNotIn(stand_in, tests)
+
     def test_comment_request_suites_are_discovered(self):
         tests = discover_java_tests(ROOT / "tests")
         self.assertIn("BatchCommentsTest", tests)

@@ -1522,3 +1522,120 @@ val normalizeSyncRedditLinks = bytecodePatch(
         """.trimIndent())
     }
 }
+
+private const val REDGIFS_REFRESH = "Lapp/revanced/extension/synccompat/RedgifsTokenRefresh;"
+private const val OKHTTP_HELPER = "La8/a;"
+private const val REDGIFS_INSTALLER = "Lapp/revanced/extension/syncforreddit/FixRedgifsApiPatch;"
+private const val REDGIFS_INTERCEPTOR = "Lapp/revanced/extension/shared/fixes/redgifs/BaseFixRedgifsApiPatch;"
+private const val REDGIFS_TOKENS = "Lapp/revanced/extension/shared/fixes/redgifs/RedgifsTokenManager;"
+private const val REDGIFS_TOKEN = "Lapp/revanced/extension/shared/fixes/redgifs/RedgifsTokenManager\$RedgifsToken;"
+private const val OKHTTP_CLIENT = "Lokhttp3/OkHttpClient;"
+private const val OKHTTP_BUILDER = "Lokhttp3/OkHttpClient\$Builder;"
+
+/** OkHttp members the refresh calls; each must exist in the base's OkHttp. */
+private val REDGIFS_OKHTTP_MEMBERS = mapOf(
+    OKHTTP_CLIENT to listOf("newBuilder()$OKHTTP_BUILDER", "newCall(Lokhttp3/Request;)Lokhttp3/Call;"),
+    OKHTTP_BUILDER to listOf("interceptors()Ljava/util/List;", "networkInterceptors()Ljava/util/List;",
+        "addInterceptor(Lokhttp3/Interceptor;)$OKHTTP_BUILDER", "followRedirects(Z)$OKHTTP_BUILDER",
+        "followSslRedirects(Z)$OKHTTP_BUILDER", "connectTimeout(JLjava/util/concurrent/TimeUnit;)$OKHTTP_BUILDER",
+        "readTimeout(JLjava/util/concurrent/TimeUnit;)$OKHTTP_BUILDER", "writeTimeout(JLjava/util/concurrent/TimeUnit;)$OKHTTP_BUILDER",
+        "callTimeout(JLjava/util/concurrent/TimeUnit;)$OKHTTP_BUILDER", "build()$OKHTTP_CLIENT"),
+    "Lokhttp3/Interceptor;" to listOf("intercept(Lokhttp3/Interceptor\$Chain;)Lokhttp3/Response;"),
+    "Lokhttp3/Interceptor\$Chain;" to listOf("request()Lokhttp3/Request;", "proceed(Lokhttp3/Request;)Lokhttp3/Response;"),
+    "Lokhttp3/Call;" to listOf("execute()Lokhttp3/Response;"),
+    "Lokhttp3/Request;" to listOf("url()Lokhttp3/HttpUrl;", "method()Ljava/lang/String;",
+        "header(Ljava/lang/String;)Ljava/lang/String;", "newBuilder()Lokhttp3/Request\$Builder;"),
+    "Lokhttp3/Request\$Builder;" to listOf("<init>()V", "url(Ljava/lang/String;)Lokhttp3/Request\$Builder;",
+        "header(Ljava/lang/String;Ljava/lang/String;)Lokhttp3/Request\$Builder;", "get()Lokhttp3/Request\$Builder;",
+        "build()Lokhttp3/Request;"),
+    "Lokhttp3/HttpUrl;" to listOf("isHttps()Z", "host()Ljava/lang/String;", "encodedPath()Ljava/lang/String;"),
+    "Lokhttp3/Response;" to listOf("code()I", "body()Lokhttp3/ResponseBody;", "request()Lokhttp3/Request;", "close()V"),
+    "Lokhttp3/ResponseBody;" to listOf("contentLength()J", "byteStream()Ljava/io/InputStream;"),
+)
+
+val refreshSyncRedgifsTokens = bytecodePatch(
+    name = "Sync: refresh RedGifs tokens",
+    description = "When RedGifs rejects the base's cached RedGifs token with HTTP 401 or 403, fetch one new temporary token " +
+        "(shared by concurrent requests, bounded in time and size, never logged) and retry the request once.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        fun inherited(type: String, what: String) = classes.singleOrNull { it.type == type } ?: throw PatchException(
+            "Expected inherited ReVanced $what was not found. Use the supported ReVanced-patched Sync 23033 base.")
+        fun Iterable<Instruction>.calls(owner: String, name: String) =
+            any { it.methodRef()?.let { m -> m.definingClass == owner && m.name == name } == true }
+        val public = AccessFlags.PUBLIC
+        val static = AccessFlags.STATIC
+
+        // The inherited cache the refresh updates by reflection: User-Agent -> RedgifsToken.
+        val tokens = inherited(REDGIFS_TOKENS, "RedGifs token cache")
+        layout(tokens.fields.any { it.name == "tokenMap" && it.type == "Ljava/util/Map;" && static.isSet(it.accessFlags) } &&
+            tokens.methods.any { it.name == "refreshToken" && it.parameterTypes == listOf("Ljava/lang/String;") &&
+                it.returnType == REDGIFS_TOKEN && static.isSet(it.accessFlags) }, "inherited RedGifs token cache")
+        val token = inherited(REDGIFS_TOKEN, "RedGifs token")
+        layout(public.isSet(token.accessFlags) && token.methods.any {
+            it.name == "<init>" && it.parameterTypes == listOf("Ljava/lang/String;", "J") && public.isSet(it.accessFlags)
+        } && token.methods.any {
+            it.name == "getAccessToken" && it.parameterTypes.isEmpty() && it.returnType == "Ljava/lang/String;" && public.isSet(it.accessFlags)
+        }, "inherited RedGifs token")
+
+        // The inherited interceptor whose cached-token retry this refresh completes.
+        val interceptor = inherited(REDGIFS_INTERCEPTOR, "RedGifs interceptor")
+        val intercept = interceptor.methods.singleOrNull {
+            it.name == "intercept" && it.parameterTypes == listOf("Lokhttp3/Interceptor\$Chain;") && it.returnType == "Lokhttp3/Response;"
+        }?.implementation?.instructions?.toList()
+        layout(interceptor.interfaces.contains("Lokhttp3/Interceptor;") && intercept != null &&
+            listOf("api.redgifs.com", "/v2/oauth/client", "Authorization", "User-Agent").all { s -> intercept.any { it.stringValue() == s } } &&
+            intercept.calls(REDGIFS_TOKENS, "refreshToken") && intercept.calls("Lokhttp3/Response;", "isSuccessful"),
+            "inherited RedGifs interceptor")
+        val installer = inherited(REDGIFS_INSTALLER, "Sync RedGifs installer")
+        val install = installer.methods.singleOrNull {
+            it.name == "install" && it.parameterTypes == listOf(OKHTTP_BUILDER) && it.returnType == OKHTTP_CLIENT &&
+                static.isSet(it.accessFlags) && public.isSet(it.accessFlags)
+        }?.implementation?.instructions?.toList()
+        layout(installer.superclass == REDGIFS_INTERCEPTOR && install != null &&
+            install.calls(OKHTTP_BUILDER, "addInterceptor") && install.calls(OKHTTP_BUILDER, "build"), "inherited RedGifs installer")
+
+        // Every OkHttp member the refresh calls must exist in this base's OkHttp.
+        for ((type, members) in REDGIFS_OKHTTP_MEMBERS) {
+            val clazz = classes.singleOrNull { it.type == type }
+                ?: throw PatchException("Sync's OkHttp lacks $type. This patch targets Sync build 23033 only.")
+            val present = clazz.methods.map { "${it.name}(${it.parameterTypes.joinToString("")})${it.returnType}" }.toSet()
+            for (member in members) if (member !in present) {
+                throw PatchException("Sync's OkHttp lacks $type->$member. This patch targets Sync build 23033 only.")
+            }
+        }
+
+        // OkHttpHelper builds the client Sync's Volley network uses and installs the inherited interceptor once.
+        val helper = proxy(classes.singleOrNull { it.type == OKHTTP_HELPER } ?: throw PatchException(
+            "Expected Sync OkHttpHelper was not found. This patch targets build 23033 only.")).mutableClass
+        if (helper.methods.any { m -> m.implementation?.instructions?.any { it.methodRef()?.definingClass == REDGIFS_REFRESH } == true }) {
+            throw PatchException("RedGifs token refresh is already installed.")
+        }
+        val sites = helper.methods.flatMap { m ->
+            m.implementation?.instructions?.withIndex()?.filter { (_, insn) ->
+                insn.methodRef()?.let { it.definingClass == REDGIFS_INSTALLER && it.name == "install" } == true
+            }?.map { m to it.index } ?: emptyList()
+        }
+        if (sites.size != 1) throw PatchException("Expected one inherited RedGifs install in Sync's OkHttpHelper, found ${sites.size}.")
+        val (method, index) = sites.single()
+        val code = method.implementation!!.instructions
+        val call = code[index] as? FiveRegisterInstruction
+        val result = code.getOrNull(index + 1)
+        val store = code.getOrNull(index + 2)
+        val stored = (store as? ReferenceInstruction)?.reference as? FieldReference
+        layout(call != null && code[index].opcode == Opcode.INVOKE_STATIC && call.registerCount == 1 &&
+            code[index].methodRef()?.let { m ->
+                m.parameterTypes.map { it.toString() } == listOf(OKHTTP_BUILDER) && m.returnType == OKHTTP_CLIENT
+            } == true &&
+            result?.opcode == Opcode.MOVE_RESULT_OBJECT && store?.opcode == Opcode.SPUT_OBJECT &&
+            result?.registerA() != null && store?.registerA() == result?.registerA() &&
+            stored?.definingClass == OKHTTP_HELPER && stored?.type == OKHTTP_CLIENT,
+            "Sync OkHttpHelper RedGifs install")
+
+        // All layouts verified; edit. The refresh calls the inherited install, then adds itself inside it.
+        method.replaceInstruction(index,
+            "invoke-static {v${call!!.registerC}}, $REDGIFS_REFRESH->install($OKHTTP_BUILDER)$OKHTTP_CLIENT")
+    }
+}
