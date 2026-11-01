@@ -15,7 +15,12 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Unreleased: signed comment image URLs
+## v0.6.11-rc.1 candidate: signed comment image URLs
+
+The [v0.6.11-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11-rc.1)
+is for phone testing. Rebuild from the prepared base and check all nine named
+patch results. Stable remains v0.6.10 until the candidate passes and stable
+publication is authorized.
 
 Fixes comment pictures that show a black inline box and **GLIDE FAILED TO GRAB
 THIS IMAGE** when tapped. Sync appended `&height=<metadata height>` to signed
@@ -447,7 +452,7 @@ The tester confirmed the v0.6.2-rc.5 phone checks recorded in
   not stretched past its native size. Tall images stop at 1.5× the reply
   width. Extreme banners or strips, and boxes that rounding would distort by
   more than 10%, stay links.
-- The renderer does not rebuild the URL. See the unreleased correction above:
+- The renderer does not rebuild the URL. See the v0.6.11-rc.1 correction above:
   Sync's parser must also keep its synthetic `&height` out of signed image URLs.
   The tap target and inline image then both use the original source link.
 - WebP and other picture formats are recognized from the parsed path or the
@@ -527,6 +532,7 @@ must also show success for every selected patch.
 
 ## Downloads
 
+- [v0.6.11-rc.1 phone-test candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11-rc.1)
 - [Stable v0.6.10 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.10)
 - [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.10/patches.rvp)
 - [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.10/sync-gallery-comments-compat-v0.6.10-source.zip)
