@@ -17,6 +17,52 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
+## v0.6.14-rc.1 candidate: Reddit video playback (issue #74)
+
+The [v0.6.14-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.14-rc.1)
+is for phone testing. Rebuild from the prepared base and check all eleven named
+patch results. Stable remains v0.6.13 until the candidate passes and stable
+publication is authorized. It has not been tested on a phone yet.
+
+It adds the selectable **Sync: play Reddit videos via DASH** patch for
+[issue #74](https://github.com/TheLastWallaby/revanced-redditsync/issues/74).
+Reddit-hosted videos showed **COULD NOT LOAD VIDEO** with an
+`InvalidResponseCodeException` for `https://v.redd.it/<id>/HLSPlaylist.m3u8`.
+
+**Why it happened.** Sync 23033 does not play the `hls_url` Reddit sends. For any
+`v.redd.it` link it takes the video ID (`y7.a.k`) and rebuilds a bare
+`https://v.redd.it/<id>/HLSPlaylist.m3u8`, dropping Reddit's signed `?a=…`
+parameter. Reddit now refuses that playlist (HTTP 403 AccessDenied). On
+2026-11-01 the same video's `DASHPlaylist.mpd` and every file it lists (CMAF
+video and audio renditions) still loaded without a signature.
+
+**What the patch changes.** Sync's player already plays a `v.redd.it` source
+containing `.mpd` through its DASH branch (`y7.c.s`), and one containing `.m3u8`
+through HLS (`y7.c.t`). Where Sync hands a source to its player, the patch
+rewrites exactly `http(s)://v.redd.it/<id>/HLSPlaylist.m3u8[?…]` to
+`https://v.redd.it/<id>/DASHPlaylist.mpd`:
+
+- `CustomExoPlayerView.setSource`: the full-screen viewer, pager and long-press
+  peek;
+- `ExoplayerUtils.a` (`xc.a`): feed autoplay.
+
+Sync's own data sources, cache, HD/quality track selection and audio handling
+then apply unchanged. Every other source is left as Sync passed it, including
+other `v.redd.it` files, cached files, other hosts and malformed links. The
+patch checks the player, autoplay helper and both classifiers before editing.
+Not changed: `DownloadRedditVideoJob`, which parses the playlist itself and has
+not been checked, and the comment video posters (see
+[issue #7](https://github.com/TheLastWallaby/revanced-redditsync/issues/7)).
+
+`RedditVideoCompatTest` checks the rewrite against a model of Sync's two
+classifiers: Sync's rebuilt URL and the escaped and plain signed `hls_url` forms
+move from the HLS to the DASH branch, while other `v.redd.it` files, cached
+paths, other hosts, user-info, ports, fragments and malformed IDs are unchanged.
+`RedditVideoPatchTest` applies the patch to layout fixtures and executes Sync's
+player and autoplay helper before and after it (HLS before, DASH after). Run with
+the base APK path, it checks the hooks on the real methods; that was done locally
+on the checksum-verified base and is not part of CI.
+
 ## v0.6.13 RedGifs full-screen lookups (issue #49)
 
 The [v0.6.13 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.13)
@@ -30,7 +76,8 @@ On rc.2 the tester reported that the fix looks good and authorized stable
 publication; only an overall result was given for the five numbered checks.
 Reddit-hosted video playback ("Could not load video", HTTP 403 on Sync's
 unsigned `v.redd.it` HLS link) is a separate, pre-existing problem this release
-does not change. See `validation-phone-tests.json`.
+does not change; the v0.6.14-rc.1 candidate above addresses it. See
+`validation-phone-tests.json`.
 
 It adds the selectable **Sync: refresh RedGifs tokens** patch for
 [issue #49](https://github.com/TheLastWallaby/revanced-redditsync/issues/49):
@@ -827,6 +874,9 @@ route is the CLI; Manager import and patching still need device verification.
   backslashes in fenced code, spoiler-link labels and emote URLs.
 - **Sync: normalize Reddit links** opens equivalent Reddit links at the same
   place in Sync, as described above.
+- **Sync: play Reddit videos via DASH** (v0.6.14-rc.1 candidate) opens
+  Reddit-hosted videos through their DASH manifest instead of the unsigned HLS
+  playlist Reddit now refuses, as described above.
 - **Sync: refresh RedGifs tokens** answers Sync's
   retired RedGifs `/info` lookup locally, and fetches one new RedGifs token when
   RedGifs rejects the base's cached one and retries that request once, as
@@ -849,7 +899,7 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 2. Use a base that has **none of this bundle's earlier compatibility patches**.
    Do not reapply to an APK already containing any earlier compatibility bundle.
 3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
-   and apply all ten named patches (nine in v0.6.10 to v0.6.12, eight in v0.6.7 to v0.6.9, seven in v0.6.6, six in v0.6.4 and v0.6.5,
+   and apply all ten named patches (eleven in the v0.6.14-rc.1 candidate, nine in v0.6.10 to v0.6.12, eight in v0.6.7 to v0.6.9, seven in v0.6.6, six in v0.6.4 and v0.6.5,
    five in v0.6.3, four in v0.6.2, three in v0.6.1). Check that each reports success.
 4. Sign the result with your own keystore. Matching the key used by your current
    installation allows an in-place update.
