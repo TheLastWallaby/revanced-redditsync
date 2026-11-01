@@ -5,21 +5,30 @@ import com.android.volley.VolleyError;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.json.JSONTokener;
 
 /**
  * Award metadata compatibility for Sync v23.06.30-13:39.
  *
  * Sync reads legacy award fields (all_awardings, icon arrays) in two places: the
- * post/comment listing parser and the awards sheet's /api/info lookup. Missing or
- * changed fields used to throw. Here they are optional: listings stay usable, and the
- * sheet tells apart a failed lookup, an empty list and unavailable award data. When
- * Reddit doesn't list awards, the sheet offers the item on reddit.com instead.
+ * post/comment listing parser and the awards sheet's lookup. Missing or changed fields
+ * used to throw. Here they are optional: listings stay usable, and the sheet tells apart
+ * a failed lookup, an empty list and unavailable award data. When Reddit doesn't list
+ * awards, the sheet offers the item on reddit.com instead.
+ * <p>
+ * The sheet's lookup no longer uses /api/info (issue #48). A post is read from
+ * /comments/{post}.json and a comment from /comments/{post}/comment/{comment}.json,
+ * built only from validated IDs. Sync's comment sheet knows only the comment ID, so
+ * its post ID is recorded from the comment Sync opens the sheet for. Without a valid
+ * item (or a comment's post) no request is made and the sheet reports it.
  */
 public final class AwardCompat {
     static final String LOAD_FAILED = "Couldn't load awards from Reddit.";
@@ -29,13 +38,32 @@ public final class AwardCompat {
     static final String NONE = "Reddit lists no awards for this item.";
     static final String OPEN_UNAVAILABLE = "Award details unavailable. Open on Reddit";
     static final String OPEN_NONE = "No awards listed. Open on Reddit";
+    static final String UNIDENTIFIED = "Couldn't identify this item for Reddit's award lookup. Reopen it and try again.";
 
     static final int MAX_AWARDS = 100;
     static final int MAX_ICONS = 16;
     static final int MAX_TEXT = 500;
     static final int MAX_COUNT = 1_000_000;
+    static final int MAX_PARENTS = 64;
+
+    private static final String API = "https://oauth.reddit.com";
+    /**
+     * Returned instead of a lookup URL when the item can't be identified. It is not an
+     * HTTP(S) URL, so Sync's network stack fails it before any connection and reports a
+     * VolleyError whose cause names this scheme; errorMessage turns that into UNIDENTIFIED.
+     */
+    static final String UNIDENTIFIED_SCHEME = "sync-compat-unidentified";
+    static final String UNIDENTIFIED_URL = UNIDENTIFIED_SCHEME + ":awards";
 
     private static final Pattern FULLNAME = Pattern.compile("t([13])_([a-z0-9]{1,16})");
+    private static final Pattern LOOKUP = Pattern.compile(
+            "/comments/([a-z0-9]{1,16})(?:/comment/([a-z0-9]{1,16}))?\\.json");
+    /** Comment ID to post ID, recorded when Sync opens a comment's awards sheet. */
+    private static final Map<String, String> PARENTS = new LinkedHashMap<String, String>(16, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+            return size() > MAX_PARENTS;
+        }
+    };
     private static final Pattern SEGMENT = Pattern.compile("[A-Za-z0-9_%.~-]{1,300}");
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9_-]{1,64}");
     private static final Pattern ID = Pattern.compile("[a-z0-9]{1,16}");
@@ -65,26 +93,59 @@ public final class AwardCompat {
         return new Result(null, new AwardsError(message));
     }
 
-    /** Replaces OAuthAwardsRequest.parseNetworkResponse's body (y8.c, GET /api/info/?id=). */
+    /**
+     * Replaces OAuthAwardsRequest.b (y8.c), which built https://oauth.reddit.com/api/info/?id=
+     * from Sync's "t3_"/"t1_" prefix and the item's ID.
+     */
+    public static String awardsUrl(String prefix, String id) {
+        Matcher full = prefix == null || id == null ? null : FULLNAME.matcher(lower(prefix + id));
+        if (full == null || !full.matches()) return UNIDENTIFIED_URL;
+        String item = full.group(2);
+        if ("3".equals(full.group(1))) return API + "/comments/" + item + ".json?limit=1&depth=1";
+        String post;
+        synchronized (PARENTS) {
+            post = PARENTS.get(item);
+        }
+        return post == null ? UNIDENTIFIED_URL
+                : API + "/comments/" + post + "/comment/" + item + ".json?context=0&limit=1&depth=1";
+    }
+
+    /**
+     * Called where Sync opens a comment's awards sheet, with the comment's ID and its
+     * link_id (Post.U and Post.j0, bare or prefixed). Invalid IDs are ignored.
+     */
+    public static void rememberComment(String comment, String post) {
+        comment = bareId(comment, "t1_");
+        post = bareId(post, "t3_");
+        if (comment == null || post == null) return;
+        synchronized (PARENTS) {
+            PARENTS.put(comment, post);
+        }
+    }
+
+    private static String bareId(String value, String prefix) {
+        if (value == null) return null;
+        String id = lower(value.trim());
+        if (id.startsWith(prefix)) id = id.substring(prefix.length());
+        return ID.matcher(id).matches() ? id : null;
+    }
+
+    /** Replaces OAuthAwardsRequest.parseNetworkResponse's body (y8.c); the response is a thread listing. */
     public static Result parseAwards(NetworkResponse response, String requestUrl) {
         try {
             if (response == null || response.data == null) return fail(LOAD_FAILED);
             Object root = parseJson(new String(response.data, StandardCharsets.UTF_8));
-            if (!(root instanceof JSONObject)) return fail(UNREADABLE);
-            JSONObject data = ((JSONObject) root).optJSONObject("data");
-            JSONArray children = data == null ? null : data.optJSONArray("children");
-            if (children == null) return fail(UNREADABLE);
-            String requested = requestedFullname(requestUrl);
-            JSONObject item = null;
-            for (int i = 0; i < children.length() && item == null; i++) {
-                JSONObject child = children.optJSONObject(i);
-                JSONObject candidate = child == null ? null : child.optJSONObject("data");
-                if (candidate == null) continue;
-                // Only the requested item counts; never show another post's awards.
-                if (requested == null || requested.equals(lower(text(candidate, "name")))) item = candidate;
-            }
+            JSONArray thread = root instanceof JSONArray ? (JSONArray) root : null;
+            JSONArray posts = thread == null || thread.length() != 2 ? null : children(thread.optJSONObject(0));
+            JSONArray comments = posts == null ? null : children(thread.optJSONObject(1));
+            if (comments == null) return fail(UNREADABLE);
+            String requested = requestedFullname(requestUrl), post = requestedPost(requestUrl);
+            if (requested == null || post == null) return fail(NOT_FOUND);
+            // Only the requested item counts; never show another post's or comment's awards.
+            JSONObject postItem = find(posts, "t3_" + post);
+            JSONObject item = requested.startsWith("t3_") ? postItem : postItem == null ? null : find(comments, requested);
             if (item == null) return fail(NOT_FOUND);
-            String open = openUrl(item, requested);
+            String open = openUrl(item, requested, post);
             Object awardings = item.opt("all_awardings");
             if (awardings instanceof JSONArray) {
                 JSONArray list = (JSONArray) awardings;
@@ -99,12 +160,32 @@ public final class AwardCompat {
         }
     }
 
+    /** One complete JSON value with nothing after it, or null. */
     private static Object parseJson(String text) {
         try {
-            return new JSONObject(text);
+            JSONTokener tokens = new JSONTokener(text);
+            Object value = tokens.nextValue();
+            return tokens.nextClean() == 0 ? value : null;
         } catch (Exception malformed) {
             return null;
         }
+    }
+
+    /** The children of a Listing object, or null for any other shape. */
+    private static JSONArray children(JSONObject listing) {
+        JSONObject data = listing == null || !"Listing".equals(listing.optString("kind")) ? null : listing.optJSONObject("data");
+        return data == null ? null : data.optJSONArray("children");
+    }
+
+    /** The data of the top-level child whose kind and name match fullname, ignoring case. */
+    private static JSONObject find(JSONArray children, String fullname) {
+        String kind = fullname.substring(0, 2);
+        for (int i = 0; i < children.length(); i++) {
+            JSONObject child = children.optJSONObject(i);
+            JSONObject data = child == null || !kind.equals(child.optString("kind")) ? null : child.optJSONObject("data");
+            if (data != null && fullname.equals(lower(text(data, "name")))) return data;
+        }
+        return null;
     }
 
     private static Result handoff(String label, String url) {
@@ -189,24 +270,42 @@ public final class AwardCompat {
         return null;
     }
 
-    static String requestedFullname(String url) {
-        if (url == null) return null;
-        int query = url.indexOf('?');
-        if (query < 0) return null;
-        for (String pair : url.substring(query + 1).split("[&#]")) {
-            if (!pair.startsWith("id=")) continue;
-            String id = lower(pair.substring(3));
-            return FULLNAME.matcher(id).matches() ? id : null;
+    /** The lookup's path, from a URL built by awardsUrl, or null. */
+    private static Matcher lookup(String url) {
+        try {
+            URI uri = url == null ? null : new URI(url);
+            Matcher path = uri == null || !"https".equals(uri.getScheme()) || !"oauth.reddit.com".equals(uri.getHost())
+                    || uri.getPort() != -1 || uri.getRawUserInfo() != null || uri.getRawPath() == null
+                    ? null : LOOKUP.matcher(uri.getRawPath());
+            return path != null && path.matches() ? path : null;
+        } catch (Exception invalid) {
+            return null;
         }
-        return null;
+    }
+
+    /** t3_{post} or t1_{comment} for a lookup URL built by awardsUrl, or null. */
+    static String requestedFullname(String url) {
+        Matcher path = lookup(url);
+        return path == null ? null : path.group(2) == null ? "t3_" + path.group(1) : "t1_" + path.group(2);
+    }
+
+    /** The post ID of a lookup URL built by awardsUrl, or null. */
+    static String requestedPost(String url) {
+        Matcher path = lookup(url);
+        return path == null ? null : path.group(1);
     }
 
     /** The item's reddit.com page, checked against the requested ID, or null. */
     static String openUrl(JSONObject item, String requested) {
+        return openUrl(item, requested, null);
+    }
+
+    /** As above; a comment's page must also belong to the requested post when one is given. */
+    static String openUrl(JSONObject item, String requested, String post) {
         String permalink = text(item, "permalink");
         Matcher full = requested == null ? null : FULLNAME.matcher(requested);
         if (full == null || !full.matches() || permalink == null) return null;
-        boolean post = "3".equals(full.group(1));
+        boolean isPost = "3".equals(full.group(1));
         String id = full.group(2);
         if (!permalink.startsWith("/") || permalink.contains("//")) return null;
         String[] parts = permalink.substring(1).split("/", -1);
@@ -220,7 +319,8 @@ public final class AwardCompat {
         for (int i = 4; i < length; i++) {
             if (!SEGMENT.matcher(parts[i]).matches() || parts[i].matches("\\.+")) return null;
         }
-        if (post ? !parts[3].equals(id) : length != 6 || !parts[5].equals(id)) return null;
+        if (isPost ? !parts[3].equals(id) : length != 6 || !parts[5].equals(id)) return null;
+        if (post != null && !parts[3].equals(post)) return null;
         return "https://www.reddit.com" + permalink;
     }
 
@@ -235,11 +335,23 @@ public final class AwardCompat {
     /** Message for the awards sheet's error toast. */
     public static String errorMessage(VolleyError error) {
         if (error instanceof AwardsError && error.getMessage() != null) return error.getMessage();
+        if (unidentified(error)) return UNIDENTIFIED;
         NetworkResponse response = error == null ? null : error.networkResponse;
+        // Reddit answers a missing or removed post with a JSON 404.
+        if (response != null && response.statusCode == 404) return NOT_FOUND;
         if (response != null && response.statusCode >= 400 && response.statusCode < 600) {
             return "Couldn't load awards from Reddit (HTTP " + response.statusCode + ").";
         }
         return LOAD_FAILED;
+    }
+
+    /** Whether the network stack refused UNIDENTIFIED_URL (OkHttp names its scheme; Volley the URL). */
+    static boolean unidentified(Throwable error) {
+        for (int i = 0; i < 8 && error != null; i++, error = error.getCause()) {
+            String message = error.getMessage();
+            if (message != null && message.contains(UNIDENTIFIED_SCHEME)) return true;
+        }
+        return false;
     }
 
     /** gildings guard for the listing parser: Sync calls getJSONObject when has() is true. */

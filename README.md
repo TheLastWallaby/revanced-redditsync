@@ -45,7 +45,55 @@ approved rc.2 for stable publication after the three numbered phone checks;
 only an overall result was given. See `validation-phone-tests.json` for that
 scope and the earlier partial rc.1 result.
 
-## Unreleased: load-more without `/api/morechildren` (issue #51)
+## v0.6.12-rc.1 candidate: no legacy Reddit endpoints (issues #48, #51, #55)
+
+The [v0.6.12-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.12-rc.1)
+is for phone testing. Rebuild from the prepared base and check all nine named
+patch results. Stable remains v0.6.11 until the candidate passes and stable
+publication is authorized. It contains the three changes below. None has been
+tested on a phone or against live Reddit yet.
+
+### Awards sheet and gallery fallback without `/api/info` (issue #48)
+
+Changes **Sync: handle unavailable award data** and **Sync: fix Reddit
+galleries** for [issue #48](https://github.com/TheLastWallaby/revanced-redditsync/issues/48).
+Sync's awards sheet looked items up with `GET /api/info/?id=t3_…` or `t1_…`
+(`OAuthAwardsRequest`, `y8.c`). It now reads the item's own comment page:
+
+- a post: `/comments/<post>.json?limit=1&depth=1`
+- a comment: `/comments/<post>/comment/<comment>.json?context=0&limit=1&depth=1`
+
+Both are built only from validated IDs, with Reddit's default encoding (no
+`raw_json`, as in #55). Sync's comment sheet receives only the comment ID, so the
+patch records the comment's post (`link_id`) where Sync opens that sheet
+(`AwardsTextView.H`, from `Post.U()` and `Post.j0()`; the patch checks that
+`AutoValue_Post` maps them to `_id` and `link_id`). `AwardCompat` reads the item
+from the thread listing, only if it is the requested post, or the requested
+comment under the requested post, and keeps the message table and the Open on
+Reddit row described under v0.6.3 below. Two lookups gain clearer text:
+
+| Case | Sheet shows |
+|---|---|
+| Reddit answers HTTP 404 (missing or removed post) | "Couldn't find this item's awards on Reddit." |
+| The item or a comment's post can't be identified | "Couldn't identify this item for Reddit's award lookup. Reopen it and try again." |
+
+In the second case no request is sent. The lookup returns a non-HTTP(S) URL
+(`sync-compat-unidentified:awards`), which Sync's network stack (Volley over
+OkHttp) rejects before connecting, and the sheet names the cause. This happens
+for a comment sheet restored after Android stopped Sync, for example.
+`RequestCompat.galleryUrl` does the same (`sync-compat-unidentified:gallery`)
+when no post ID can be read from a gallery link. Previously it requested
+`/api/info.json?id=t3_` or the unrecognized link itself; Sync now shows its own
+gallery load error without contacting Reddit.
+
+`AwardCompatTest` requests post and comment awards in listing form from a
+loopback server with a test-only token, and covers a JSON 404, an unrelated post
+or comment, a removed comment, malformed JSON, HTTP 401/403/429/500/503 and the
+unidentified case. No request reaches `/api/info`. `GalleryCompatTest` checks the
+gallery fallback. The two new hooks were also applied to the checksum-verified
+prepared base and register-type checked; that check is not part of CI.
+
+### Load-more without `/api/morechildren` (issue #51)
 
 Changes **Sync: load more comments in batches** for
 [issue #51](https://github.com/TheLastWallaby/revanced-redditsync/issues/51).
@@ -62,9 +110,8 @@ privacy are unchanged. A 100-ID row still loads 33 comments per tap.
 send no `/api/morechildren` request (the loopback endpoint would answer HTTP 200)
 and make 0, 19, 32 and 32 extra requests under the per-tap budget (0, 19, 99 and
 99 without it). The batch scenarios still run with the switch turned on.
-Not yet tested on a phone; this is not in a published release.
 
-## Unreleased: Reddit's default text encoding on every request (issue #55)
+### Reddit's default text encoding on every request (issue #55)
 
 Changes **Sync: load more comments in batches** and **Sync: fix Reddit galleries**
 for [issue #55](https://github.com/TheLastWallaby/revanced-redditsync/issues/55).
@@ -89,8 +136,7 @@ checks escaped signed source, preview and MP4 URLs (also after a metadata refres
 come out byte-identical and a caption containing `&` renders as typed. By the
 base's code, Sync's own decoding (it decodes `&amp;` before `&lt;`) turns a
 literal `&lt;3` into `<3` on its own route too; the fix makes load-more match
-the thread view rather than change it. Not yet tested on a phone; this is not in
-a published release.
+the thread view rather than change it.
 
 ## v0.6.10 Reddit link normalization (issue #5)
 
@@ -468,7 +514,8 @@ field was missing or had changed shape.
   `redditmedia.com`, `reddit.com`). Sync's own icon-size choice is unchanged.
 - **Awards sheet** (post menu → Awards, or tapping a comment's awards). Its
   `/api/info` lookup threw on any missing field and reported "Could not load
-  gallery". It now separates the cases:
+  gallery". It now separates the cases (v0.6.12-rc.1 replaces the `/api/info`
+  lookup itself; see above):
 
   | Reddit's response | Sheet shows |
   |---|---|
@@ -590,6 +637,7 @@ must also show success for every selected patch.
 
 ## Downloads
 
+- [v0.6.12-rc.1 phone-test candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.12-rc.1)
 - [Stable v0.6.11 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11)
 - [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.11/patches.rvp)
 - [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.11/sync-gallery-comments-compat-v0.6.11-source.zip)
@@ -630,20 +678,23 @@ route is the CLI; Manager import and patching still need device verification.
   sending credentials, as described above.
 - **Sync: fix Reddit galleries** loads native Reddit galleries through the
   comment-page endpoint and adapts the post listing for Sync's existing parser,
-  leaving unavailable items as placeholders while the rest stay usable.
+  leaving unavailable items as placeholders while the rest stay usable. In
+  v0.6.12-rc.1 a gallery link without a post ID fails without any request
+  instead of using `/api/info` (issue #48).
 - **Sync: load more comments in batches** uses normal comment routes, with at
   most 32 additional requests per tap (four at a time), Reddit rate-limit and
   backoff handling, a 20-second deadline and cancellation, sharing Sync's own
   rate-limit helper. It reuses comments already returned and preserves failed and
-  untouched IDs, parent relationships and nested retries. On main (unreleased),
-  it no longer tries Reddit's `/api/morechildren` endpoint first, and no
+  untouched IDs, parent relationships and nested retries. In v0.6.12-rc.1 it
+  no longer tries Reddit's `/api/morechildren` endpoint first (issue #51), and no
   comment or gallery request adds `raw_json` (issue #55).
 - **Sync: improve inline comment media** draws comment pictures, Reddit/Giphy
   GIFs and direct Imgur pictures inline at their real aspect ratio within the
   reply width, as described above.
 - **Sync: handle unavailable award data** keeps listings usable when
   award fields are missing and gives the awards sheet accurate messages and an
-  Open on Reddit row, as described above.
+  Open on Reddit row, as described above. In v0.6.12-rc.1 the sheet reads the
+  item's comment page instead of `/api/info` (issue #48).
 - **Sync: show comment video previews** opens Reddit comment video
   links in Sync's video viewer and draws them as a still frame with a play
   button, as described above.

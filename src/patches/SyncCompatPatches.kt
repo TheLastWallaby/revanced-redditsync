@@ -939,13 +939,15 @@ val showSyncCommentVideoPreviews = bytecodePatch(
 }
 
 private const val AWARD = "Lo8/a;"
+private const val POST = "Lxa/d;"
+private const val AWARDS_VIEW = "Lcom/laurencedawson/reddit_sync/ui/views/text/spannable/children/image_components/awards/AwardsTextView;"
 private const val SELECTION_ITEM = "Lcom/laurencedawson/reddit_sync/ui/fragment_dialogs/bottom/material_dialogs/base/AbstractSelectionDialogBottomSheet\$h;"
 private const val SHEET_DISMISS = "Lcom/google/android/material/bottomsheet/BottomSheetDialogFragment;->x3()V"
 private const val JSON_OBJECT = "Lorg/json/JSONObject;"
 
 val handleSyncAwardData = bytecodePatch(
     name = "Sync: handle unavailable award data",
-    description = "Treat missing or changed award metadata as optional: listings stay usable, the awards sheet shows an accurate message for failed, empty or unavailable award data, and offers the item on reddit.com when Reddit doesn't list its awards.",
+    description = "Treat missing or changed award metadata as optional: listings stay usable, the awards sheet loads from the item's comment page instead of /api/info, shows an accurate message for failed, empty or unavailable award data, and offers the item on reddit.com when Reddit doesn't list its awards.",
 ) {
     compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
     dependsOn(extensionPatch)
@@ -957,11 +959,12 @@ val handleSyncAwardData = bytecodePatch(
             model.fields.any { it.name == name && it.type == type && AccessFlags.PUBLIC.isSet(it.accessFlags) }
         } && model.methods.any { it.name == "<init>" && it.parameterTypes.isEmpty() }, "Award model")
 
-        // Awards sheet lookup (y8.c, GET /api/info/?id=). The original threw on any missing field
-        // and reported "Could not load gallery".
+        // Awards sheet lookup (y8.c). The original requested GET /api/info/?id=, threw on any
+        // missing field and reported "Could not load gallery".
         val request = classes.singleOrNull { it.type == "Ly8/c;" && it.sourceFile == "OAuthAwardsRequest.java" }
             ?: throw PatchException("Expected Sync OAuthAwardsRequest was not found. This patch targets build 23033 only.")
-        val parse = proxy(request).mutableClass.methods.singleOrNull {
+        val requestClass = proxy(request).mutableClass
+        val parse = requestClass.methods.singleOrNull {
             it.name == "parseNetworkResponse" && it.parameterTypes == listOf(NETWORK)
         } ?: throw PatchException("Unsupported awards request parser.")
         val original = parse.implementation!!.instructions
@@ -972,6 +975,45 @@ val handleSyncAwardData = bytecodePatch(
         layout(cache != null && original.any { it.stringValue() == "all_awardings" } &&
             original.any { it.stringValue() == "Could not load gallery" } &&
             original.any { it.opcode == Opcode.CONST_WIDE_32 }, "awards request parser")
+        // Its URL builder, b("t3_" or "t1_", id), appended both to /api/info/?id= (issue #48).
+        val lookupUrl = requestClass.methods.singleOrNull {
+            it.name == "b" && it.parameterTypes == listOf("Ljava/lang/String;", "Ljava/lang/String;") &&
+                it.returnType == "Ljava/lang/String;" && AccessFlags.STATIC.isSet(it.accessFlags)
+        } ?: throw PatchException("Unsupported awards request URL builder.")
+        layout(lookupUrl.implementation!!.instructions.any { it.stringValue() == "https://oauth.reddit.com/api/info/?id=" },
+            "awards request URL builder")
+        // The comment sheet knows only the comment ID, so record its post where Sync opens the
+        // sheet: AwardsTextView.H launches t9.g with Post.U() for a comment (kind 11).
+        val view = classes.singleOrNull { it.type == AWARDS_VIEW && it.sourceFile == "AwardsTextView.java" }
+            ?: throw PatchException("Expected Sync AwardsTextView was not found. This patch targets build 23033 only.")
+        val viewClass = proxy(view).mutableClass
+        val opener = viewClass.methods.singleOrNull {
+            it.name == "H" && it.parameterTypes == listOf("Landroid/view/View;") && it.returnType == "V"
+        } ?: throw PatchException("Unsupported awards sheet opener.")
+        val openCode = opener.implementation!!.instructions
+        val commentSheet = openCode.singleIndex("comment awards sheet launch") {
+            openCode[it].opcode == Opcode.CONST_CLASS && (openCode[it] as ReferenceInstruction).reference.toString() == "Lt9/g;"
+        }
+        val launch = openCode.drop(commentSheet).take(12).mapNotNull { it.methodRef()?.toString() }
+        layout(viewClass.fields.any { it.name == "E" && it.type == POST } && opener.implementation!!.registerCount >= 4 &&
+            commentSheet > 0 && openCode[commentSheet - 1].opcode == Opcode.IF_NE &&
+            openCode.none { it is BuilderOffsetInstruction && it.target.location.index == commentSheet } &&
+            "$POST->U()Ljava/lang/String;" in launch &&
+            "Ls9/g;->g(Ljava/lang/Class;Landroidx/fragment/app/FragmentManager;Ljava/lang/String;)V" in launch &&
+            openCode.none { it.methodRef()?.definingClass == AWARDS }, "awards sheet opener")
+        // Post.U() is the item's _id and Post.j0() its link_id (AutoValue_Post's column mapping).
+        val post = classes.singleOrNull { it.type == POST && it.sourceFile == "Post.java" }
+            ?: throw PatchException("Expected Sync Post model was not found. This patch targets build 23033 only.")
+        val columns = classes.singleOrNull { it.type == "Lxa/c;" && it.sourceFile == "AutoValue_Post.java" }?.methods?.singleOrNull {
+            it.name == "c1" && it.parameterTypes.isEmpty() && it.returnType == "Landroid/content/ContentValues;"
+        }?.implementation?.instructions?.toList() ?: emptyList()
+        fun column(getter: String): String? = columns.indexOfFirst {
+            it.methodRef()?.let { call -> call.name == getter && call.parameterTypes.isEmpty() } == true
+        }.takeIf { it >= 0 }?.let { index -> columns.drop(index).take(4).firstNotNullOfOrNull { it.stringValue() } }
+        layout(listOf("U", "j0").all { name ->
+            post.methods.any { it.name == name && it.parameterTypes.isEmpty() && it.returnType == "Ljava/lang/String;" }
+        } && column("U") == "_id" && column("j0") == "link_id", "Post model")
+
         parse.resetBody(5, """
             invoke-virtual {p0}, Lcom/android/volley/Request;->getUrl()Ljava/lang/String;
             move-result-object v0
@@ -990,6 +1032,20 @@ val handleSyncAwardData = bytecodePatch(
             invoke-static {v0, p1}, Lcom/android/volley/Response;->success(Ljava/lang/Object;Lcom/android/volley/Cache${'$'}Entry;)Lcom/android/volley/Response;
             move-result-object p1
             return-object p1
+        """.trimIndent())
+        lookupUrl.resetBody(2, """
+            invoke-static {p0, p1}, $AWARDS->awardsUrl(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+            move-result-object p0
+            return-object p0
+        """.trimIndent())
+        // E is non-null here (H returned earlier otherwise); v0 and v1 are rewritten right after.
+        opener.addInstructions(commentSheet, """
+            iget-object v0, p0, $AWARDS_VIEW->E:$POST
+            invoke-virtual {v0}, $POST->U()Ljava/lang/String;
+            move-result-object v1
+            invoke-virtual {v0}, $POST->j0()Ljava/lang/String;
+            move-result-object v0
+            invoke-static {v1, v0}, $AWARDS->rememberComment(Ljava/lang/String;Ljava/lang/String;)V
         """.trimIndent())
 
         // Post and comment awards sheets: accurate error text, and "Open on Reddit" rows.

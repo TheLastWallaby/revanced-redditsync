@@ -20,6 +20,12 @@ import org.json.JSONObject;
 public final class RequestCompat {
     private static final Pattern POST_PATH = Pattern.compile(
             "(?:/comments/|/gallery/|redd\\.it/)([a-z0-9]+)", Pattern.CASE_INSENSITIVE);
+    /**
+     * Gallery request URL when no post ID can be read from Sync's input. It is not an
+     * HTTP(S) URL: Sync's network stack (Volley over OkHttp) rejects it before connecting
+     * and delivers a VolleyError naming this scheme, so Sync shows its gallery load error.
+     */
+    static final String UNIDENTIFIED_GALLERY_URL = AwardCompat.UNIDENTIFIED_SCHEME + ":gallery";
 
     private RequestCompat() {}
 
@@ -33,8 +39,9 @@ public final class RequestCompat {
                 if (bare.matches("[a-zA-Z0-9]+")) id = bare;
             }
         }
-        // Do not throw on the UI thread for an unexpected URL.
-        if (id == null) return input == null ? "https://oauth.reddit.com/api/info.json?id=t3_" : input;
+        // Do not throw on the UI thread for an unexpected URL, and never request /api/info or
+        // send the request to the unrecognized input (issue #48): fail it explicitly instead.
+        if (id == null) return UNIDENTIFIED_GALLERY_URL;
         // No raw_json, like Sync's own requests (issue #55). Media URLs arrive HTML-escaped and
         // GalleryCompat.mediaUrl decodes only their ampersands; captions stay escaped because
         // Sync's caption renderer (RedditHelper d7.f.r) unescapes them with WebsafeUtils.
