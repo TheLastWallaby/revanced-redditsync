@@ -92,6 +92,7 @@ public final class GalleryCompatTest {
             invalidResponses();
             urls();
             encoding();
+            fallback();
             refresh();
         } finally { GalleryCompat.connections = original; }
         System.out.println("GalleryCompatTest: " + checks + " checks passed");
@@ -294,6 +295,26 @@ public final class GalleryCompatTest {
         // A listing cached by earlier versions (raw_json responses) still opens unchanged.
         o8.b legacy = success(parse(thread(post)));
         check(sameBytes(SIGNED, legacy.b[0]) && sameBytes(animated, legacy.b[1]), "earlier raw cache entries still load");
+    }
+
+    /** Issue #48: without a post ID the gallery request fails explicitly instead of using /api/info. */
+    static void fallback() throws Exception {
+        for (String input : new String[] {null, "", "not a url", "https://example.invalid/not-a-gallery",
+                "https://www.reddit.com/r/pics/s/AbCdEf12", "https://www.reddit.com/r/pics/", "t3_", "?is_gallery=true"}) {
+            equal(RequestCompat.UNIDENTIFIED_GALLERY_URL, RequestCompat.galleryUrl(input), "unidentified gallery for " + input);
+        }
+        java.net.URI unidentified = new java.net.URI(RequestCompat.UNIDENTIFIED_GALLERY_URL);
+        check(!"http".equalsIgnoreCase(unidentified.getScheme()) && !"https".equalsIgnoreCase(unidentified.getScheme())
+                && !RequestCompat.UNIDENTIFIED_GALLERY_URL.contains("/api/info"), "fallback is not an HTTP(S) URL and never /api/info");
+        // Sync's Volley-over-OkHttp stack refuses it before connecting; the error names the scheme.
+        check(AwardCompat.unidentified(new com.android.volley.VolleyError(new IllegalArgumentException(
+                "Expected URL scheme 'http' or 'https' but was '" + unidentified.getScheme() + "'"))), "refusal identifies the fallback");
+        GalleryCompat.Result result = GalleryCompat.parseGallery(response(thread(gallery())),
+                new GalleryRequest(RequestCompat.UNIDENTIFIED_GALLERY_URL));
+        equal(GalleryCompat.UNREADABLE, result.error == null ? null : result.error.getMessage(), "no gallery is read for the fallback");
+        for (String input : new String[] {"abc123", "t3_abc123", "https://www.reddit.com/gallery/abc123", "https://redd.it/abc123",
+                "https://www.reddit.com/r/pics/comments/abc123/title/"})
+            equal(URL, RequestCompat.galleryUrl(input), "post ID still read from " + input);
     }
 
     static void refresh() throws Exception {

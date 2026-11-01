@@ -5,20 +5,23 @@ import com.android.volley.NoConnectionError;
 import com.android.volley.VolleyError;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * Offline checks for award metadata handling (issue #11). The listing loop, sheet parser and
- * detail sheet below are ports of Sync 23033's own code (c9.c.a, y8.c, t9.g$a/t9.i$a, s9.c),
- * so the tests show both the original failure and that the patched input no longer fails.
+ * Award metadata handling (issues #11 and #48). The listing loop, sheet parser and detail
+ * sheet below are ports of Sync 23033's own code (c9.c.a, y8.c, t9.g$a/t9.i$a, s9.c), so the
+ * tests show both the original failure and that the patched input no longer fails. The sheet
+ * now reads the item's comment-page listing instead of /api/info; lookup() requests it from
+ * a loopback server with a test-only token.
  */
 public final class AwardCompatTest {
     private static int checks;
-    private static final String POST_URL = "https://oauth.reddit.com/api/info/?id=t3_abc123";
-    private static final String COMMENT_URL = "https://oauth.reddit.com/api/info/?id=t1_def456";
+    private static final String POST_URL = "https://oauth.reddit.com/comments/abc123.json?limit=1&depth=1";
+    private static final String COMMENT_URL = "https://oauth.reddit.com/comments/abc123/comment/def456.json?context=0&limit=1&depth=1";
     private static final String POST_LINK = "/r/pics/comments/abc123/a_title/";
     private static final String COMMENT_LINK = "/r/pics/comments/abc123/a_title/def456/";
 
@@ -31,14 +34,25 @@ public final class AwardCompatTest {
         return new NetworkResponse(body.getBytes(StandardCharsets.UTF_8));
     }
 
-    /** /api/info response with one item; awardings is raw JSON or null to omit the field. */
+    /**
+     * The item's comment-page response: [post listing, comment listing]. A post is the post
+     * listing's child; a comment (with context=0) is the comment listing's child under post
+     * abc123. awardings is raw JSON or null to omit the field.
+     */
     private static String info(String name, String permalink, String awardings) {
-        JSONObject data = new JSONObject().put("name", name);
+        JSONObject data = new JSONObject().put("name", name).put("id", name.substring(3));
         if (permalink != null) data.put("permalink", permalink);
         String item = data.toString();
         if (awardings != null) item = item.substring(0, item.length() - 1) + ",\"all_awardings\":" + awardings + "}";
-        return "{\"kind\":\"Listing\",\"data\":{\"children\":[{\"kind\":\"" + name.substring(0, 2)
-                + "\",\"data\":" + item + "}]}}";
+        String thing = "{\"kind\":\"" + name.substring(0, 2).toLowerCase() + "\",\"data\":" + item + "}";
+        boolean post = name.toLowerCase().startsWith("t3_");
+        String parent = "{\"kind\":\"t3\",\"data\":{\"name\":\"t3_abc123\",\"id\":\"abc123\",\"permalink\":\"" + POST_LINK + "\"}}";
+        return thread(post ? thing : parent, post ? "" : thing);
+    }
+
+    private static String thread(String posts, String comments) {
+        return "[{\"kind\":\"Listing\",\"data\":{\"children\":[" + posts + "]}},"
+                + "{\"kind\":\"Listing\",\"data\":{\"children\":[" + comments + "]}}]";
     }
 
     private static String award(String name, int count, String extra) {
@@ -70,11 +84,14 @@ public final class AwardCompatTest {
     }
 
     public static void main(String[] args) throws Exception {
+        AwardCompat.rememberComment("def456", "abc123");
         sheetLookup();
         failures();
         fields();
         permalinks();
         listing();
+        lookupUrls();
+        lookup();
         System.out.println("AwardCompatTest: " + checks + " checks passed");
     }
 
@@ -152,25 +169,39 @@ public final class AwardCompatTest {
         // Lookup failures report accurate errors instead of the gallery message.
         error(AwardCompat.parseAwards(null, POST_URL), AwardCompat.LOAD_FAILED, "no response");
         error(AwardCompat.parseAwards(new NetworkResponse((byte[]) null), POST_URL), AwardCompat.LOAD_FAILED, "no body");
-        for (String bad : new String[] {"", "<html>blocked</html>", "[]", "{", "{\"data\":5}", "{\"data\":{\"children\":{}}}",
-                "{\"error\":403,\"message\":\"Forbidden\"}"}) {
+        for (String bad : new String[] {"", "<html>blocked</html>", "[]", "{", "[", "{\"data\":5}", "[{\"data\":5},{}]",
+                "{\"error\":403,\"message\":\"Forbidden\"}", "{\"message\":\"Not Found\",\"error\":404}",
+                info("t3_abc123", POST_LINK, "[]").replace("\"Listing\"", "\"Other\""),
+                "[" + new JSONObject().put("kind", "Listing").put("data", new JSONObject().put("children", new JSONArray())) + "]",
+                thread("", "") + " trailing", "{\"kind\":\"Listing\",\"data\":{\"children\":[]}}"}) {
             error(parse(bad, POST_URL), AwardCompat.UNREADABLE, "unreadable " + bad);
         }
-        error(parse("{\"data\":{\"children\":[]}}", POST_URL), AwardCompat.NOT_FOUND, "deleted or missing item");
-        error(parse("{\"data\":{\"children\":[5,{\"data\":7}]}}", POST_URL), AwardCompat.NOT_FOUND, "non-object children");
+        error(parse(thread("", ""), POST_URL), AwardCompat.NOT_FOUND, "deleted or missing post");
+        error(parse(thread("5,{\"kind\":\"t3\",\"data\":7}", ""), POST_URL), AwardCompat.NOT_FOUND, "non-object children");
+        String parentOnly = info("t3_abc123", POST_LINK, "[" + award("Post", 1, "") + "]");
+        error(parse(parentOnly, COMMENT_URL), AwardCompat.NOT_FOUND, "missing comment: the post's awards are never shown");
+        error(parse(info("t1_zzz999", "/r/pics/comments/abc123/a_title/zzz999/", "[" + award("Other", 1, "") + "]"), COMMENT_URL),
+                AwardCompat.NOT_FOUND, "another comment");
+        error(parse(info("t1_def456", COMMENT_LINK, "[" + award("Gold", 1, "") + "]").replace("t3_abc123", "t3_zzz999"), COMMENT_URL),
+                AwardCompat.NOT_FOUND, "the comment under another post");
+        error(parse(thread("", "{\"kind\":\"t1\",\"data\":{\"name\":\"t1_def456\"}}"), COMMENT_URL),
+                AwardCompat.NOT_FOUND, "comment without its post listing");
+        error(parse(info("t1_abc123", COMMENT_LINK, "[" + award("Kind", 1, "") + "]").replace("\"kind\":\"t1\"", "\"kind\":\"t3\""),
+                "https://oauth.reddit.com/comments/abc123/comment/abc123.json?context=0&limit=1&depth=1"),
+                AwardCompat.NOT_FOUND, "kind must match the requested item");
         // Another item's awards are never shown, even if Reddit returns one.
         error(parse(info("t3_zzz999", "/r/pics/comments/zzz999/x/", "[" + award("Other", 1, "") + "]"), POST_URL),
                 AwardCompat.NOT_FOUND, "mismatched item");
         check(parse(info("T3_ABC123", POST_LINK, "[" + award("Case", 1, "") + "]"), POST_URL).awards.length == 1,
                 "fullname match ignores case");
-        // Without a parseable requested ID the first item is used, but no handoff is offered.
-        check(parse(info("t3_abc123", POST_LINK, "[" + award("First", 1, "") + "]"), "https://oauth.reddit.com/api/info/").awards.length == 1,
-                "unknown request ID keeps Sync's first-item behavior");
-        error(parse(info("t3_abc123", POST_LINK, null), null), AwardCompat.UNAVAILABLE, "no handoff without a verified ID");
+        // Without a verified lookup URL no item is chosen, so nothing unverified is shown or opened.
+        for (String url : new String[] {null, "https://oauth.reddit.com/api/info/?id=t3_abc123", AwardCompat.UNIDENTIFIED_URL,
+                "http://oauth.reddit.com/comments/abc123.json", "https://example.com/comments/abc123.json"})
+            error(parse(info("t3_abc123", POST_LINK, "[" + award("First", 1, "") + "]"), url), AwardCompat.NOT_FOUND, "unverified URL " + url);
         // Deeply nested input fails safely.
         StringBuilder deep = new StringBuilder();
         for (int i = 0; i < 20000; i++) deep.append('[');
-        AwardCompat.Result nested = parse("{\"data\":{\"children\":[{\"data\":{\"name\":\"t3_abc123\",\"all_awardings\":" + deep + "}}]}}", POST_URL);
+        AwardCompat.Result nested = parse(thread("{\"kind\":\"t3\",\"data\":{\"name\":\"t3_abc123\",\"all_awardings\":" + deep + "}}", ""), POST_URL);
         check(nested.awards == null || nested.awards.length <= 1, "deeply nested input handled");
 
         // Network/HTTP failures from Volley.
@@ -180,15 +211,182 @@ public final class AwardCompatTest {
                 "foreign error messages are not shown");
         NetworkResponse forbidden = new NetworkResponse(403, new byte[0], false, 0, Collections.emptyList());
         check("Couldn't load awards from Reddit (HTTP 403).".equals(AwardCompat.errorMessage(new VolleyError(forbidden))), "HTTP status");
+        NetworkResponse missing = new NetworkResponse(404, "{\"message\":\"Not Found\",\"error\":404}".getBytes(StandardCharsets.UTF_8),
+                false, 0, Collections.emptyList());
+        check(AwardCompat.NOT_FOUND.equals(AwardCompat.errorMessage(new VolleyError(missing))), "JSON 404 is a missing item");
+        // UNIDENTIFIED_URL is refused by Sync's network stack before any connection: Volley over
+        // OkHttp (Sync 23033) reports the scheme; stock Volley reports "Bad URL <url>".
+        check(AwardCompat.UNIDENTIFIED.equals(AwardCompat.errorMessage(new VolleyError(new IllegalArgumentException(
+                "Expected URL scheme 'http' or 'https' but was 'sync-compat-unidentified'")))), "OkHttp refusal named");
+        check(AwardCompat.UNIDENTIFIED.equals(AwardCompat.errorMessage(new VolleyError(new RuntimeException(
+                "Bad URL " + AwardCompat.UNIDENTIFIED_URL)))), "Volley refusal named");
+        check(AwardCompat.LOAD_FAILED.equals(AwardCompat.errorMessage(new VolleyError(new IllegalArgumentException(
+                "Expected URL scheme 'http' or 'https' but was 'ftp'")))), "other refusals stay generic");
         NetworkResponse odd = new NetworkResponse(200, new byte[0], false, 0, Collections.emptyList());
         check(AwardCompat.LOAD_FAILED.equals(AwardCompat.errorMessage(new VolleyError(odd))), "non-error status");
 
-        // Request ID parsing.
-        check("t3_abc123".equals(AwardCompat.requestedFullname(POST_URL)), "post ID");
-        check("t1_def456".equals(AwardCompat.requestedFullname("https://oauth.reddit.com/api/info/?x=1&id=T1_DEF456#f")), "comment ID");
-        for (String url : new String[] {null, "https://oauth.reddit.com/api/info/", "https://x/?id=t5_abc", "https://x/?id=t3_",
-                "https://x/?id=t3_abc,t3_def", "https://x/?id=t3_" + "a".repeat(17), "https://x/?ids=t3_abc"}) {
-            check(AwardCompat.requestedFullname(url) == null, "rejected request ID " + url);
+        // Request ID parsing, from lookup URLs only.
+        check("t3_abc123".equals(AwardCompat.requestedFullname(POST_URL)) && "abc123".equals(AwardCompat.requestedPost(POST_URL)), "post ID");
+        check("t1_def456".equals(AwardCompat.requestedFullname(COMMENT_URL)) && "abc123".equals(AwardCompat.requestedPost(COMMENT_URL)),
+                "comment and post IDs");
+        for (String url : new String[] {null, "https://oauth.reddit.com/api/info/?id=t3_abc123", "https://oauth.reddit.com/api/info/",
+                "https://oauth.reddit.com/comments/abc123", "https://oauth.reddit.com/comments/ABC123.json",
+                "https://oauth.reddit.com/comments/abc123/comment/.json", "https://oauth.reddit.com/comments/abc123/x/def456.json",
+                "https://oauth.reddit.com/comments/" + "a".repeat(17) + ".json", "https://oauth.reddit.com/r/x/comments/abc123.json",
+                "https://www.reddit.com/comments/abc123.json", "http://oauth.reddit.com/comments/abc123.json",
+                "https://oauth.reddit.com:8443/comments/abc123.json", AwardCompat.UNIDENTIFIED_URL, "not a url"}) {
+            check(AwardCompat.requestedFullname(url) == null && AwardCompat.requestedPost(url) == null, "rejected lookup URL " + url);
+        }
+    }
+
+    /** Issue #48: y8.c.b's replacement builds comment-page URLs from validated IDs only. */
+    private static void lookupUrls() {
+        check(POST_URL.equals(AwardCompat.awardsUrl("t3_", "abc123")), "post lookup URL");
+        check(POST_URL.equals(AwardCompat.awardsUrl("t3_", "ABC123")), "IDs are lowercased");
+        check(COMMENT_URL.equals(AwardCompat.awardsUrl("t1_", "def456")), "comment lookup URL uses the recorded post");
+        check(AwardCompat.UNIDENTIFIED_URL.equals(AwardCompat.awardsUrl("t1_", "unseen1")), "comment without a recorded post");
+        for (String[] bad : new String[][] {{null, "abc123"}, {"t3_", null}, {"t5_", "abc123"}, {"t3_", ""}, {"t3_", "abc/123"},
+                {"t3_", "abc123?x=1"}, {"t3_", "a".repeat(17)}, {"", "t3_abc123,t3_def456"}, {"t3_", "../api/info"}}) {
+            check(AwardCompat.UNIDENTIFIED_URL.equals(AwardCompat.awardsUrl(bad[0], bad[1])), "unidentified " + Arrays.toString(bad));
+        }
+        // Sync records Post.U() and Post.j0(); prefixes, case and invalid values are handled.
+        AwardCompat.rememberComment("T1_GHI789", "t3_JKL012");
+        check("https://oauth.reddit.com/comments/jkl012/comment/ghi789.json?context=0&limit=1&depth=1"
+                .equals(AwardCompat.awardsUrl("t1_", "ghi789")), "prefixed and upper-case IDs recorded");
+        for (String[] bad : new String[][] {{"bad1", null}, {null, "abc123"}, {"bad2", "a/b"}, {"bad3", "t5_abc"}, {"bad4", ""}}) {
+            AwardCompat.rememberComment(bad[0], bad[1]);
+            check(bad[0] == null || AwardCompat.UNIDENTIFIED_URL.equals(AwardCompat.awardsUrl("t1_", bad[0])), "invalid post ignored for " + bad[0]);
+        }
+        AwardCompat.rememberComment("def456", "abc123");
+        // Bounded: the least recently used comments are forgotten first.
+        for (int i = 0; i < AwardCompat.MAX_PARENTS + 5; i++) AwardCompat.rememberComment("c" + i, "p" + i);
+        check(AwardCompat.UNIDENTIFIED_URL.equals(AwardCompat.awardsUrl("t1_", "c0")), "oldest comment forgotten");
+        check(AwardCompat.awardsUrl("t1_", "c" + (AwardCompat.MAX_PARENTS + 4)).contains("/comments/p" + (AwardCompat.MAX_PARENTS + 4) + "/comment/"),
+                "newest comment kept");
+        AwardCompat.rememberComment("def456", "abc123");
+        check(COMMENT_URL.equals(AwardCompat.awardsUrl("t1_", "def456")), "re-recorded comment");
+        // The sentinel is not an HTTP(S) URL, so no network stack can send it anywhere.
+        check(!AwardCompat.UNIDENTIFIED_URL.startsWith("http") && AwardCompat.UNIDENTIFIED_URL.startsWith(AwardCompat.UNIDENTIFIED_SCHEME + ":"),
+                "unidentified lookup is not an HTTP URL");
+        for (String url : new String[] {POST_URL, COMMENT_URL, AwardCompat.UNIDENTIFIED_URL})
+            check(!url.contains("/api/info") && !url.contains("raw_json"), "no /api/info or raw_json in " + url);
+    }
+
+    /** Volley-style result of one lookup: the parsed sheet, or the sheet's error text. */
+    private static final class Lookup {
+        AwardCompat.Result result;
+        String error;
+    }
+
+    /**
+     * Requests a lookup URL like Sync 23033's network stack: HTTPS lookups go to the loopback
+     * server with a test-only token, non-2xx statuses become VolleyErrors with the response, and
+     * a non-HTTP(S) URL is refused before connecting, as OkHttp's Request.Builder.url does.
+     */
+    private static Lookup fetch(String url, int port) throws Exception {
+        Lookup out = new Lookup();
+        java.net.URI uri = new java.net.URI(url);
+        VolleyError error = null;
+        if (!"https".equals(uri.getScheme())) {
+            error = new VolleyError(new IllegalArgumentException("Expected URL scheme 'http' or 'https' but was '" + uri.getScheme() + "'"));
+        } else {
+            java.net.HttpURLConnection connection = (java.net.HttpURLConnection) new java.net.URL(
+                    "http://127.0.0.1:" + port + uri.getRawPath() + "?" + uri.getRawQuery()).openConnection();
+            connection.setRequestProperty("Authorization", "Bearer TEST_ONLY");
+            int status = connection.getResponseCode();
+            java.io.InputStream stream = status < 400 ? connection.getInputStream() : connection.getErrorStream();
+            byte[] body = stream == null ? new byte[0] : stream.readAllBytes();
+            connection.disconnect();
+            NetworkResponse response = new NetworkResponse(status, body, false, 0, Collections.emptyList());
+            if (status >= 200 && status < 300) out.result = AwardCompat.parseAwards(response, url);
+            else error = new VolleyError(response);
+        }
+        if (out.result != null && out.result.error != null) error = out.result.error;
+        out.error = error == null ? null : AwardCompat.errorMessage(error);
+        return out;
+    }
+
+    /** Issue #48: post and comment awards in listing form over loopback HTTP; no /api/info. */
+    private static void lookup() throws Exception {
+        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        java.util.Map<String, String> bodies = new java.util.concurrent.ConcurrentHashMap<>();
+        java.util.Map<String, Integer> statuses = new java.util.concurrent.ConcurrentHashMap<>();
+        List<String> requests = Collections.synchronizedList(new ArrayList<>());
+        java.util.concurrent.atomic.AtomicInteger info = new java.util.concurrent.atomic.AtomicInteger();
+        server.createContext("/", exchange -> {
+            try {
+                String path = exchange.getRequestURI().getRawPath();
+                requests.add(path + "?" + exchange.getRequestURI().getRawQuery());
+                if (path.startsWith("/api/info")) info.incrementAndGet();
+                check("Bearer TEST_ONLY".equals(exchange.getRequestHeaders().getFirst("Authorization")), "test-only token sent");
+                byte[] body = bodies.getOrDefault(path, "{\"message\":\"Not Found\",\"error\":404}").getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
+                exchange.sendResponseHeaders(statuses.getOrDefault(path, bodies.containsKey(path) ? 200 : 404), body.length);
+                exchange.getResponseBody().write(body);
+            } finally { exchange.close(); }
+        });
+        server.start();
+        int port = server.getAddress().getPort();
+        try {
+            // Reddit's default (no raw_json) encoding escapes & in the icon URL; Sync unescapes it.
+            String icon = ",\"icon_url\":\"https://i.redd.it/award_images/t5_22cerq/abc.png?width=64&amp;s=f00\"";
+            bodies.put("/comments/abc123.json", info("t3_abc123", POST_LINK, "[" + award("Helpful", 2, icon) + "]"));
+            Lookup post = fetch(AwardCompat.awardsUrl("t3_", "abc123"), port);
+            check(post.error == null && post.result.awards.length == 1 && post.result.awards[0].a == 2
+                    && "Helpful".equals(post.result.awards[0].b), "post awards in listing form");
+            check("https://i.redd.it/award_images/t5_22cerq/abc.png?width=64&s=f00".equals(post.result.awards[0].q), "escaped icon URL decoded");
+            check(requests.get(requests.size() - 1).equals("/comments/abc123.json?limit=1&depth=1"), "post lookup path and query");
+
+            bodies.put("/comments/abc123/comment/def456.json", info("t1_def456", COMMENT_LINK, "[" + award("Gold", 1, "") + "]"));
+            AwardCompat.rememberComment("def456", "abc123");
+            Lookup comment = fetch(AwardCompat.awardsUrl("t1_", "def456"), port);
+            check(comment.error == null && "Gold".equals(comment.result.awards[0].b), "comment awards in listing form");
+            check(requests.get(requests.size() - 1).equals("/comments/abc123/comment/def456.json?context=0&limit=1&depth=1"),
+                    "comment lookup path and query");
+
+            // No awards listed or none provided: the Open on Reddit row, checked against the lookup.
+            bodies.put("/comments/abc123/comment/def456.json", info("t1_def456", COMMENT_LINK, null));
+            comment = fetch(COMMENT_URL, port);
+            handoff(comment.result, AwardCompat.OPEN_UNAVAILABLE, "https://www.reddit.com" + COMMENT_LINK, "comment without award data");
+            bodies.put("/comments/abc123.json", info("t3_abc123", POST_LINK, "[]"));
+            handoff(fetch(POST_URL, port).result, AwardCompat.OPEN_NONE, "https://www.reddit.com" + POST_LINK, "post with no awards");
+            bodies.put("/comments/abc123/comment/def456.json", info("t1_def456", "/r/pics/comments/zzz999/a_title/def456/", null));
+            check(AwardCompat.UNAVAILABLE.equals(fetch(COMMENT_URL, port).error), "comment page under another post is never opened");
+
+            // A missing item: Reddit's JSON 404, or a post page without the comment.
+            AwardCompat.rememberComment("gone11", "gone22");
+            check(AwardCompat.NOT_FOUND.equals(fetch(AwardCompat.awardsUrl("t3_", "gone22"), port).error), "missing post (JSON 404)");
+            check(AwardCompat.NOT_FOUND.equals(fetch(AwardCompat.awardsUrl("t1_", "gone11"), port).error), "missing comment (JSON 404)");
+            bodies.put("/comments/abc123/comment/def456.json", thread(
+                    "{\"kind\":\"t3\",\"data\":{\"name\":\"t3_abc123\",\"all_awardings\":[" + award("Post", 1, "") + "]}}", ""));
+            check(AwardCompat.NOT_FOUND.equals(fetch(COMMENT_URL, port).error), "removed comment: the post's awards are not shown");
+            // An unrelated item never shows its awards.
+            bodies.put("/comments/abc123.json", info("t3_zzz999", "/r/pics/comments/zzz999/x/", "[" + award("Other", 1, "") + "]"));
+            check(AwardCompat.NOT_FOUND.equals(fetch(POST_URL, port).error), "unrelated post");
+            bodies.put("/comments/abc123/comment/def456.json", info("t1_zzz999", "/r/pics/comments/abc123/a_title/zzz999/",
+                    "[" + award("Other", 1, "") + "]"));
+            check(AwardCompat.NOT_FOUND.equals(fetch(COMMENT_URL, port).error), "unrelated comment");
+            // Malformed JSON and HTTP failures.
+            for (String bad : new String[] {"{not json", "<html>blocked</html>", "", "{\"kind\":\"Listing\"}", "[{},{}]"}) {
+                bodies.put("/comments/abc123.json", bad);
+                check(AwardCompat.UNREADABLE.equals(fetch(POST_URL, port).error), "malformed response " + bad);
+            }
+            for (int status : new int[] {401, 403, 429, 500, 503}) {
+                bodies.put("/comments/abc123.json", "<html>error</html>");
+                statuses.put("/comments/abc123.json", status);
+                check(("Couldn't load awards from Reddit (HTTP " + status + ").").equals(fetch(POST_URL, port).error), "HTTP " + status);
+            }
+            statuses.clear();
+            // An unidentified item or comment post fails with no request at all.
+            int before = requests.size();
+            check(AwardCompat.UNIDENTIFIED.equals(fetch(AwardCompat.awardsUrl("t1_", "unseen2"), port).error), "unknown comment post");
+            check(AwardCompat.UNIDENTIFIED.equals(fetch(AwardCompat.awardsUrl("t3_", "not/valid"), port).error), "invalid post ID");
+            check(requests.size() == before, "unidentified lookups send no request");
+            check(info.get() == 0 && requests.stream().noneMatch(r -> r.contains("/api/info") || r.contains("raw_json")),
+                    "no request to /api/info and no raw_json across " + requests.size() + " lookups");
+        } finally {
+            server.stop(0);
         }
     }
 
@@ -354,9 +552,15 @@ public final class AwardCompatTest {
         }
     }
 
-    /** y8.c.parseNetworkResponse before the patch. */
+    /** y8.c.parseNetworkResponse before the patch, given the same item as /api/info returned it. */
     private static o8.a[] originalSheetParse(String body) {
-        JSONArray list = new JSONObject(body).getJSONObject("data").getJSONArray("children").getJSONObject(0)
+        JSONArray thread = new JSONArray(body);
+        JSONArray posts = thread.getJSONObject(0).getJSONObject("data").getJSONArray("children");
+        JSONArray comments = thread.getJSONObject(1).getJSONObject("data").getJSONArray("children");
+        JSONObject item = (comments.length() > 0 ? comments : posts).getJSONObject(0).getJSONObject("data");
+        String info = new JSONObject().put("data", new JSONObject().put("children", new JSONArray()
+                .put(new JSONObject().put("data", item)))).toString();
+        JSONArray list = new JSONObject(info).getJSONObject("data").getJSONArray("children").getJSONObject(0)
                 .getJSONObject("data").getJSONArray("all_awardings");
         o8.a[] out = new o8.a[list.length()];
         for (int i = 0; i < out.length; i++) {
