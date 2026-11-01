@@ -42,6 +42,9 @@
     const-string v1, "Was shortened"
     const-string v1, "Was comments"
     const-string v1, "Was reddit user"
+    const-string v1, "reddit.com/link/"
+    const-string v1, "Opening strange reddit video link"
+    const-string v1, "Was reddit video"
     invoke-static {p0, v4}, Ly7/a;->V(Landroid/content/Context;Ljava/lang/String;)V
     return v10
 .end method

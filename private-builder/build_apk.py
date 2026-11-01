@@ -60,6 +60,55 @@ def run(*command, env=None, sensitive=False):
     if result.returncode:
         raise SystemExit(("Signing" if sensitive else "Build step") + f" failed (exit {result.returncode})")
 
+def run_logged(*command, env=None, sensitive=False):
+    """Run like run(), echoing the combined output as it arrives and returning it."""
+    process = subprocess.Popen(list(map(str, command)), env=env, stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, text=True, errors="replace")
+    lines = []
+    for line in process.stdout:
+        print(line, end="", flush=True)
+        lines.append(line)
+    if process.wait():
+        raise SystemExit(("Signing" if sensitive else "Build step") + f" failed (exit {process.returncode})")
+    return "".join(lines)
+
+def enabled_patches(listing):
+    """Names of the patches `revanced-cli list-patches` reports as enabled by default."""
+    names, name = [], None
+    for line in listing.splitlines():
+        line = line.strip()
+        if line.startswith("Name: "):
+            name = line[len("Name: "):].strip()
+        elif line.startswith("Enabled: ") and name is not None:
+            if line[len("Enabled: "):].strip() == "true":
+                names.append(name)
+            name = None
+    if not names or len(set(names)) != len(names):
+        raise ValueError("Could not read the bundle's patch list")
+    return names
+
+PATCH_RESULT = re.compile(r'^(?:[A-Z]+: )?"(.+)" (succeeded|failed)\b', re.MULTILINE)
+
+def check_patch_results(log, expected):
+    """Require every expected patch, and only those, to report success exactly once.
+
+    ReVanced CLI 6.0.0 can save and sign an APK after a patch fails, so a zero exit
+    code or a saved APK does not show that each patch was applied.
+    """
+    results = {}
+    for name, outcome in PATCH_RESULT.findall(log):
+        if name in results:
+            raise SystemExit(f'Patch "{name}" reported more than one result')
+        results[name] = outcome
+    failed = sorted(name for name, outcome in results.items() if outcome != "succeeded")
+    missing = sorted(set(expected) - set(results))
+    unexpected = sorted(set(results) - set(expected))
+    if failed or missing or unexpected:
+        problems = [f"{label}: {', '.join(names)}" for label, names in
+                    [("failed", failed), ("no result", missing), ("not in bundle list", unexpected)] if names]
+        raise SystemExit("Patch step did not succeed for every patch (" + "; ".join(problems) + ")")
+    return sorted(results)
+
 def set_outputs(built, url, message=None):
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a") as out:
@@ -161,7 +210,12 @@ def main():
             if os.environ.get(key):
                 command += [option, os.environ[key]]
         command.append(base)
-        run(*command, env=signing_env, sensitive=True)
+        listing = subprocess.run([java, "-XX:-UsePerfData", "-jar", str(tools / "revanced-cli.jar"), "list-patches",
+                                  "-p", str(bundle_dir / "patches.rvp"), "-b"],
+                                 capture_output=True, text=True, errors="replace", check=True)
+        expected = enabled_patches(listing.stdout + listing.stderr)
+        patched = check_patch_results(run_logged(*command, env=signing_env, sensitive=True), expected)
+        print(f"All {len(patched)} patches succeeded: " + ", ".join(patched), flush=True)
         report = args.output / "verification.json"
         verifier = ROOT / "VerifyPersonalApk.java"
         if not verifier.is_file():
@@ -169,7 +223,8 @@ def main():
         run(java, "-Xmx2G", "-cp", tools / "revanced-cli.jar", verifier,
             base, apk, configuration["signer_sha256"], report)
         record = json.loads(report.read_text())
-        record.update({"public_release": tag, "source_commit": info["source_commit"], "apk_sha256": sha(apk)})
+        record.update({"public_release": tag, "source_commit": info["source_commit"], "apk_sha256": sha(apk),
+                       "patches_succeeded": patched})
         report.write_text(json.dumps(record, indent=2) + "\n")
         sums = args.output / "SHA256SUMS"
         sums.write_text(f"{sha(apk)}  {apk.name}\n{sha(report)}  {report.name}\n")

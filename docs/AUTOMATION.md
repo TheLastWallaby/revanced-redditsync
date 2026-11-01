@@ -29,8 +29,10 @@ new bundles over an APK containing earlier compatibility patches.
    identity, preserved classes and unchanged resources/manifest. The build also
    checks the configured base checksum. CLI 6.0.0 can save/sign an APK after a
    patch error; a saved file, successful process exit, green workflow or valid
-   signature alone does not establish patch success. The current verifier checks
-   the APK's structure and identity, not the success of every patch.
+   signature alone does not establish patch success. The builder stops before
+   publishing unless every patch the bundle enables reports `succeeded` exactly
+   once, and records them as `patches_succeeded` in `verification.json`. The APK
+   verifier itself checks the APK's structure and identity, not patch success.
 7. Install that APK as an update and test the changed feature. Keep the previous
    working APK for recovery. Reporting a fix as device-tested still needs an
    actual phone test.
@@ -141,6 +143,14 @@ failed or unverified update.
   applies the production patch and executes its resulting string-method DEX
   instructions with JVM APIs. Its optional APK argument runs the same fenced-code
   and spoiler checks against a local build-23033 base, without signing an APK.
+- ReVanced CLI applies the bundle's patches sorted by name, so renaming a patch
+  can change the order. Patches that edit the same Sync method must give the
+  same result in any order. `PatchInteractionTest` checks the shared LinkHelper
+  entry on fixtures in CI. Given a local prepared base
+  (`local-inspect/inputs/base.apk` from `scripts/inspect_base.py`), it applies
+  every named patch in name order and reverse order. Each must succeed both ways,
+  and every changed class must be identical. Run that before merging a patch
+  that edits a method another patch already changes.
 - Public workflow permissions are read-only except release publishing and feed
   updates. No private signing secrets are passed to public builds.
 - If main requires pull requests for all changes, let the feed updater submit a

@@ -26,7 +26,10 @@ also follow the public repository's root AGENTS.md and run its required checks.
 - Inspect the patch-step logs and require every selected named patch to report
   success. ReVanced CLI 6.0.0 can save/sign an APK after a patch error; a zero
   exit code, saved APK, green workflow or valid signature alone is insufficient.
-  The current structural/signing verifier does not prove each patch succeeded.
+  build_apk.py stops before publishing unless every patch the bundle enables
+  reports success, and records them as patches_succeeded in verification.json;
+  confirm that list as well. The structural/signing verifier itself does not
+  prove each patch succeeded. Never weaken or bypass the patch-result check.
 - Check verification.json for the original signing identity, preserved classes
   and unchanged resources/manifest. Do not weaken verification to pass a failed
   build; intentional resource changes require a narrow reviewed allowance.

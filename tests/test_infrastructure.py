@@ -268,5 +268,39 @@ class InfrastructureTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "checksum"):
                 personal.validate_bundle(root, "v1.0.0")
 
+    # Shaped like ReVanced CLI 6.0.0 list-patches and patch output.
+    LISTING = ("INFO: Index: 0\nName: Sync: fix Reddit galleries\nDescription: Load galleries.\nEnabled: true\n"
+               "Compatible packages:\n\tPackage name: com.laurencedawson.reddit_sync\n\n"
+               "Index: 1\nName: Sync: normalize Reddit links\nDescription: Links.\nEnabled: true\n\n"
+               "Index: 2\nName: Optional extra\nDescription: Off by default.\nEnabled: false\n")
+
+    def test_personal_builder_reads_enabled_patches_from_cli_listing(self):
+        self.assertEqual(["Sync: fix Reddit galleries", "Sync: normalize Reddit links"],
+                         personal.enabled_patches(self.LISTING))
+        for broken in ["", "INFO: Loading patches\n", self.LISTING + "Name: Sync: fix Reddit galleries\nEnabled: true\n"]:
+            with self.assertRaisesRegex(ValueError, "patch list"):
+                personal.enabled_patches(broken)
+
+    def test_personal_builder_requires_every_patch_to_succeed(self):
+        expected = ["Sync: fix Reddit galleries", "Sync: normalize Reddit links"]
+        good = ('INFO: Setting patch options\nINFO: "Sync: fix Reddit galleries" succeeded \n'
+                'INFO: "Sync: normalize Reddit links" succeeded \nINFO: Signing APK\nINFO: Saved to out.apk\n')
+        self.assertEqual(sorted(expected), personal.check_patch_results(good, expected))
+        failed = good.replace('INFO: "Sync: normalize Reddit links" succeeded ',
+                              'SEVERE: "Sync: normalize Reddit links" failed:\napp.revanced.patcher.patch.PatchException: '
+                              'Unsupported Sync LinkHelper layout.\n\tat Something.apply(x.kt:1)')
+        cases = {
+            "failed: Sync: normalize Reddit links": failed,  # CLI 6.0.0 still saves and signs here
+            "no result: Sync: normalize Reddit links": good.replace('INFO: "Sync: normalize Reddit links" succeeded \n', ""),
+            "not in bundle list: Other": good + 'INFO: "Other" succeeded\n',
+            "more than one result": good + 'INFO: "Sync: fix Reddit galleries" succeeded\n',
+        }
+        for message, log in cases.items():
+            with self.subTest(message), self.assertRaisesRegex(SystemExit, message):
+                personal.check_patch_results(log, expected)
+
+    def test_patch_interaction_suite_is_discovered(self):
+        self.assertIn("PatchInteractionTest", discover_java_tests(ROOT / "tests"))
+
 if __name__ == "__main__":
     unittest.main()
