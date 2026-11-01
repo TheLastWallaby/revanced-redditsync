@@ -2,6 +2,20 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.6.13",
+      "tested_release": "v0.6.13-rc.2",
+      "results": {
+        "overall": "passed: the tester replied \"This fix looks good\"; no individual results were given for the five numbered checks (feed preview, same post full screen, Wi-Fi/mobile switch then another post full screen, RedGifs enhanced autoplay, other-media regressions)"
+      },
+      "promotion": "Stable v0.6.13 rebuilds the same runtime patch and extension source as the tested v0.6.13-rc.2 candidate. The tester replied \"Push to stable\"; candidate assets remain immutable.",
+      "unverified": [
+        "individual results for the five numbered RedGifs checks",
+        "the token refresh after a Wi-Fi/mobile data switch, as a separate observation",
+        "separate device installation of the stable rebuild",
+        "Reddit-hosted video playback, which fails with HTTP 403 on Sync's unsigned v.redd.it HLS link; a separate, pre-existing problem not changed by this release"
+      ]
+    },
+    {
       "stable": "v0.6.12",
       "tested_release": "v0.6.13-rc.1",
       "results": {
