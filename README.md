@@ -63,6 +63,34 @@ and make 0, 19, 32 and 32 extra requests under the per-tap budget (0, 19, 99 and
 99 without it). The batch scenarios still run with the switch turned on.
 Not yet tested on a phone; this is not in a published release.
 
+## Unreleased: Reddit's default text encoding on every request (issue #55)
+
+Changes **Sync: load more comments in batches** and **Sync: fix Reddit galleries**
+for [issue #55](https://github.com/TheLastWallaby/revanced-redditsync/issues/55).
+Sync's own Reddit requests never add `raw_json=1`: Reddit then HTML-escapes `&`,
+`<` and `>`, and Sync undoes that itself. Sync 23033's comment parser
+(`PostParserHelper` `c9.c.a`) stores `WebsafeUtils.a` (`wc.p.a`) of each `body`,
+and its renderer (`RedditHelper.r`, `d7.f.r`) applies `WebsafeUtils.a` again;
+gallery captions are unescaped by the same renderer, and Sync's gallery parser
+unescapes media URLs with `WebsafeUtils.a`. The load-more fallback route
+(`/comments/<post>.json?comment=`), the switched-off `/api/morechildren` route
+and the gallery request still asked for `raw_json=1`, so their text was decoded
+as if it were escaped and could differ from the same comment on Sync's own route.
+No request adds `raw_json` now. Gallery media URLs still have only their escaped
+ampersands decoded, so signed query bytes stay exact; captions stay as Reddit
+sent them for Sync to unescape.
+
+`CommentEncodingTest` serves comments the way Reddit encodes them and checks that
+a comment with literal `&lt;3`, `&amp;`, `&amp;amp;`, `<`, `>` and `&` reaches
+Sync's parser with the same bytes through the per-comment, fallback and batch
+routes as through Sync's own request, and renders identically. `GalleryCompatTest`
+checks escaped signed source, preview and MP4 URLs (also after a metadata refresh)
+come out byte-identical and a caption containing `&` renders as typed. By the
+base's code, Sync's own decoding (it decodes `&amp;` before `&lt;`) turns a
+literal `&lt;3` into `<3` on its own route too; the fix makes load-more match
+the thread view rather than change it. Not yet tested on a phone; this is not in
+a published release.
+
 ## v0.6.10 Reddit link normalization (issue #5)
 
 Adds the selectable **Sync: normalize Reddit links** patch for
@@ -606,7 +634,8 @@ route is the CLI; Manager import and patching still need device verification.
   backoff handling, a 20-second deadline and cancellation, sharing Sync's own
   rate-limit helper. It reuses comments already returned and preserves failed and
   untouched IDs, parent relationships and nested retries. On main (unreleased),
-  it no longer tries Reddit's `/api/morechildren` endpoint first.
+  it no longer tries Reddit's `/api/morechildren` endpoint first, and no
+  comment or gallery request adds `raw_json` (issue #55).
 - **Sync: improve inline comment media** draws comment pictures, Reddit/Giphy
   GIFs and direct Imgur pictures inline at their real aspect ratio within the
   reply width, as described above.

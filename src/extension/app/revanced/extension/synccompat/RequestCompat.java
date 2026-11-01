@@ -35,8 +35,11 @@ public final class RequestCompat {
         }
         // Do not throw on the UI thread for an unexpected URL.
         if (id == null) return input == null ? "https://oauth.reddit.com/api/info.json?id=t3_" : input;
+        // No raw_json, like Sync's own requests (issue #55). Media URLs arrive HTML-escaped and
+        // GalleryCompat.mediaUrl decodes only their ampersands; captions stay escaped because
+        // Sync's caption renderer (RedditHelper d7.f.r) unescapes them with WebsafeUtils.
         return "https://oauth.reddit.com/comments/" + id.toLowerCase(Locale.ROOT)
-                + ".json?limit=1&depth=1&raw_json=1&always_show_media=1";
+                + ".json?limit=1&depth=1&always_show_media=1";
     }
 
     public static String commentsUrl(String original, Map<String, String> parameters) {
@@ -55,7 +58,6 @@ public final class RequestCompat {
                     append(out, "context", "0");
                     append(out, "limit", "100");
                     append(out, "depth", "10");
-                    append(out, "raw_json", "1");
                     append(out, "always_show_media", "1");
                     append(out, "profile_img", "true");
                     String sort = parameters.get("sort");
@@ -72,8 +74,8 @@ public final class RequestCompat {
     }
 
     private static String legacyCommentsUrl(String original, Map<String, String> parameters) {
+        // Keep Reddit's default escaping, as Sync's own request does (issue #55).
         StringBuilder out = new StringBuilder(original);
-        if (!original.contains("raw_json=")) append(out, "raw_json", "1");
         for (Map.Entry<String, String> entry : parameters.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();

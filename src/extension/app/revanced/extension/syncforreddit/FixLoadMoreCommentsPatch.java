@@ -35,6 +35,10 @@ import app.revanced.extension.shared.Logger;
  * Like RedReader, fetch every hidden comment from /comments/{post}/comment/{comment} instead.
  * The first comment is fetched by the original request, the rest are fetched here.
  * All comment trees are then flattened into the /api/morechildren response format Sync parses.
+ * <p>
+ * No route adds raw_json (issue #55). Like Sync's own requests, every response keeps Reddit's
+ * default HTML escaping, which Sync's comment parser (PostParserHelper c9.c.a) and renderer
+ * (RedditHelper d7.f.r) undo with WebsafeUtils (wc.p.a). Raw text would be decoded as if escaped.
  *
  * @noinspection unused
  */
@@ -500,9 +504,9 @@ public final class FixLoadMoreCommentsPatch {
             if (joined.length() > 0) joined.append(',');
             joined.append(id);
         }
+        // No raw_json: Sync's comment parser unescapes Reddit's default HTML-escaped text itself.
         Uri.Builder builder = uri.buildUpon().appendQueryParameter("api_type", "json")
-                .appendQueryParameter("link_id", linkId).appendQueryParameter("children", joined.toString())
-                .appendQueryParameter("raw_json", "1");
+                .appendQueryParameter("link_id", linkId).appendQueryParameter("children", joined.toString());
         String sort = params.get("sort");
         if (!TextUtils.isEmpty(sort) && !"suggested".equalsIgnoreCase(sort)) {
             builder.appendQueryParameter("sort", "best".equalsIgnoreCase(sort) ? "confidence" : sort);
@@ -655,10 +659,10 @@ public final class FixLoadMoreCommentsPatch {
         String postId = params.get("link_id");
         if (postId == null || !MORE_CHILDREN_PATH.equals(uri.getPath())) throw new CommentResponseException(2);
         if (postId.startsWith("t3_")) postId = postId.substring(3);
+        // Same response encoding as the per-comment route and Sync's own requests (no raw_json).
         Uri.Builder builder = uri.buildUpon().encodedPath("/comments/" + postId + ".json")
                 .appendQueryParameter("comment", child).appendQueryParameter("context", "0")
-                .appendQueryParameter("limit", "100").appendQueryParameter("depth", "10")
-                .appendQueryParameter("raw_json", "1");
+                .appendQueryParameter("limit", "100").appendQueryParameter("depth", "10");
         String sort = params.get("sort");
         if (!TextUtils.isEmpty(sort) && !"suggested".equalsIgnoreCase(sort)) {
             builder.appendQueryParameter("sort", "best".equalsIgnoreCase(sort) ? "confidence" : sort);
