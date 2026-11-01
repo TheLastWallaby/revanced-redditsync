@@ -2,6 +2,26 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.6.9",
+      "tested_release": "v0.6.9-rc.2",
+      "results": {
+        "candidate_installed_and_used": "tester installed the private v0.6.9-rc.2 APK and replied \"All pass\" to six numbered checks",
+        "1_load_more_per_tap": "pass: about 33 comments per tap with the continuation row kept",
+        "2_follow_up_taps": "pass: further taps loaded the next comments without repeats or gaps",
+        "3_rate_window_shared_with_sync": "pass: post refresh and subreddit browsing loaded normally after several load-more taps, with no rate-limit errors",
+        "4_leave_during_load": "pass: leaving a post during a large load did not freeze Sync",
+        "5_gallery_navigation": "pass: gallery swiping, captions and kept position on close/reopen, including a crosspost where available",
+        "6_unavailable_gallery_items": "pass: a missing item showed as unavailable while the others worked, where encountered"
+      },
+      "promotion": "Prepared stable v0.6.9 rebuilds the same runtime patch and extension source as phone-tested v0.6.9-rc.2, which includes the v0.6.9-rc.1 gallery code. Candidate assets remain immutable.",
+      "unverified": [
+        "whether the tester hit a live Reddit rate limit or an expired gallery media URL; loopback tests cover those paths",
+        "whether Reddit's /api/morechildren is usable by Sync's client",
+        "separate device installation of the stable rebuild",
+        "exhaustive Reddit account/post combinations"
+      ]
+    },
+    {
       "stable": "v0.6.8",
       "tested_release": "v0.6.8-rc.1",
       "results": {
