@@ -10,14 +10,18 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** Actual HTTP requests to a loopback server; no Reddit account or credentials. */
+/**
+ * Actual HTTP requests to a loopback server; no Reddit account or credentials.
+ * Runs with the /api/morechildren attempt off (the default since issue #51); its last
+ * section turns the retained attempt on by reflection.
+ */
 public final class BatchCommentsTest {
     static int checks;
     static final Map<String,String> bodies = new ConcurrentHashMap<>();
     static final Map<String,Integer> statuses = new ConcurrentHashMap<>();
     static final AtomicInteger calls = new AtomicInteger(), authorized = new AtomicInteger();
     static final AtomicInteger active = new AtomicInteger(), maximum = new AtomicInteger();
-    static final AtomicInteger fallbackCalls = new AtomicInteger();
+    static final AtomicInteger fallbackCalls = new AtomicInteger(), batchCalls = new AtomicInteger();
     static String base;
     static final Map<String,String> headers = Collections.singletonMap("Authorization", "Bearer TEST_ONLY");
     static void check(boolean pass, String message) {
@@ -97,13 +101,22 @@ public final class BatchCommentsTest {
                 try { Thread.sleep(10); } catch(InterruptedException ex) { Thread.currentThread().interrupt(); }
                 exchange.sendResponseHeaders(status,body.length);exchange.getResponseBody().write(body);
             } finally { exchange.close();active.decrementAndGet(); }
-        });server.start();
+        });
+        // Reddit has refused /api/morechildren for Sync's client (HTTP 403).
+        server.createContext("/api/morechildren", exchange->{
+            batchCalls.incrementAndGet();
+            try { byte[] body="{}".getBytes(StandardCharsets.UTF_8);exchange.sendResponseHeaders(403,body.length);exchange.getResponseBody().write(body); }
+            finally { exchange.close(); }
+        });
+        server.start();
         base="http://127.0.0.1:"+server.getAddress().getPort()+"/api/morechildren?always_show_media=1&profile_img=true";
         // Continuation rules here are independent of the per-tap request budget,
         // which BoundedCommentsTest covers.
         Class<?> transport=Class.forName("app.revanced.extension.syncforreddit.CommentTransport");
         java.lang.reflect.Field budget=transport.getDeclaredField("maxRequests");budget.setAccessible(true);budget.setInt(null,1000);
+        java.lang.reflect.Field batchSwitch=FixLoadMoreCommentsPatch.class.getDeclaredField("batchEndpoint");batchSwitch.setAccessible(true);
         try {
+            check(!batchSwitch.getBoolean(null),"the /api/morechildren attempt is off by default");
             check(base.equals(FixLoadMoreCommentsPatch.getUrl(base,null)),"constructor-time null parameters");
             Map<String,String> p=params("t1_a, a,b");p.put("sort","best");
             String url=FixLoadMoreCommentsPatch.getUrl(base,p);
@@ -354,7 +367,38 @@ public final class BatchCommentsTest {
             NetworkResponse cached=new NetworkResponse(304,thread().getBytes(StandardCharsets.UTF_8),Collections.emptyMap(),true,0);
             try { FixLoadMoreCommentsPatch.getMoreChildrenResponse(cached,base,params("a"),headers,"t3_post123");throw new AssertionError("304 cannot prove empty completion"); }
             catch(RuntimeException ex) { check(FixLoadMoreCommentsPatch.getDiagnosticDetails(ex).contains("first_http=304"),"empty completion requires HTTP 200 on both routes"); }
-            System.out.println("PASS: "+checks+" checks with real Volley and loopback HTTP; peak parallel requests="+maximum.get());
+
+            // Issue #51: with the batch attempt off, every load goes straight to the per-comment route.
+            reset();Map<Integer,Integer> requestCounts=new TreeMap<>();
+            for(int count:new int[]{1,20,100,150}) {
+                List<String> requested=new ArrayList<>();for(int i=0;i<count;i++)requested.add("n"+count+"x"+i);
+                before=calls.get();
+                all=things(load(thread(comment(requested.get(0),"t3_post123")),String.join(",",requested)));
+                requestCounts.put(count,calls.get()-before);
+                check(ids(all,"t1").equals(requested.subList(0,Math.min(count,100)))
+                        && ids(all,"more").equals(requested.subList(Math.min(count,100),count)),count+" IDs load in order, the rest stay pending");
+            }
+            check(requestCounts.equals(new TreeMap<>(Map.of(1,0,20,19,100,99,150,99))),"one request per extra ID up to Reddit's 100-ID limit: "+requestCounts);
+            check(batchCalls.get()==0,"no /api/morechildren request anywhere in this suite with the attempt off");
+            JSONObject nested=comment("u0","t3_post123",comment("u1","t1_u0",comment("u2","t1_u1")));
+            before=calls.get();
+            all=things(load(thread(nested),"u0,u1,u2,u3,u3,t1_u3"));
+            check(ids(all,"t1").equals(Arrays.asList("u0","u1","u2","u3")) && calls.get()-before==1,"duplicates and subtree replies still need no request");
+
+            // The retained batch attempt, turned on by reflection: a refused endpoint is probed
+            // once, cached, and the per-comment route still loads every ID.
+            java.lang.reflect.Method shared=transport.getDeclaredMethod("resetSharedState");shared.setAccessible(true);shared.invoke(null);
+            batchSwitch.setBoolean(null,true);
+            try {
+                List<String> twenty=new ArrayList<>();for(int i=0;i<20;i++)twenty.add("on"+i);
+                before=calls.get();
+                all=things(load(thread(comment("on0","t3_post123")),String.join(",",twenty)));
+                check(ids(all,"t1").equals(twenty) && calls.get()-before==19 && batchCalls.get()==1,"refused batch probed once, then every ID loads per comment");
+                all=things(load(thread(comment("on0","t3_post123")),String.join(",",twenty)));
+                check(ids(all,"t1").equals(twenty) && batchCalls.get()==1,"refused batch endpoint cached and not probed again");
+            } finally { batchSwitch.setBoolean(null,false);shared.invoke(null); }
+            System.out.println("PASS: "+checks+" checks with real Volley and loopback HTTP; peak parallel requests="+maximum.get()
+                    +"; extra requests by requested IDs="+requestCounts+" with no /api/morechildren request");
         } finally {
             server.stop(0);serverThreads.shutdownNow();
             java.lang.reflect.Field field=transport.getDeclaredField("executor");field.setAccessible(true);

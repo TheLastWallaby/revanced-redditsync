@@ -42,6 +42,14 @@ public final class FixLoadMoreCommentsPatch {
     private static final String MORE_CHILDREN_PATH = "/api/morechildren";
 
     /**
+     * Whether a tap first tries Reddit's own /api/morechildren batch request (issue #3).
+     * Off: there is no evidence that Reddit accepts it for Sync's client, so every tap goes
+     * straight to the per-comment route and never sends a request to /api/morechildren.
+     * Non-final so tests can exercise the retained batch path.
+     */
+    static boolean batchEndpoint = false;
+
+    /**
      * Same limit as /api/morechildren. The remaining comments are returned as a new "more" item.
      */
     private static final int MAX_CHILDREN = 100;
@@ -68,7 +76,7 @@ public final class FixLoadMoreCommentsPatch {
         int firstRoots = -1, fallbackRoots = -1, firstMore = -1, fallbackMore = -1, exhausted;
         int missing, invalid, network;
         int requests, budget, reused, deferred;
-        String stop, batch = "not_needed";
+        String stop, batch = batchEndpoint ? "not_needed" : "disabled";
         final Map<Integer, Integer> http = new TreeMap<>();
 
         void failure(Throwable error) {
@@ -438,11 +446,12 @@ public final class FixLoadMoreCommentsPatch {
     /**
      * Reddit's own batch endpoint returns every ID in one request when the configured
      * client may use it. Its availability is cached, and failures fall back to the
-     * per-comment route without losing any ID.
+     * per-comment route without losing any ID. Only tried when {@link #batchEndpoint} is on.
      */
     private static boolean loadBatch(CommentTransport.Expansion expansion, String url, Map<String, String> params,
                                      List<String> ids, JSONArray things, Set<String> addedIds,
                                      Map<String, String> defaults, Diagnostic diagnostic) {
+        if (!batchEndpoint) { diagnostic.batch = "disabled"; return false; }
         if (ids.isEmpty()) return false;
         if (!CommentTransport.batchMayWork()) { diagnostic.batch = "unavailable"; return false; }
         String batchUrl = getBatchUrl(url, params, ids);
