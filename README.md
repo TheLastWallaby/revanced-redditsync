@@ -4,11 +4,12 @@ Unofficial ReVanced compatibility patches for **Sync for Reddit
 v23.06.30-13:39**, version code **23033**, free package
 `com.laurencedawson.reddit_sync`.
 
-**Stable v0.6.12** stops using Reddit's legacy `/api/morechildren` and
-`/api/info` endpoints and requests comments and galleries with Reddit's default
-text encoding, as Sync itself does. It rebuilds the runtime code from the
-phone-tested v0.6.12-rc.1 candidate, retaining v0.6.11's signed inline image
-URLs, v0.6.10's Reddit link normalization, v0.6.9's gallery resilience and rate-helper sharing, v0.6.8's bounded
+**Stable v0.6.13** makes RedGifs posts open full screen again: it answers
+Sync's RedGifs address lookup, which RedGifs retired, and refreshes a RedGifs
+token that RedGifs rejects. It rebuilds the runtime code from the phone-tested
+v0.6.13-rc.2 candidate, retaining v0.6.12's move away from Reddit's legacy
+`/api/morechildren` and `/api/info` endpoints and default text encoding,
+v0.6.11's signed inline image URLs, v0.6.10's Reddit link normalization, v0.6.9's gallery resilience and rate-helper sharing, v0.6.8's bounded
 load-more requests, v0.6.7's literal Markdown replacements, v0.6.6's direct media resolution, v0.6.5's Imgur comment video
 posters, v0.6.4's Reddit video support, v0.6.3's award data, v0.6.2's inline
 comment media and v0.6.1's share-link security fixes.
@@ -16,14 +17,20 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## v0.6.13-rc.2 candidate: RedGifs full-screen lookups (issue #49)
+## v0.6.13 RedGifs full-screen lookups (issue #49)
 
-The [v0.6.13-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.13-rc.2)
-is for phone testing. Rebuild from the prepared base and check all ten named
-patch results. Stable remains v0.6.12 until the candidate passes and stable
-publication is authorized. It replaces the
-[v0.6.13-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.13-rc.1),
-which did not fix the problem (see below). rc.2 has not been tested on a phone yet.
+The [v0.6.13 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.13)
+rebuilds the runtime code from the phone-tested
+[v0.6.13-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.13-rc.2).
+Rebuild from the prepared base and check all ten named patch results. The
+earlier [v0.6.13-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.13-rc.1)
+did not fix the problem (see below).
+
+On rc.2 the tester reported that the fix looks good and authorized stable
+publication; only an overall result was given for the five numbered checks.
+Reddit-hosted video playback ("Could not load video", HTTP 403 on Sync's
+unsigned `v.redd.it` HLS link) is a separate, pre-existing problem this release
+does not change. See `validation-phone-tests.json`.
 
 It adds the selectable **Sync: refresh RedGifs tokens** patch for
 [issue #49](https://github.com/TheLastWallaby/revanced-redditsync/issues/49):
@@ -753,15 +760,15 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Stable v0.6.12 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.12)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.12/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.12/sync-gallery-comments-compat-v0.6.12-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.12/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.12/build-info.json)
+- [Stable v0.6.13 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.13)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.13/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.13/sync-gallery-comments-compat-v0.6.13-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.13/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.13/build-info.json)
+- [Archived v0.6.13-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.13-rc.2)
+- [Previous stable v0.6.12](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.12)
 - [Archived v0.6.12-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.12-rc.1)
 - [Previous stable v0.6.11](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11)
-- [Archived v0.6.11-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11-rc.2)
-- [Previous stable v0.6.10](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.10)
 
 For unpublished changes, download the `patch-bundle-<run>-<attempt>` artifact from
 the PR's passing [CI run](https://github.com/TheLastWallaby/revanced-redditsync/actions/workflows/ci.yml).
@@ -787,7 +794,7 @@ download that file from Releases and import it as a local patch bundle.
 Use the Sync base and patch selections described below. The validated patching
 route is the CLI; Manager import and patching still need device verification.
 
-## Included patches — cumulative v0.6.12
+## Included patches — cumulative v0.6.13
 
 - **Sync: secure Reddit share links** validates share URLs and redirects before
   sending credentials, as described above.
@@ -820,7 +827,7 @@ route is the CLI; Manager import and patching still need device verification.
   backslashes in fenced code, spoiler-link labels and emote URLs.
 - **Sync: normalize Reddit links** opens equivalent Reddit links at the same
   place in Sync, as described above.
-- **Sync: refresh RedGifs tokens** (v0.6.13-rc.2 candidate) answers Sync's
+- **Sync: refresh RedGifs tokens** answers Sync's
   retired RedGifs `/info` lookup locally, and fetches one new RedGifs token when
   RedGifs rejects the base's cached one and retries that request once, as
   described above.
@@ -842,7 +849,7 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 2. Use a base that has **none of this bundle's earlier compatibility patches**.
    Do not reapply to an APK already containing any earlier compatibility bundle.
 3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
-   and apply all nine named patches (ten in the v0.6.13 candidates, eight in v0.6.7 to v0.6.9, seven in v0.6.6, six in v0.6.4 and v0.6.5,
+   and apply all ten named patches (nine in v0.6.10 to v0.6.12, eight in v0.6.7 to v0.6.9, seven in v0.6.6, six in v0.6.4 and v0.6.5,
    five in v0.6.3, four in v0.6.2, three in v0.6.1). Check that each reports success.
 4. Sign the result with your own keystore. Matching the key used by your current
    installation allows an in-place update.
@@ -852,7 +859,7 @@ comment media, award data handling, comment video previews, direct media
 resolution, literal Markdown replacements and Reddit link normalization. It expects
 the existing ReVanced shared Logger class; its source stub is for compilation only. It does not
 supply OAuth configuration or unrelated Sync patches. It relies on the base's own RedGifs fix,
-which the candidate's RedGifs patch extends; the OkHttp and RedGifs stubs are also compile-only.
+which the RedGifs patch extends; the OkHttp and RedGifs stubs are also compile-only.
 
 The validated route is **ReVanced CLI 6.0.0 / Patcher 22.0.0**. Android Manager
 import/loading has not been tested. Example CLI command from a clone of this
@@ -989,6 +996,9 @@ promotion; only an overall result was given for the inline-picture checks.
 Stable v0.6.12 rebuilds the v0.6.12-rc.1 runtime code after the tester reported
 load-more and regression checks passing and authorized promotion; two checks were
 not tested and the awards sheets were not reachable on the phone.
+Stable v0.6.13 rebuilds the v0.6.13-rc.2 runtime code after the tester reported
+the RedGifs fix looking good and authorized promotion; only an overall result
+was given.
 These are checks of the supplied cases, not exhaustive Android/live Reddit tests.
 This standalone bundle does not represent a full upstream Gradle build.
 
