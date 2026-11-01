@@ -2,6 +2,20 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.6.14",
+      "tested_release": "v0.6.14-rc.1",
+      "results": {
+        "overall": "passed: the tester replied \"Looks good, promote\"; no individual results were given for the five numbered checks (Reddit video full screen with sound, feed autoplay, long-press peek, quality setting, RedGifs/Imgur/gallery/comment-media regressions)"
+      },
+      "promotion": "Stable v0.6.14 rebuilds the same runtime patch and extension source as the tested v0.6.14-rc.1 candidate. The tester replied \"Looks good, promote\"; candidate assets remain immutable.",
+      "unverified": [
+        "individual results for the five numbered Reddit video checks",
+        "downloading Reddit videos (DownloadRedditVideoJob is unchanged and was not checked)",
+        "comment video posters with CMAF-named renditions (issue #7)",
+        "separate device installation of the stable rebuild"
+      ]
+    },
+    {
       "stable": "v0.6.13",
       "tested_release": "v0.6.13-rc.2",
       "results": {

@@ -4,10 +4,10 @@ Unofficial ReVanced compatibility patches for **Sync for Reddit
 v23.06.30-13:39**, version code **23033**, free package
 `com.laurencedawson.reddit_sync`.
 
-**Stable v0.6.13** makes RedGifs posts open full screen again: it answers
-Sync's RedGifs address lookup, which RedGifs retired, and refreshes a RedGifs
-token that RedGifs rejects. It rebuilds the runtime code from the phone-tested
-v0.6.13-rc.2 candidate, retaining v0.6.12's move away from Reddit's legacy
+**Stable v0.6.14** plays Reddit-hosted videos again by opening them through
+their DASH manifest instead of the unsigned HLS playlist Reddit now refuses. It
+rebuilds the runtime code from the phone-tested v0.6.14-rc.1 candidate,
+retaining v0.6.13's RedGifs full-screen fix, v0.6.12's move away from Reddit's legacy
 `/api/morechildren` and `/api/info` endpoints and default text encoding,
 v0.6.11's signed inline image URLs, v0.6.10's Reddit link normalization, v0.6.9's gallery resilience and rate-helper sharing, v0.6.8's bounded
 load-more requests, v0.6.7's literal Markdown replacements, v0.6.6's direct media resolution, v0.6.5's Imgur comment video
@@ -17,12 +17,17 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## v0.6.14-rc.1 candidate: Reddit video playback (issue #74)
+## v0.6.14 Reddit video playback (issue #74)
 
-The [v0.6.14-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.14-rc.1)
-is for phone testing. Rebuild from the prepared base and check all eleven named
-patch results. Stable remains v0.6.13 until the candidate passes and stable
-publication is authorized. It has not been tested on a phone yet.
+The [v0.6.14 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.14)
+rebuilds the runtime code from the phone-tested
+[v0.6.14-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.14-rc.1).
+Rebuild from the prepared base and check all eleven named patch results.
+
+On rc.1 the tester reported that it looks good and authorized stable
+publication; only an overall result was given for the five numbered checks.
+Downloading Reddit videos was not changed or tested. See
+`validation-phone-tests.json`.
 
 It adds the selectable **Sync: play Reddit videos via DASH** patch for
 [issue #74](https://github.com/TheLastWallaby/revanced-redditsync/issues/74).
@@ -76,7 +81,7 @@ On rc.2 the tester reported that the fix looks good and authorized stable
 publication; only an overall result was given for the five numbered checks.
 Reddit-hosted video playback ("Could not load video", HTTP 403 on Sync's
 unsigned `v.redd.it` HLS link) is a separate, pre-existing problem this release
-does not change; the v0.6.14-rc.1 candidate above addresses it. See
+does not change; v0.6.14 above addresses it. See
 `validation-phone-tests.json`.
 
 It adds the selectable **Sync: refresh RedGifs tokens** patch for
@@ -807,15 +812,15 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Stable v0.6.13 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.13)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.13/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.13/sync-gallery-comments-compat-v0.6.13-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.13/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.13/build-info.json)
+- [Stable v0.6.14 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.14)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.14/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.14/sync-gallery-comments-compat-v0.6.14-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.14/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.14/build-info.json)
+- [Archived v0.6.14-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.14-rc.1)
+- [Previous stable v0.6.13](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.13)
 - [Archived v0.6.13-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.13-rc.2)
 - [Previous stable v0.6.12](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.12)
-- [Archived v0.6.12-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.12-rc.1)
-- [Previous stable v0.6.11](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11)
 
 For unpublished changes, download the `patch-bundle-<run>-<attempt>` artifact from
 the PR's passing [CI run](https://github.com/TheLastWallaby/revanced-redditsync/actions/workflows/ci.yml).
@@ -841,7 +846,7 @@ download that file from Releases and import it as a local patch bundle.
 Use the Sync base and patch selections described below. The validated patching
 route is the CLI; Manager import and patching still need device verification.
 
-## Included patches — cumulative v0.6.13
+## Included patches — cumulative v0.6.14
 
 - **Sync: secure Reddit share links** validates share URLs and redirects before
   sending credentials, as described above.
@@ -874,7 +879,7 @@ route is the CLI; Manager import and patching still need device verification.
   backslashes in fenced code, spoiler-link labels and emote URLs.
 - **Sync: normalize Reddit links** opens equivalent Reddit links at the same
   place in Sync, as described above.
-- **Sync: play Reddit videos via DASH** (v0.6.14-rc.1 candidate) opens
+- **Sync: play Reddit videos via DASH** opens
   Reddit-hosted videos through their DASH manifest instead of the unsigned HLS
   playlist Reddit now refuses, as described above.
 - **Sync: refresh RedGifs tokens** answers Sync's
@@ -899,7 +904,7 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 2. Use a base that has **none of this bundle's earlier compatibility patches**.
    Do not reapply to an APK already containing any earlier compatibility bundle.
 3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
-   and apply all ten named patches (eleven in the v0.6.14-rc.1 candidate, nine in v0.6.10 to v0.6.12, eight in v0.6.7 to v0.6.9, seven in v0.6.6, six in v0.6.4 and v0.6.5,
+   and apply all eleven named patches (ten in v0.6.13, nine in v0.6.10 to v0.6.12, eight in v0.6.7 to v0.6.9, seven in v0.6.6, six in v0.6.4 and v0.6.5,
    five in v0.6.3, four in v0.6.2, three in v0.6.1). Check that each reports success.
 4. Sign the result with your own keystore. Matching the key used by your current
    installation allows an in-place update.
@@ -1049,6 +1054,9 @@ not tested and the awards sheets were not reachable on the phone.
 Stable v0.6.13 rebuilds the v0.6.13-rc.2 runtime code after the tester reported
 the RedGifs fix looking good and authorized promotion; only an overall result
 was given.
+Stable v0.6.14 rebuilds the v0.6.14-rc.1 runtime code after the tester reported
+Reddit video playback looking good and authorized promotion; only an overall
+result was given.
 These are checks of the supplied cases, not exhaustive Android/live Reddit tests.
 This standalone bundle does not represent a full upstream Gradle build.
 
