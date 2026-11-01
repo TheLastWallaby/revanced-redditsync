@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-01T01:33:30",
-  "description": "## What's Changed\n* Normalize equivalent Reddit links (#5); prepare v0.6.10-rc.1 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/47\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.9...v0.6.10-rc.1",
-  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.10-rc.1/patches.rvp",
+  "created_at": "2026-11-01T01:51:30",
+  "description": "## What's Changed\n* Normalize equivalent Reddit links (#5); prepare v0.6.10-rc.1 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/47\n* Promote phone-tested Reddit link normalization to stable v0.6.10 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/62\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.9...v0.6.10",
+  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.10/patches.rvp",
   "signature_download_url": "N/A",
-  "version": "v0.6.10-rc.1"
+  "version": "v0.6.10"
 }
