@@ -4,18 +4,18 @@ Unofficial ReVanced compatibility patches for **Sync for Reddit
 v23.06.30-13:39**, version code **23033**, free package
 `com.laurencedawson.reddit_sync`.
 
-**Stable v0.6.8** bounds "load more comments": each tap makes at most 32 extra
-requests, follows Reddit's rate limits, reuses comments already returned and
-stops when Sync cancels the load. It rebuilds the runtime code from the
-phone-tested v0.6.8-rc.1 candidate, retaining v0.6.7's literal Markdown
-replacements, v0.6.6's direct media resolution, v0.6.5's Imgur comment video
+**Stable v0.6.9** keeps Reddit galleries usable when individual media is missing
+or unavailable, and has "load more comments" report to and respect Sync's own
+rate-limit helper. It rebuilds the runtime code from the phone-tested
+v0.6.9-rc.2 candidate, retaining v0.6.8's bounded load-more requests, v0.6.7's
+literal Markdown replacements, v0.6.6's direct media resolution, v0.6.5's Imgur comment video
 posters, v0.6.4's Reddit video support, v0.6.3's award data, v0.6.2's inline
 comment media and v0.6.1's share-link security fixes.
 This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## v0.6.9-rc.2 candidate: load-more requests share Sync's rate helper (issue #3)
+## v0.6.9 load-more requests share Sync's rate helper (issue #3)
 
 Completes the v0.6.8 change to **Sync: load more comments in batches**. Sync's
 own `OAuthRateHelper` (`d9.d`) stores Reddit's rate window, and Sync's Volley
@@ -28,14 +28,20 @@ helper's `e`, `b` and `c` signatures in build 23033 before installing.
 
 `BoundedCommentsTest` covers reporting, unreported header-less responses, a
 stored window at the reserve, an expired window and an unavailable helper, using
-a recording stand-in for the helper. Not verified: phone behavior against Sync's
-real SharedPreferences-backed helper.
-The [v0.6.9-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.9-rc.2)
-contains v0.6.9-rc.1's gallery changes plus this change, for phone testing of
-both. Rebuild from the prepared base and check all eight patch results. Stable
-remains v0.6.8 until the candidate passes and stable publication is authorized.
+a recording stand-in for the helper.
 
-## v0.6.9-rc.1 gallery resilience (issue #6)
+On v0.6.9-rc.2 the tester reported all six numbered phone checks passing: about
+33 comments per load-more tap with the row kept, follow-up taps without repeats or
+gaps, normal post refresh and subreddit browsing after several taps, leaving
+during a load, gallery swiping/captions/position (including crossposts where
+available) and unavailable gallery items. See `validation-phone-tests.json`.
+
+The [v0.6.9 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.9)
+rebuilds the runtime code from the tested
+[v0.6.9-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.9-rc.2).
+Rebuild from the prepared base and check all eight named patch results.
+
+## v0.6.9 gallery resilience (issue #6)
 
 Extends **Sync: fix Reddit galleries**. A missing, failed, processing or unsupported
 media entry now leaves an unavailable slot while the other items remain usable.
@@ -61,9 +67,9 @@ establish expiry; a media viewer's later HTTP failure does not trigger this refr
 types and loopback HTTP. `GalleryPatchTest` applies the production patch to the
 original Sync 23033 parser/model fixtures and checks hook installation, cache
 handling, duplicate/layout rejection, branches, register bounds/types and DEX serialization.
-Android gallery rendering, authenticated Reddit responses and expired media on
-a phone remain unverified. This candidate is for phone testing; stable remains
-v0.6.8 until those checks pass and stable publication is authorized.
+First published in v0.6.9-rc.1; the tester's gallery checks passed on v0.6.9-rc.2,
+which contains the same gallery code. Expired media on a phone was not observed;
+the loopback tests cover the refresh.
 
 ## v0.6.8 bounded "load more comments" requests (issue #3)
 
@@ -432,14 +438,14 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Test candidate v0.6.9-rc.2](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.9-rc.2)
-- [Stable v0.6.8 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.8)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.8/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.8/sync-gallery-comments-compat-v0.6.8-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.8/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.8/build-info.json)
-- [Archived v0.6.8-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.8-rc.1)
-- [Previous stable v0.6.7](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.7)
+- [Stable v0.6.9 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.9)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.9/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.9/sync-gallery-comments-compat-v0.6.9-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.9/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.9/build-info.json)
+- [Archived v0.6.9-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.9-rc.2)
+- [Archived v0.6.9-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.9-rc.1)
+- [Previous stable v0.6.8](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.8)
 
 For unpublished changes, download the `patch-bundle-<run>-<attempt>` artifact from
 the PR's passing [CI run](https://github.com/TheLastWallaby/revanced-redditsync/actions/workflows/ci.yml).
@@ -465,17 +471,18 @@ download that file from Releases and import it as a local patch bundle.
 Use the Sync base and patch selections described below. The validated patching
 route is the CLI; Manager import and patching still need device verification.
 
-## Included patches — cumulative v0.6.8
+## Included patches — cumulative v0.6.9
 
 - **Sync: secure Reddit share links** validates share URLs and redirects before
   sending credentials, as described above.
 - **Sync: fix Reddit galleries** loads native Reddit galleries through the
-  comment-page endpoint and adapts the post listing for Sync's existing parser.
+  comment-page endpoint and adapts the post listing for Sync's existing parser,
+  leaving unavailable items as placeholders while the rest stay usable.
 - **Sync: load more comments in batches** uses normal comment routes, with at
   most 32 additional requests per tap (four at a time), Reddit rate-limit and
-  backoff handling, a 20-second deadline and cancellation. It reuses comments
-  already returned and preserves failed and untouched IDs, parent relationships
-  and nested retries.
+  backoff handling, a 20-second deadline and cancellation, sharing Sync's own
+  rate-limit helper. It reuses comments already returned and preserves failed and
+  untouched IDs, parent relationships and nested retries.
 - **Sync: improve inline comment media** draws comment pictures, Reddit/Giphy
   GIFs and direct Imgur pictures inline at their real aspect ratio within the
   reply width, as described above.
@@ -645,6 +652,8 @@ Stable v0.6.7 rebuilds the v0.6.7-rc.1 runtime code after the tester's Markdown
 preview screenshot and reported gallery, load-more and emote checks passed.
 Stable v0.6.8 rebuilds the v0.6.8-rc.1 runtime code after the tester reported
 the candidate looking good on their phone.
+Stable v0.6.9 rebuilds the v0.6.9-rc.2 runtime code after the tester reported
+all six numbered load-more and gallery checks passing.
 These are checks of the supplied cases, not exhaustive Android/live Reddit tests.
 This standalone bundle does not represent a full upstream Gradle build.
 
