@@ -4,10 +4,10 @@ Unofficial ReVanced compatibility patches for **Sync for Reddit
 v23.06.30-13:39**, version code **23033**, free package
 `com.laurencedawson.reddit_sync`.
 
-**Stable v0.6.10** opens equivalent Reddit post, comment, share, gallery,
-profile, subreddit, `redd.it` and media-wrapper links at the same place in Sync.
-It rebuilds the runtime code from the phone-tested v0.6.10-rc.1 candidate,
-retaining v0.6.9's gallery resilience and rate-helper sharing, v0.6.8's bounded
+**Stable v0.6.11** keeps signed inline image URLs intact and captures picture
+dimensions for both text posts and comments. It rebuilds the runtime code from
+the phone-approved v0.6.11-rc.2 candidate, retaining v0.6.10's Reddit link
+normalization, v0.6.9's gallery resilience and rate-helper sharing, v0.6.8's bounded
 load-more requests, v0.6.7's literal Markdown replacements, v0.6.6's direct media resolution, v0.6.5's Imgur comment video
 posters, v0.6.4's Reddit video support, v0.6.3's award data, v0.6.2's inline
 comment media and v0.6.1's share-link security fixes.
@@ -15,12 +15,12 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## v0.6.11-rc.2 candidate: signed inline image URLs
+## v0.6.11 signed inline image URLs
 
-The [v0.6.11-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11-rc.2)
-is for phone testing. Rebuild from the prepared base and check all nine named
-patch results. Stable remains v0.6.10 until the candidate passes and stable
-publication is authorized.
+The [v0.6.11 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11)
+rebuilds the runtime code from the approved
+[v0.6.11-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11-rc.2).
+Rebuild from the prepared base and check all nine named patch results.
 
 Fixes pictures in text posts and comments that show a black inline box and
 **GLIDE FAILED TO GRAB THIS IMAGE** when tapped. Sync appended `&height=<metadata height>` to signed
@@ -40,9 +40,10 @@ appeared as a link. That candidate captured dimensions only in the comment
 parser branch, while this image is in a text post. rc.2 captures the item's
 metadata at the shared parser entry for both `selftext` posts and `body` comments.
 Its regression test feeds raw post/comment JSON through the emitted parser call
-before checking the inline box; it no longer manually seeds the cache. rc.2
-phone validation is pending. See `validation-phone-tests.json` for the partial
-rc.1 result.
+before checking the inline box; it no longer manually seeds the cache. The tester
+approved rc.2 for stable publication after the three numbered phone checks;
+only an overall result was given. See `validation-phone-tests.json` for that
+scope and the earlier partial rc.1 result.
 
 ## v0.6.10 Reddit link normalization (issue #5)
 
@@ -461,7 +462,7 @@ The tester confirmed the v0.6.2-rc.5 phone checks recorded in
   not stretched past its native size. Tall images stop at 1.5× the reply
   width. Extreme banners or strips, and boxes that rounding would distort by
   more than 10%, stay links.
-- The renderer does not rebuild the URL. See the v0.6.11-rc.2 correction above:
+- The renderer does not rebuild the URL. See the v0.6.11 correction above:
   Sync's parser must also keep its synthetic `&height` out of signed image URLs.
   The tap target and inline image then both use the original source link.
 - WebP and other picture formats are recognized from the parsed path or the
@@ -541,12 +542,13 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [v0.6.11-rc.2 phone-test candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11-rc.2)
-- [Stable v0.6.10 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.10)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.10/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.10/sync-gallery-comments-compat-v0.6.10-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.10/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.10/build-info.json)
+- [Stable v0.6.11 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.11/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.11/sync-gallery-comments-compat-v0.6.11-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.11/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.11/build-info.json)
+- [Archived v0.6.11-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11-rc.2)
+- [Previous stable v0.6.10](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.10)
 - [Archived v0.6.10-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.10-rc.1)
 - [Previous stable v0.6.9](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.9)
 
@@ -761,6 +763,8 @@ Stable v0.6.9 rebuilds the v0.6.9-rc.2 runtime code after the tester reported
 all six numbered load-more and gallery checks passing.
 Stable v0.6.10 rebuilds the v0.6.10-rc.1 runtime code after the tester approved
 promotion; only an overall result was given for the link checks.
+Stable v0.6.11 rebuilds the v0.6.11-rc.2 runtime code after the tester approved
+promotion; only an overall result was given for the inline-picture checks.
 These are checks of the supplied cases, not exhaustive Android/live Reddit tests.
 This standalone bundle does not represent a full upstream Gradle build.
 

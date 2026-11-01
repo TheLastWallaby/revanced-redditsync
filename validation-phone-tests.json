@@ -2,6 +2,21 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.6.11",
+      "tested_release": "v0.6.11-rc.2",
+      "results": {
+        "candidate_installed_and_used": "tester received the private rc.2 APK and three numbered checks, then replied \"Good. Promote\"",
+        "numbered_checks_1_to_3": "covered by the tester's overall approval; separate results for inline display, tapping, and comment pictures/GIFs were not supplied"
+      },
+      "promotion": "Stable v0.6.11 rebuilds the same runtime patch and extension source as the approved v0.6.11-rc.2 candidate. Stable publication was explicitly authorized; candidate assets remain immutable.",
+      "unverified": [
+        "individual checklist items as separate results",
+        "inline previews disabled, video previews, gallery navigation and load-more regressions as separately reported rc.2 results",
+        "separate device installation of the stable rebuild",
+        "exhaustive Reddit account/post combinations"
+      ]
+    },
+    {
       "stable": null,
       "tested_release": "v0.6.11-rc.1",
       "results": {
