@@ -42,7 +42,23 @@ private const val MARKDOWN = "Lapp/revanced/extension/synccompat/MarkdownCompat;
 private const val GALLERY = "Lapp/revanced/extension/synccompat/GalleryCompat;"
 private const val GALLERY_RESULT = "Lapp/revanced/extension/synccompat/GalleryCompat\$Result;"
 
+private const val OFFICIAL_LOGGER = "Lapp/revanced/extension/shared/Logger;"
+
+/** A stock APK passes the version check but lacks the official ReVanced code this bundle builds on. */
+private fun officialPatchMissing(patch: String) = PatchException(
+    "This APK is missing the official ReVanced \"$patch\" patch. Patch stock Sync 23033 with the official " +
+        "ReVanced Sync patches first (including Spoof client), then apply this bundle to that output.")
+
+// This bundle's code calls the official shared extension's Logger, which is not bundled here.
+// Checked before anything is merged, so stock Sync fails every patch with the same clear message.
+private val officialBasePatch = bytecodePatch {
+    apply {
+        if (classes.none { it.type == OFFICIAL_LOGGER }) throw officialPatchMissing("Sync")
+    }
+}
+
 private val extensionPatch = bytecodePatch {
+    dependsOn(officialBasePatch)
     extendWith("extensions/synccompat.rve")
 }
 
@@ -69,7 +85,7 @@ val secureSyncShareLinks = bytecodePatch(
     dependsOn(extensionPatch)
     apply {
         val target = classes.singleOrNull { it.type == SLINK_BASE }
-            ?: throw PatchException("Expected inherited ReVanced share-link resolver was not found. Use the supported ReVanced-patched Sync 23033 base.")
+            ?: throw officialPatchMissing("Fix /s/ links")
         val clazz = proxy(target).mutableClass
         fun method(name: String, parameters: List<String>, returns: String): MutableMethod =
             clazz.methods.singleOrNull { it.name == name && it.parameterTypes == parameters && it.returnType == returns }
@@ -1479,6 +1495,9 @@ val normalizeSyncRedditLinks = bytecodePatch(
         } ?: throw PatchException("Unsupported Sync LinkHelper entry. This patch targets build 23033 only.")
         if (helper.code().any { it.methodRef()?.definingClass == LINKS })
             throw PatchException("Reddit link normalization is already installed.")
+        // Stock Sync has no share-link hook at all; that is a missing prerequisite, not a different build.
+        if (helper.code().none { it.methodRef()?.definingClass == INHERITED_SLINK_HOOK })
+            throw officialPatchMissing("Fix /s/ links")
         // p3 is the link. The inherited share-link hook is first in Sync 23033. Other patches in
         // this bundle may already have put their own p3 rewrites (invoke-static {p3} returning a
         // String, then move-result-object p3) ahead of it; skip only those, then normalize just
@@ -1595,8 +1614,9 @@ val refreshSyncRedgifsTokens = bytecodePatch(
     compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
     dependsOn(extensionPatch)
     apply {
-        fun inherited(type: String, what: String) = classes.singleOrNull { it.type == type } ?: throw PatchException(
-            "Expected inherited ReVanced $what was not found. Use the supported ReVanced-patched Sync 23033 base.")
+        @Suppress("UNUSED_PARAMETER")
+        fun inherited(type: String, what: String) = classes.singleOrNull { it.type == type }
+            ?: throw officialPatchMissing("Fix Redgifs API")
         fun Iterable<Instruction>.calls(owner: String, name: String) =
             any { it.methodRef()?.let { m -> m.definingClass == owner && m.name == name } == true }
         val public = AccessFlags.PUBLIC

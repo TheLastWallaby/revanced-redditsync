@@ -120,6 +120,10 @@ public final class RedgifsTokenPatchTest {
                 k.getImplementation().replaceInstruction(indexOf(k, INHERITED, "install") + 1, new BuilderInstruction10x(Opcode.NOP));
             }, "OkHttpHelper RedGifs install");
 
+            // Stock Sync without the official Fix Redgifs API patch names that prerequisite (issue #70).
+            rejects(dex, scratch, args, "no-official-redgifs", c -> c.getClassDefs().remove(c.getClassDefs().get(TOKENS)),
+                    "missing the official ReVanced \"Fix Redgifs API\" patch");
+
             System.out.println("PASS: " + checks + " RedGifs token patch checks (production hook"
                     + (args.length != 0 ? ", supplied base APK" : ", layout fixtures") + ")");
         } finally {
