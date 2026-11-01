@@ -91,6 +91,7 @@ public final class GalleryCompatTest {
             crossposts();
             invalidResponses();
             urls();
+            encoding();
             refresh();
         } finally { GalleryCompat.connections = original; }
         System.out.println("GalleryCompatTest: " + checks + " checks passed");
@@ -237,6 +238,64 @@ public final class GalleryCompatTest {
         check(!GalleryCompat.expired(SIGNED, System.currentTimeMillis()), "opaque signature not guessed expired");
     }
 
+    /**
+     * Reddit's default encoding of a JSON response (no raw_json). Keys and JSON punctuation
+     * contain none of these characters, so escaping the text equals escaping every string value.
+     */
+    static String escapeLikeReddit(String json) {
+        return json.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+    /** Port of Sync 23033's WebsafeUtils.a (wc.p.a), which RedditHelper.r applies to captions. */
+    static String websafe(String text) {
+        if (text == null || text.isEmpty()) return text;
+        return text.replaceAll("&amp;", "&").replaceAll("&lt;", "<").replaceAll("&gt;", ">")
+                .replaceAll("‮", "").replaceAll("‏", "");
+    }
+    static boolean sameBytes(String expected, String actual) {
+        return actual != null && Arrays.equals(expected.getBytes(StandardCharsets.UTF_8), actual.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** Issue #55: the gallery request keeps Reddit's default escaping, like Sync's own requests. */
+    static void encoding() throws Exception {
+        equal("https://oauth.reddit.com/comments/abc123.json?limit=1&depth=1&always_show_media=1", URL,
+                "gallery URL uses Sync's own encoding (no raw_json)");
+        for (String input : new String[] {"abc123", "t3_abc123", "https://www.reddit.com/gallery/abc123",
+                "https://redd.it/abc123?utm_source=share", "https://www.reddit.com/r/x/comments/abc123/title/"})
+            check(!RequestCompat.galleryUrl(input).contains("raw_json"), "no raw_json for " + input);
+
+        String caption = "Fish & chips, 5 > 3 and a literal &amp; kept";
+        String link = "https://example.invalid/menu?fish=1&chips=2";
+        String preview = "https://preview.redd.it/still.png?width=320&crop=smart&format=pjpg&auto=webp&s=e%2Ff%3Dg";
+        String animated = "https://preview.redd.it/move.gif?format=mp4&s=c%2Bd&v=enabled_once";
+        JSONObject post = post("abc123").put("gallery_data", new JSONObject().put("items", new JSONArray()
+                .put(item("first", caption, link)).put(item("moving", "Plain", null))))
+                .put("media_metadata", new JSONObject()
+                        .put("first", image("u", SIGNED).put("p", new JSONArray().put(new JSONObject().put("u", preview))))
+                        .put("moving", new JSONObject().put("status", "valid").put("e", "AnimatedImage")
+                                .put("s", new JSONObject().put("mp4", animated).put("gif", "https://i.redd.it/move.gif"))));
+        String escaped = escapeLikeReddit(thread(post).toString());
+        check(escaped.contains("&amp;s=a%2Fb%2Bcd") && escaped.contains("Fish &amp; chips")
+                && escaped.contains("literal &amp;amp; kept"), "fixture escaped like Reddit's default response");
+        GalleryCompat.Result result = GalleryCompat.parseGallery(new NetworkResponse(200,
+                escaped.getBytes(StandardCharsets.UTF_8), Collections.emptyMap(), false, 0), new GalleryRequest());
+        o8.b value = success(result);
+        check(sameBytes(SIGNED, value.b[0]), "escaped signed source byte-identical to the original: " + value.b[0]);
+        check(sameBytes(preview, value.c[0]), "escaped signed preview byte-identical to the original: " + value.c[0]);
+        check(sameBytes(animated, value.b[1]), "escaped signed MP4 byte-identical to the original: " + value.b[1]);
+        // Like Sync's own gallery parser, captions reach the viewer as Reddit sent them; Sync's
+        // caption renderer (RedditHelper.r) unescapes them once with WebsafeUtils.
+        equal(escapeLikeReddit(caption) + "\n\n" + escapeLikeReddit(link), value.d[0], "caption and link passed through unchanged");
+        equal(caption + "\n\n" + link, websafe(value.d[0]), "caption with & renders as typed after Sync's unescaping");
+        check(!websafe(caption).equals(caption), "raw (raw_json) caption would lose its literal &amp;");
+        equal("Plain\n\n", value.d[1], "caption without entities unchanged (Sync's caption layout)");
+        o8.b reopened = success(GalleryCompat.parseGallery(result.response, new GalleryRequest()));
+        check(sameBytes(SIGNED, reopened.b[0]) && sameBytes(preview, reopened.c[0]) && sameBytes(animated, reopened.b[1])
+                && value.d[0].equals(reopened.d[0]), "cached escaped listing reopens with the same bytes");
+        // A listing cached by earlier versions (raw_json responses) still opens unchanged.
+        o8.b legacy = success(parse(thread(post)));
+        check(sameBytes(SIGNED, legacy.b[0]) && sameBytes(animated, legacy.b[1]), "earlier raw cache entries still load");
+    }
+
     static void refresh() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         AtomicInteger calls = new AtomicInteger();
@@ -293,10 +352,18 @@ public final class GalleryCompatTest {
             check(value.d[0].startsWith("First"), "refresh retains original captions");
             success(GalleryCompat.parseGallery(refreshed.response, new GalleryRequest()));
             equal(1, calls.get(), "cache stores refreshed metadata");
+            // Reddit answers the raw_json-free refresh URL with its default escaping (#55).
+            JSONObject unescaped = gallery();
+            unescaped.getJSONObject("media_metadata").put("first", image("u", SIGNED));
+            body[0] = escapeLikeReddit(thread(unescaped).toString());
+            value = success(parse(original));
+            equal(2, calls.get(), "escaped refresh is one request");
+            check(sameBytes(SIGNED, value.b[0]), "escaped refresh returns the exact signed URL: " + value.b[0]);
+            check(value.d[0].startsWith("First"), "escaped refresh retains original captions");
             // Several expired entries still produce only one request; still-expired data is not retried.
             body[0] = thread(expired).toString();
             value = success(parse(original));
-            equal(2, calls.get(), "still-expired refresh is not recursive");
+            equal(3, calls.get(), "still-expired refresh is not recursive");
             equal("", value.b[0], "expired source never sent to viewer");
             equal("https://i.redd.it/last.gif", value.b[2], "other media survives expired source");
             JSONObject partial = gallery();

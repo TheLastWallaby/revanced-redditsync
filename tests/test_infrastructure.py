@@ -107,6 +107,7 @@ class InfrastructureTests(unittest.TestCase):
         tests = discover_java_tests(ROOT / "tests")
         self.assertIn("BatchCommentsTest", tests)
         self.assertIn("BoundedCommentsTest", tests)
+        self.assertIn("CommentEncodingTest", tests)
 
     def test_comment_video_suite_is_discovered_with_its_package(self):
         self.assertIn("app.revanced.extension.synccompat.CommentVideoTest",

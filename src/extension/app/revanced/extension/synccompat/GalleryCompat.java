@@ -281,6 +281,11 @@ public final class GalleryCompat {
         return text instanceof String && !((String) text).isEmpty() ? (String) text : null;
     }
 
+    /**
+     * Caption and outbound link exactly as Reddit sent them, like Sync's own gallery parser.
+     * Sync's caption renderer (RedditHelper d7.f.r) unescapes them with WebsafeUtils (wc.p.a),
+     * so decoding here would decode literal entities twice.
+     */
     private static String caption(JSONObject item) {
         String caption = text(item, "caption"), outbound = text(item, "outbound_url");
         return (caption == null ? "" : caption + "\n\n") + (outbound == null ? "" : outbound);
