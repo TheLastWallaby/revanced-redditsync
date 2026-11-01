@@ -8,3 +8,6 @@
 
 .method public native byteStream()Ljava/io/InputStream;
 .end method
+
+.method public static native create(Ljava/lang/String;Lokhttp3/MediaType;)Lokhttp3/ResponseBody;
+.end method

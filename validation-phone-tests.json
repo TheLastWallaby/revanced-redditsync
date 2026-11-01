@@ -3,6 +3,24 @@
   "releases": [
     {
       "stable": "v0.6.12",
+      "tested_release": "v0.6.13-rc.1",
+      "results": {
+        "1_redgifs_preview_in_feed": "passed (\"preview works\")",
+        "2_same_redgifs_post_full_screen": "failed: \"ERROR CONNECTING TO REDGIFS when I open post\"",
+        "3_network_switch_then_other_post_full_screen": "not reported",
+        "4_enhanced_autoplay_redgifs": "not reported",
+        "5_other_media_regressions": "not reported"
+      },
+      "diagnosis": "Replaying Sync's RedGifs requests against the live API showed GET https://api.redgifs.com/info (Sync's GrabIpRequest, t8.a, which reads remote-addr) now returns HTTP 404 with or without a token, so every full-screen lookup failed before the token step; the rc.1 refresh only acts on 401/403. /v2/auth/temporary (now reporting the client address as addr) and /v2/gifs/<id> still work. v0.6.13-rc.2 answers the /info lookup locally.",
+      "promotion": "Not promoted. Only checks 1 and 2 were reported.",
+      "unverified": [
+        "the token refresh after a network switch on a phone",
+        "RedGifs enhanced autoplay on rc.1",
+        "other media regressions on rc.1"
+      ]
+    },
+    {
+      "stable": "v0.6.12",
       "tested_release": "v0.6.12-rc.1",
       "results": {
         "1_load_more_large_thread": "passed",

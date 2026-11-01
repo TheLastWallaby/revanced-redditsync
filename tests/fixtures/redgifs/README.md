@@ -7,6 +7,8 @@ These Smali files are hand-written layout models, not code copied from the APK:
 - `FixRedgifsApiPatch.smali`, `BaseFixRedgifsApiPatch.smali` and the two
   `RedgifsTokenManager*.smali` files hold only the members, strings and calls the patch
   checks in the inherited ReVanced RedGifs fix.
+- `GrabIpRequest.smali` models Sync's `t8.a`: a Volley request whose code holds the
+  `https://api.redgifs.com/info` URL and the `remote-addr` field the patch checks.
 - `okhttp3-*.smali` are generated signature-only skeletons of the OkHttp members the refresh
   calls.
 
