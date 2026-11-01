@@ -2,6 +2,23 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.6.10",
+      "tested_release": "v0.6.10-rc.1",
+      "results": {
+        "candidate_installed_and_used": "tester used the private v0.6.10-rc.1 APK and, after receiving seven numbered link checks, replied \"Promote it\"",
+        "sh_reddit_links_from_other_apps": "opened in the browser, not Sync, for https://sh.reddit.com/r/IAmA/comments/z1c9z/ and https://sh.reddit.com/user/spez/submitted/?sort=top; expected because sh.reddit.com is not in Sync's manifest (follow-up issue #61)",
+        "numbered_link_checks_1_to_7": "covered only by the tester's overall approval; per-item results were not supplied"
+      },
+      "promotion": "Prepared stable v0.6.10 rebuilds the same runtime patch and extension source as v0.6.10-rc.1. Candidate assets remain immutable.",
+      "unverified": [
+        "individual checklist items (post/comment/gallery/profile/subreddit/media-wrapper links, share links on cold and warm start) as separate results",
+        "whether the tested links were opened inside Sync or shared to Sync",
+        "live /s/ share-link redirects under the new four-second request and eight-second chain limits",
+        "separate device installation of the stable rebuild",
+        "exhaustive Reddit account/post combinations"
+      ]
+    },
+    {
       "stable": "v0.6.9",
       "tested_release": "v0.6.9-rc.2",
       "results": {

@@ -4,26 +4,25 @@ Unofficial ReVanced compatibility patches for **Sync for Reddit
 v23.06.30-13:39**, version code **23033**, free package
 `com.laurencedawson.reddit_sync`.
 
-**Stable v0.6.9** keeps Reddit galleries usable when individual media is missing
-or unavailable, and has "load more comments" report to and respect Sync's own
-rate-limit helper. It rebuilds the runtime code from the phone-tested
-v0.6.9-rc.2 candidate, retaining v0.6.8's bounded load-more requests, v0.6.7's
-literal Markdown replacements, v0.6.6's direct media resolution, v0.6.5's Imgur comment video
+**Stable v0.6.10** opens equivalent Reddit post, comment, share, gallery,
+profile, subreddit, `redd.it` and media-wrapper links at the same place in Sync.
+It rebuilds the runtime code from the phone-tested v0.6.10-rc.1 candidate,
+retaining v0.6.9's gallery resilience and rate-helper sharing, v0.6.8's bounded
+load-more requests, v0.6.7's literal Markdown replacements, v0.6.6's direct media resolution, v0.6.5's Imgur comment video
 posters, v0.6.4's Reddit video support, v0.6.3's award data, v0.6.2's inline
 comment media and v0.6.1's share-link security fixes.
 This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## v0.6.10-rc.1 candidate: Reddit link normalization (issue #5)
+## v0.6.10 Reddit link normalization (issue #5)
 
 Adds the selectable **Sync: normalize Reddit links** patch for
 [issue #5](https://github.com/TheLastWallaby/revanced-redditsync/issues/5).
 The
-[v0.6.10-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.10-rc.1)
-is for phone testing. Rebuild from the prepared base and check all nine patch
-results. Stable remains v0.6.9 until the candidate passes and stable publication
-is authorized.
+[v0.6.10 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.10) rebuilds the runtime code from the tested
+[v0.6.10-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.10-rc.1). Rebuild from the prepared base
+and check all nine named patch results.
 
 Sync 23033 sorts links with regular expressions and string splits, so equivalent
 links went to different places. For example `reddit.com/comments/ID?context=3`
@@ -81,7 +80,13 @@ reproduces the original defects, and that normalizing twice changes nothing.
 gallery classifier and the start of the patched link helper, and checks the
 cold-start hook and duplicate/unsupported-layout rejection; run with the base APK
 path it does the same on the real methods. `SafeSLinksTest` covers profile share
-links and the redirect deadline. No device or live Reddit testing has been done.
+links and the redirect deadline.
+
+On v0.6.10-rc.1 the tester reported that `sh.reddit.com` post and profile links
+tapped in another app open in the browser, as expected without a manifest entry
+(follow-up: [issue #61](https://github.com/TheLastWallaby/revanced-redditsync/issues/61)),
+and then approved stable promotion. Individual results for the numbered link
+checks were not supplied; see `validation-phone-tests.json`.
 
 ## v0.6.9 load-more requests share Sync's rate helper (issue #3)
 
@@ -506,15 +511,13 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Test candidate v0.6.10-rc.1](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.10-rc.1)
-- [Stable v0.6.9 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.9)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.9/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.9/sync-gallery-comments-compat-v0.6.9-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.9/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.9/build-info.json)
-- [Archived v0.6.9-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.9-rc.2)
-- [Archived v0.6.9-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.9-rc.1)
-- [Previous stable v0.6.8](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.8)
+- [Stable v0.6.10 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.10)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.10/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.10/sync-gallery-comments-compat-v0.6.10-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.10/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.10/build-info.json)
+- [Archived v0.6.10-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.10-rc.1)
+- [Previous stable v0.6.9](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.9)
 
 For unpublished changes, download the `patch-bundle-<run>-<attempt>` artifact from
 the PR's passing [CI run](https://github.com/TheLastWallaby/revanced-redditsync/actions/workflows/ci.yml).
@@ -540,7 +543,7 @@ download that file from Releases and import it as a local patch bundle.
 Use the Sync base and patch selections described below. The validated patching
 route is the CLI; Manager import and patching still need device verification.
 
-## Included patches — cumulative v0.6.9
+## Included patches — cumulative v0.6.10
 
 - **Sync: secure Reddit share links** validates share URLs and redirects before
   sending credentials, as described above.
@@ -566,10 +569,8 @@ route is the CLI; Manager import and patching still need device verification.
   Sync's defunct proxies, as described above.
 - **Sync: preserve literal Markdown replacements** preserves dollar signs and
   backslashes in fenced code, spoiler-link labels and emote URLs.
-
-The v0.6.10-rc.1 candidate also contains **Sync: normalize Reddit
-links**, which opens equivalent Reddit links at the same place in Sync, as
-described above. Apply all nine named patches from it.
+- **Sync: normalize Reddit links** opens equivalent Reddit links at the same
+  place in Sync, as described above.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
@@ -588,14 +589,14 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 2. Use a base that has **none of this bundle's earlier compatibility patches**.
    Do not reapply to an APK already containing any earlier compatibility bundle.
 3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
-   and apply all eight named patches (seven in v0.6.6, six in v0.6.4 and v0.6.5,
+   and apply all nine named patches (eight in v0.6.7 to v0.6.9, seven in v0.6.6, six in v0.6.4 and v0.6.5,
    five in v0.6.3, four in v0.6.2, three in v0.6.1). Check that each reports success.
 4. Sign the result with your own keystore. Matching the key used by your current
    installation allows an in-place update.
 
 This bundle adds the gallery/comment fixes, share-link hardening, inline
 comment media, award data handling, comment video previews, direct media
-resolution and literal Markdown replacements. It expects
+resolution, literal Markdown replacements and Reddit link normalization. It expects
 the existing ReVanced shared Logger class; its source stub is for compilation only. It does not
 supply OAuth configuration or unrelated Sync patches such as RedGifs fixes.
 
@@ -727,6 +728,8 @@ Stable v0.6.8 rebuilds the v0.6.8-rc.1 runtime code after the tester reported
 the candidate looking good on their phone.
 Stable v0.6.9 rebuilds the v0.6.9-rc.2 runtime code after the tester reported
 all six numbered load-more and gallery checks passing.
+Stable v0.6.10 rebuilds the v0.6.10-rc.1 runtime code after the tester approved
+promotion; only an overall result was given for the link checks.
 These are checks of the supplied cases, not exhaustive Android/live Reddit tests.
 This standalone bundle does not represent a full upstream Gradle build.
 
