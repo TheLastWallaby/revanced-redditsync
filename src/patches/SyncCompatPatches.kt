@@ -1332,3 +1332,87 @@ val replaceSyncMediaProxies = bytecodePatch(
         }
     }
 }
+
+private const val LINKS = "Lapp/revanced/extension/synccompat/LinkNormalizer;"
+private const val LINK_HELPER = "Ly7/b;"
+private const val LINK_TYPES = "Ly7/c;"
+private const val INHERITED_SLINK_HOOK = "Lapp/revanced/extension/syncforreddit/FixSLinksPatch;"
+private const val MAIN_ACTIVITY = "Lcom/laurencedawson/reddit_sync/ui/activities/MainActivity;"
+
+val normalizeSyncRedditLinks = bytecodePatch(
+    name = "Sync: normalize Reddit links",
+    description = "Open equivalent Reddit post, comment, share, gallery, profile, subreddit, redd.it and media-wrapper " +
+        "links at the same place in Sync; keep context, sort and signed media parameters and drop known tracking parameters.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        fun mutable(type: String, what: String): MutableClassDef =
+            proxy(classes.singleOrNull { it.type == type } ?: throw PatchException(
+                "Expected Sync $what was not found. This patch targets build 23033 only.")).mutableClass
+        fun MutableMethod.code() = implementation!!.instructions
+        fun MutableMethod.hasString(value: String) = code().any { it.stringValue() == value }
+        fun MutableMethod.targeted(index: Int): Boolean {
+            val target = code()[index]
+            return code().any { it is BuilderOffsetInstruction && it.target.location.instruction === target }
+        }
+        val strings = List(5) { "Ljava/lang/String;" }
+
+        // Every in-app tap, VIEW/SEND intent and warm start reaches this LinkHelper entry.
+        val helper = mutable(LINK_HELPER, "LinkHelper").methods.singleOrNull {
+            it.name == "c" && it.returnType == "Z" && it.parameterTypes == listOf("Landroid/content/Context;", "[Lr0/d;") +
+                strings + listOf("Z", "Z", "Z")
+        } ?: throw PatchException("Unsupported Sync LinkHelper entry. This patch targets build 23033 only.")
+        if (helper.code().any { it.methodRef()?.definingClass == LINKS })
+            throw PatchException("Reddit link normalization is already installed.")
+        // p3 is the link. The inherited share-link hook must still be the first instruction.
+        val url = helper.implementation!!.registerCount - 10 + 3
+        val first = helper.code().firstOrNull()
+        layout(first?.opcode == Opcode.INVOKE_STATIC && first.methodRef()?.let {
+            it.definingClass == INHERITED_SLINK_HOOK && it.name == "patchResolveSLink"
+        } == true && (first as FiveRegisterInstruction).registerC == url && !helper.targeted(0) &&
+            listOf("LinkHelper", "Was gallery", "Was shortened", "Was comments", "Was reddit user").all(helper::hasString) &&
+            helper.code().any { it.methodRef()?.let { m -> m.definingClass == LINK_TYPES && m.name == "q" } == true },
+            "Sync LinkHelper")
+
+        // Sync's gallery classifier only knows its own synthetic ?is_gallery=true form.
+        val gallery = mutable(LINK_TYPES, "link classifier").methods.singleOrNull {
+            it.name == "q" && it.parameterTypes == listOf("Ljava/lang/String;") && it.returnType == "Z"
+        } ?: throw PatchException("Unsupported Sync gallery link classifier.")
+        layout(gallery.implementation!!.registerCount >= 2 && gallery.hasString("?is_gallery=true") &&
+            gallery.hasString("https://www.reddit.com/r/"), "Sync gallery link classifier")
+
+        // Cold start checks for a subreddit before handing the link to LinkHelper.
+        val start = mutable(MAIN_ACTIVITY, "MainActivity").methods.singleOrNull {
+            it.name == "onCreate" && it.parameterTypes == listOf("Landroid/os/Bundle;") && it.returnType == "V"
+        } ?: throw PatchException("Unsupported Sync MainActivity.")
+        val startCode = start.code()
+        val subreddit = startCode.singleIndex("cold-start subreddit check") { i ->
+            startCode[i].methodRef()?.let { it.definingClass == LINK_TYPES && it.name == "B" } == true
+        }
+        val coldLink = (startCode[subreddit] as FiveRegisterInstruction).registerC
+        layout(startCode.subList(maxOf(0, subreddit - 4), subreddit).any {
+            it.methodRef()?.name == "removeExtra"
+        } && startCode.drop(subreddit).any {
+            it is FiveRegisterInstruction && it.registerCount == 2 && it.registerD == coldLink &&
+                it.methodRef()?.let { m -> m.definingClass == LINK_HELPER && m.name == "b" } == true
+        } && !start.targeted(subreddit), "cold-start link handoff")
+
+        // All layouts verified; edit.
+        helper.addInstructions(0, """
+            invoke-static {p3}, $LINKS->normalize(Ljava/lang/String;)Ljava/lang/String;
+            move-result-object p3
+        """.trimIndent())
+        gallery.addInstructionsWithLabels(0, """
+            invoke-static {p0}, $LINKS->isGalleryLink(Ljava/lang/String;)Z
+            move-result v0
+            if-eqz v0, :original
+            const/4 v0, 0x1
+            return v0
+        """.trimIndent(), ExternalLabel("original", gallery.code()[0]))
+        start.addInstructions(subreddit, """
+            invoke-static {v$coldLink}, $LINKS->normalize(Ljava/lang/String;)Ljava/lang/String;
+            move-result-object v$coldLink
+        """.trimIndent())
+    }
+}

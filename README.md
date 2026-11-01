@@ -15,6 +15,70 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
+## Unreleased: Reddit link normalization (issue #5)
+
+Adds the selectable **Sync: normalize Reddit links** patch for
+[issue #5](https://github.com/TheLastWallaby/revanced-redditsync/issues/5).
+It is on `main` and not yet in a release.
+
+Sync 23033 sorts links with regular expressions and string splits, so equivalent
+links went to different places. For example `reddit.com/comments/ID?context=3`
+and `redd.it/ID?utm_source=share` opened a post with the query as part of its ID,
+`reddit.com/gallery/ID`, `sh.reddit.com` profiles and `np.reddit.com` subreddits
+opened in a browser, and `/r/sub/top/?t=week` was treated as a post.
+
+The patch rewrites each link once, with a real URI parser, into a form Sync's
+own classifiers already handle, before Sync's link helper and the share-link
+resolver see it. The same hook covers links tapped in Sync, Android VIEW and
+SEND (shared text is reduced to its first link), warm start and cold start.
+
+| Link | Opens as |
+|---|---|
+| Posts on `reddit.com`, `www`, `old`, `new`, `sh`, `m`, `amp`, `i`, `np`, with or without a title, trailing slash, `http`, fragment or tracking parameters; `/user/NAME/comments/ID`; `redd.it/ID`; Reddit-relative `/r/…` | `/r/SUB/comments/ID/` (or `/comments/ID/`). `np.reddit.com` keeps Sync's no-participation mode. |
+| Comment links, old `/title/COMMENT` and new `/comment/COMMENT` forms | `/r/SUB/comments/ID/_/COMMENT/` with `context` and `sort` kept |
+| `/gallery/ID` | Sync's gallery viewer (the gallery link classifier also accepts `https://www.reddit.com/gallery/ID`) |
+| `/u/NAME`, `/user/NAME`, with `overview`, `submitted`, `comments` or `gilded` | The profile |
+| `/r/SUB`, `/r/SUB/hot`, `new`, `rising`, `top`, `controversial` | The subreddit. Sync's subreddit route takes no query, so a `?t=` time range is dropped. |
+| `/r/SUB/s/TOKEN`, now also `/u/NAME/s/TOKEN` | The secured share-link resolver, token case kept, `#bypass` browser fallback kept |
+| `i.redd.it`, `preview.redd.it`, `external-preview.redd.it`, `v.redd.it` | HTTPS; signed CDN parameters kept byte-for-byte and in order |
+| `reddit.com/media?url=…` | The wrapped media, only if it is on one of the four Reddit media hosts above. At most two rounds of percent-decoding; malformed, control-character, over-long, nested, duplicate or other-host targets are left as they were. |
+
+Only `utm_*`, `share_id`, `ref`, `ref_source`, `ref_campaign`, `rdt`,
+`correlation_id`, `_branch_match_id`, `_branch_referrer`, `$deep_link` and `$3p`
+are removed. Other parameters are kept; on Reddit pages unusual characters are
+percent-encoded so Sync's comment classifier still matches. Sync's own
+`?is_gallery=true` links, wiki, search, compose, multireddit, domain, duplicate,
+over-18, poll and other links it does not recognize are left unchanged. Sync's
+comments screen does not take `context` or `sort`, so keeping them in the link
+does not yet change the comment view.
+
+The share-link resolver keeps its HTTPS, host, path and authorization checks.
+It now also accepts profile share links, and each request may take up to four
+seconds within an eight-second limit for the whole redirect chain, instead of a
+fixed two seconds per request. The browser fallback is unchanged.
+
+**Opening links from other apps.** The patch does not change the manifest (the
+private APK verifier requires an unchanged manifest), and Reddit's Android App
+Links verification only lists Reddit's own signing key, so adding hosts or
+`autoVerify` could not make Android verify a self-signed Sync. On Android 12 and
+later, open **Settings → Apps → Sync → Open by default**, turn on **Open supported
+links** and add the Reddit links listed there (`reddit.com`, `www.reddit.com`,
+`old.reddit.com`, `m.reddit.com`, `np.reddit.com`, `amp.reddit.com`, `redd.it`,
+`v.redd.it` and others). `sh.reddit.com`, `new.reddit.com`, `i.redd.it` and
+`preview.redd.it` are not in Sync's manifest; share those links to Sync instead.
+
+`LinkNormalizerTest` runs a table of equivalent links (hosts, schemes, queries,
+fragments, trailing slashes, shared text, relative links, wrappers and rejected
+inputs) through the normalizer and then through a model of Sync's link helper,
+classifiers and ID parsers transcribed from the base. It checks the destination
+and the post, comment, subreddit, user or media each one yields, that the model
+reproduces the original defects, and that normalizing twice changes nothing.
+`LinkPatchTest` applies the patch to base-method fixtures, executes the patched
+gallery classifier and the start of the patched link helper, and checks the
+cold-start hook and duplicate/unsupported-layout rejection; run with the base APK
+path it does the same on the real methods. `SafeSLinksTest` covers profile share
+links and the redirect deadline. No device or live Reddit testing has been done.
+
 ## v0.6.9 load-more requests share Sync's rate helper (issue #3)
 
 Completes the v0.6.8 change to **Sync: load more comments in batches**. Sync's
@@ -497,6 +561,10 @@ route is the CLI; Manager import and patching still need device verification.
   Sync's defunct proxies, as described above.
 - **Sync: preserve literal Markdown replacements** preserves dollar signs and
   backslashes in fenced code, spoiler-link labels and emote URLs.
+
+Built from `main` after v0.6.9, the bundle also contains **Sync: normalize Reddit
+links**, which opens equivalent Reddit links at the same place in Sync, as
+described above. Apply all nine named patches from such a build.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
