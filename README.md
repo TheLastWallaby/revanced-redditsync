@@ -15,11 +15,15 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Unreleased: Reddit link normalization (issue #5)
+## v0.6.10-rc.1 candidate: Reddit link normalization (issue #5)
 
 Adds the selectable **Sync: normalize Reddit links** patch for
 [issue #5](https://github.com/TheLastWallaby/revanced-redditsync/issues/5).
-It is on `main` and not yet in a release.
+The
+[v0.6.10-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.10-rc.1)
+is for phone testing. Rebuild from the prepared base and check all nine patch
+results. Stable remains v0.6.9 until the candidate passes and stable publication
+is authorized.
 
 Sync 23033 sorts links with regular expressions and string splits, so equivalent
 links went to different places. For example `reddit.com/comments/ID?context=3`
@@ -502,6 +506,7 @@ must also show success for every selected patch.
 
 ## Downloads
 
+- [Test candidate v0.6.10-rc.1](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.10-rc.1)
 - [Stable v0.6.9 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.9)
 - [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.9/patches.rvp)
 - [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.9/sync-gallery-comments-compat-v0.6.9-source.zip)
@@ -562,9 +567,9 @@ route is the CLI; Manager import and patching still need device verification.
 - **Sync: preserve literal Markdown replacements** preserves dollar signs and
   backslashes in fenced code, spoiler-link labels and emote URLs.
 
-Built from `main` after v0.6.9, the bundle also contains **Sync: normalize Reddit
+The v0.6.10-rc.1 candidate also contains **Sync: normalize Reddit
 links**, which opens equivalent Reddit links at the same place in Sync, as
-described above. Apply all nine named patches from such a build.
+described above. Apply all nine named patches from it.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
