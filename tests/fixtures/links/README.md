@@ -1,7 +1,9 @@
 The Smali fixtures are build-23033 method bodies from the supported prepared base:
 `y7.c.q` (gallery link classifier) unchanged, `y7.b.c` (LinkHelper) with its
 original signature, register count, share-link hook and gallery branch, and
-`MainActivity.onCreate` up to the cold-start link handoff. They contain no
+`MainActivity.onCreate` up to the cold-start link handoff. The router's
+reddit-video log strings are kept so `PatchInteractionTest` can also install the
+comment-video link hook here. They contain no
 account data or credentials.
 
 `LinkPatchTest` applies the compiled production patch, checks each inserted hook,

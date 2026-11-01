@@ -715,6 +715,32 @@ val improveSyncCommentMedia = bytecodePatch(
 
 private const val VIDEO = "Lapp/revanced/extension/synccompat/CommentVideo;"
 
+/**
+ * Link router (y7.b.c). Reddit redirects reddit.com/link/POST/video/MEDIA/player to a
+ * placeholder post, so the link is mapped to v.redd.it/MEDIA, which reaches Sync's own
+ * "reddit video" route. Every other URL passes through unchanged. The hook always goes
+ * first; "normalize Reddit links" places its own hook after it, whichever runs first.
+ */
+@Throws(PatchException::class)
+fun installSyncCommentVideoLinkHook(helper: MutableClassDef) {
+    val router = helper.methods.singleOrNull { m ->
+        m.name == "c" && m.returnType == "Z" &&
+            m.implementation?.instructions?.any { it.stringValue() == "Opening strange reddit video link" } == true
+    } ?: throw PatchException("Unsupported Sync link router.")
+    val routerCode = router.implementation!!.instructions
+    if (routerCode.any { it.methodRef()?.definingClass == VIDEO }) throw PatchException("Comment video patch is already installed.")
+    // Static method: p3 is the URL only when parameters 0-2 are single-register types.
+    layout(AccessFlags.STATIC.isSet(router.accessFlags) && router.parameterTypes.size == 10 &&
+        router.parameterTypes.take(4).map { it.toString() } ==
+            listOf("Landroid/content/Context;", "[Lr0/d;", "Ljava/lang/String;", "Ljava/lang/String;") &&
+        routerCode.any { it.stringValue() == "reddit.com/link/" } &&
+        routerCode.any { it.stringValue() == "Was reddit video" }, "link router")
+    router.addInstructions(0, """
+        invoke-static {p3}, $VIDEO->tapUrl(Ljava/lang/String;)Ljava/lang/String;
+        move-result-object p3
+    """.trimIndent())
+}
+
 val showSyncCommentVideoPreviews = bytecodePatch(
     name = "Sync: show comment video previews",
     description = "Draw Reddit-hosted and Imgur MP4/gifv comment videos as a still frame with a play button within the reply width, and open reddit.com/link/.../video/... links in Sync's video viewer instead of a browser redirect to a missing post.",
@@ -722,27 +748,9 @@ val showSyncCommentVideoPreviews = bytecodePatch(
     compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
     dependsOn(extensionPatch)
     apply {
-        // Link router (y7.b.c). Reddit redirects reddit.com/link/POST/video/MEDIA/player to a
-        // placeholder post, so the link is mapped to v.redd.it/MEDIA, which reaches Sync's own
-        // "reddit video" route. Every other URL passes through unchanged.
         val helper = classes.singleOrNull { it.type == "Ly7/b;" && it.sourceFile == "LinkHelper.java" }
             ?: throw PatchException("Expected Sync LinkHelper was not found. This patch targets build 23033 only.")
-        val router = proxy(helper).mutableClass.methods.singleOrNull { m ->
-            m.name == "c" && m.returnType == "Z" &&
-                m.implementation?.instructions?.any { it.stringValue() == "Opening strange reddit video link" } == true
-        } ?: throw PatchException("Unsupported Sync link router.")
-        val routerCode = router.implementation!!.instructions
-        if (routerCode.any { it.methodRef()?.definingClass == VIDEO }) throw PatchException("Comment video patch is already installed.")
-        // Static method: p3 is the URL only when parameters 0-2 are single-register types.
-        layout(AccessFlags.STATIC.isSet(router.accessFlags) && router.parameterTypes.size == 10 &&
-            router.parameterTypes.take(4).map { it.toString() } ==
-                listOf("Landroid/content/Context;", "[Lr0/d;", "Ljava/lang/String;", "Ljava/lang/String;") &&
-            routerCode.any { it.stringValue() == "reddit.com/link/" } &&
-            routerCode.any { it.stringValue() == "Was reddit video" }, "link router")
-        router.addInstructions(0, """
-            invoke-static {p3}, $VIDEO->tapUrl(Ljava/lang/String;)Ljava/lang/String;
-            move-result-object p3
-        """.trimIndent())
+        installSyncCommentVideoLinkHook(proxy(helper).mutableClass)
 
         // Comment link handler (nc.d.e). Register roles are fixed by build 23033 and checked:
         // p0 = builder, p1 = layout (reply width in e), v0 = link span, v2 = href,
@@ -1471,12 +1479,28 @@ val normalizeSyncRedditLinks = bytecodePatch(
         } ?: throw PatchException("Unsupported Sync LinkHelper entry. This patch targets build 23033 only.")
         if (helper.code().any { it.methodRef()?.definingClass == LINKS })
             throw PatchException("Reddit link normalization is already installed.")
-        // p3 is the link. The inherited share-link hook must still be the first instruction.
+        // p3 is the link. The inherited share-link hook is first in Sync 23033. Other patches in
+        // this bundle may already have put their own p3 rewrites (invoke-static {p3} returning a
+        // String, then move-result-object p3) ahead of it; skip only those, then normalize just
+        // before the share-link hook, so the result is the same whichever patch runs first.
         val url = helper.implementation!!.registerCount - 10 + 3
-        val first = helper.code().firstOrNull()
+        val entry = helper.code()
+        fun rewritesUrl(i: Int): Boolean {
+            val call = entry.getOrNull(i) as? FiveRegisterInstruction ?: return false
+            val ref = entry[i].methodRef() ?: return false
+            val result = entry.getOrNull(i + 1) ?: return false
+            return entry[i].opcode == Opcode.INVOKE_STATIC && call.registerCount == 1 && call.registerC == url &&
+                ref.definingClass.startsWith("Lapp/revanced/extension/synccompat/") && ref.definingClass != LINKS &&
+                ref.parameterTypes.map { it.toString() } == listOf("Ljava/lang/String;") &&
+                ref.returnType == "Ljava/lang/String;" &&
+                result.opcode == Opcode.MOVE_RESULT_OBJECT && result.registerA() == url
+        }
+        var hook = 0
+        while (rewritesUrl(hook)) hook += 2
+        val first = entry.getOrNull(hook)
         layout(first?.opcode == Opcode.INVOKE_STATIC && first.methodRef()?.let {
             it.definingClass == INHERITED_SLINK_HOOK && it.name == "patchResolveSLink"
-        } == true && (first as FiveRegisterInstruction).registerC == url && !helper.targeted(0) &&
+        } == true && (first as FiveRegisterInstruction).registerC == url && !helper.targeted(hook) &&
             listOf("LinkHelper", "Was gallery", "Was shortened", "Was comments", "Was reddit user").all(helper::hasString) &&
             helper.code().any { it.methodRef()?.let { m -> m.definingClass == LINK_TYPES && m.name == "q" } == true },
             "Sync LinkHelper")
@@ -1505,7 +1529,7 @@ val normalizeSyncRedditLinks = bytecodePatch(
         } && !start.targeted(subreddit), "cold-start link handoff")
 
         // All layouts verified; edit.
-        helper.addInstructions(0, """
+        helper.addInstructions(hook, """
             invoke-static {p3}, $LINKS->normalize(Ljava/lang/String;)Ljava/lang/String;
             move-result-object p3
         """.trimIndent())

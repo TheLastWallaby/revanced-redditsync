@@ -31,6 +31,9 @@ This repository distributes a cumulative ReVanced patch bundle for the free Sync
   Confirm every intended suite actually ran. Package-declared suites must execute
   by fully qualified class name; extend discovery and its regression coverage if
   introducing a test layout the runner does not support. Compilation is not execution.
+- Patches run in name order. When a patch edits a Sync method that another patch
+  already edits, run PatchInteractionTest with local-inspect/inputs/base.apk (see
+  docs/AUTOMATION.md) so every patch succeeds in either order with the same result.
 - Provide the downloadable CI artifact/run link and test evidence in the PR.
   Canonical outputs are output/patches.rvp, the source ZIP, SHA256SUMS and
   build-info.json. Do not direct users to stale dist/ candidates as new CI outputs.

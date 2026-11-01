@@ -43,7 +43,10 @@ stable releases and will not select a candidate automatically.
 
 Before installing, inspect the build's patch-step logs: every selected named
 patch must report success. CLI 6.0.0 can save/sign an APK after a patch error, so
-a green run or valid signature alone does not prove all patches applied. Also
+a green run or valid signature alone does not prove all patches applied. The
+builder now stops before publishing unless every patch the bundle enables reports
+`succeeded` exactly once, and lists them in `verification.json` as
+`patches_succeeded`; builds made before this check have no such list. Also
 check `verification.json` for the original signer, preserved classes and unchanged
 resources/manifest. The builder checks the configured base checksum separately.
 Install the candidate as an update and test the changed feature on the phone.
