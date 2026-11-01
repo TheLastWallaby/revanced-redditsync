@@ -4,10 +4,11 @@ Unofficial ReVanced compatibility patches for **Sync for Reddit
 v23.06.30-13:39**, version code **23033**, free package
 `com.laurencedawson.reddit_sync`.
 
-**Stable v0.6.11** keeps signed inline image URLs intact and captures picture
-dimensions for both text posts and comments. It rebuilds the runtime code from
-the phone-approved v0.6.11-rc.2 candidate, retaining v0.6.10's Reddit link
-normalization, v0.6.9's gallery resilience and rate-helper sharing, v0.6.8's bounded
+**Stable v0.6.12** stops using Reddit's legacy `/api/morechildren` and
+`/api/info` endpoints and requests comments and galleries with Reddit's default
+text encoding, as Sync itself does. It rebuilds the runtime code from the
+phone-tested v0.6.12-rc.1 candidate, retaining v0.6.11's signed inline image
+URLs, v0.6.10's Reddit link normalization, v0.6.9's gallery resilience and rate-helper sharing, v0.6.8's bounded
 load-more requests, v0.6.7's literal Markdown replacements, v0.6.6's direct media resolution, v0.6.5's Imgur comment video
 posters, v0.6.4's Reddit video support, v0.6.3's award data, v0.6.2's inline
 comment media and v0.6.1's share-link security fixes.
@@ -15,43 +16,21 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## v0.6.11 signed inline image URLs
+## v0.6.12 no legacy Reddit endpoints (issues #48, #51, #55)
 
-The [v0.6.11 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11)
-rebuilds the runtime code from the approved
-[v0.6.11-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11-rc.2).
-Rebuild from the prepared base and check all nine named patch results.
+The [v0.6.12 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.12)
+rebuilds the runtime code from the phone-tested
+[v0.6.12-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.12-rc.1).
+Rebuild from the prepared base and check all nine named patch results. It
+contains the three changes below.
 
-Fixes pictures in text posts and comments that show a black inline box and
-**GLIDE FAILED TO GRAB THIS IMAGE** when tapped. Sync appended `&height=<metadata height>` to signed
-`preview.redd.it` URLs for layout. Reddit rejected the reported URL with HTTP
-403; the original URL served its PNG successfully. The inline-media patch now
-keeps the source URL intact during post/comment parsing, so both inline images and
-taps use it. Dimensions still come from `media_metadata`. Actual URL parameters,
-including a source's own `height`, remain unchanged.
-
-`CommentImageUrlPatchTest` executes the original and patched DEX rewrite, checks
-signed query bytes and surrounding text, metadata sizing, layout/duplicate
-rejection and DEX serialization. Its optional base-APK argument also applies the
-complete named patch to the verified prepared base.
-
-On rc.1 the tester confirmed that tapping now loads the image, but it only
-appeared as a link. That candidate captured dimensions only in the comment
-parser branch, while this image is in a text post. rc.2 captures the item's
-metadata at the shared parser entry for both `selftext` posts and `body` comments.
-Its regression test feeds raw post/comment JSON through the emitted parser call
-before checking the inline box; it no longer manually seeds the cache. The tester
-approved rc.2 for stable publication after the three numbered phone checks;
-only an overall result was given. See `validation-phone-tests.json` for that
-scope and the earlier partial rc.1 result.
-
-## v0.6.12-rc.1 candidate: no legacy Reddit endpoints (issues #48, #51, #55)
-
-The [v0.6.12-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.12-rc.1)
-is for phone testing. Rebuild from the prepared base and check all nine named
-patch results. Stable remains v0.6.11 until the candidate passes and stable
-publication is authorized. It contains the three changes below. None has been
-tested on a phone or against live Reddit yet.
+On rc.1 the tester reported load-more on a large thread and the general
+regression checks (galleries, comment media, share links) passing, then
+authorized stable publication. Literal entity text through load-more and a
+gallery caption containing `&` were not tested on the phone. The awards sheets
+were not reachable: Sync shows the post menu's Awards row and a comment's awards
+only when Reddit reports `total_awards_received` above 0, and the tested items
+reported none. See `validation-phone-tests.json`.
 
 ### Awards sheet and gallery fallback without `/api/info` (issue #48)
 
@@ -137,6 +116,36 @@ come out byte-identical and a caption containing `&` renders as typed. By the
 base's code, Sync's own decoding (it decodes `&amp;` before `&lt;`) turns a
 literal `&lt;3` into `<3` on its own route too; the fix makes load-more match
 the thread view rather than change it.
+
+## v0.6.11 signed inline image URLs
+
+The [v0.6.11 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11)
+rebuilds the runtime code from the approved
+[v0.6.11-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11-rc.2).
+Rebuild from the prepared base and check all nine named patch results.
+
+Fixes pictures in text posts and comments that show a black inline box and
+**GLIDE FAILED TO GRAB THIS IMAGE** when tapped. Sync appended `&height=<metadata height>` to signed
+`preview.redd.it` URLs for layout. Reddit rejected the reported URL with HTTP
+403; the original URL served its PNG successfully. The inline-media patch now
+keeps the source URL intact during post/comment parsing, so both inline images and
+taps use it. Dimensions still come from `media_metadata`. Actual URL parameters,
+including a source's own `height`, remain unchanged.
+
+`CommentImageUrlPatchTest` executes the original and patched DEX rewrite, checks
+signed query bytes and surrounding text, metadata sizing, layout/duplicate
+rejection and DEX serialization. Its optional base-APK argument also applies the
+complete named patch to the verified prepared base.
+
+On rc.1 the tester confirmed that tapping now loads the image, but it only
+appeared as a link. That candidate captured dimensions only in the comment
+parser branch, while this image is in a text post. rc.2 captures the item's
+metadata at the shared parser entry for both `selftext` posts and `body` comments.
+Its regression test feeds raw post/comment JSON through the emitted parser call
+before checking the inline box; it no longer manually seeds the cache. The tester
+approved rc.2 for stable publication after the three numbered phone checks;
+only an overall result was given. See `validation-phone-tests.json` for that
+scope and the earlier partial rc.1 result.
 
 ## v0.6.10 Reddit link normalization (issue #5)
 
@@ -514,7 +523,7 @@ field was missing or had changed shape.
   `redditmedia.com`, `reddit.com`). Sync's own icon-size choice is unchanged.
 - **Awards sheet** (post menu → Awards, or tapping a comment's awards). Its
   `/api/info` lookup threw on any missing field and reported "Could not load
-  gallery". It now separates the cases (v0.6.12-rc.1 replaces the `/api/info`
+  gallery". It now separates the cases (v0.6.12 replaces the `/api/info`
   lookup itself; see above):
 
   | Reddit's response | Sheet shows |
@@ -637,16 +646,15 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [v0.6.12-rc.1 phone-test candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.12-rc.1)
-- [Stable v0.6.11 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.11/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.11/sync-gallery-comments-compat-v0.6.11-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.11/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.11/build-info.json)
+- [Stable v0.6.12 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.12)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.12/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.12/sync-gallery-comments-compat-v0.6.12-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.12/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.12/build-info.json)
+- [Archived v0.6.12-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.12-rc.1)
+- [Previous stable v0.6.11](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11)
 - [Archived v0.6.11-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.11-rc.2)
 - [Previous stable v0.6.10](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.10)
-- [Archived v0.6.10-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.10-rc.1)
-- [Previous stable v0.6.9](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.9)
 
 For unpublished changes, download the `patch-bundle-<run>-<attempt>` artifact from
 the PR's passing [CI run](https://github.com/TheLastWallaby/revanced-redditsync/actions/workflows/ci.yml).
@@ -672,20 +680,20 @@ download that file from Releases and import it as a local patch bundle.
 Use the Sync base and patch selections described below. The validated patching
 route is the CLI; Manager import and patching still need device verification.
 
-## Included patches — cumulative v0.6.10
+## Included patches — cumulative v0.6.12
 
 - **Sync: secure Reddit share links** validates share URLs and redirects before
   sending credentials, as described above.
 - **Sync: fix Reddit galleries** loads native Reddit galleries through the
   comment-page endpoint and adapts the post listing for Sync's existing parser,
   leaving unavailable items as placeholders while the rest stay usable. In
-  v0.6.12-rc.1 a gallery link without a post ID fails without any request
+  v0.6.12 a gallery link without a post ID fails without any request
   instead of using `/api/info` (issue #48).
 - **Sync: load more comments in batches** uses normal comment routes, with at
   most 32 additional requests per tap (four at a time), Reddit rate-limit and
   backoff handling, a 20-second deadline and cancellation, sharing Sync's own
   rate-limit helper. It reuses comments already returned and preserves failed and
-  untouched IDs, parent relationships and nested retries. In v0.6.12-rc.1 it
+  untouched IDs, parent relationships and nested retries. Since v0.6.12 it
   no longer tries Reddit's `/api/morechildren` endpoint first (issue #51), and no
   comment or gallery request adds `raw_json` (issue #55).
 - **Sync: improve inline comment media** draws comment pictures, Reddit/Giphy
@@ -693,7 +701,7 @@ route is the CLI; Manager import and patching still need device verification.
   reply width, as described above.
 - **Sync: handle unavailable award data** keeps listings usable when
   award fields are missing and gives the awards sheet accurate messages and an
-  Open on Reddit row, as described above. In v0.6.12-rc.1 the sheet reads the
+  Open on Reddit row, as described above. Since v0.6.12 the sheet reads the
   item's comment page instead of `/api/info` (issue #48).
 - **Sync: show comment video previews** opens Reddit comment video
   links in Sync's video viewer and draws them as a still frame with a play
@@ -866,6 +874,9 @@ Stable v0.6.10 rebuilds the v0.6.10-rc.1 runtime code after the tester approved
 promotion; only an overall result was given for the link checks.
 Stable v0.6.11 rebuilds the v0.6.11-rc.2 runtime code after the tester approved
 promotion; only an overall result was given for the inline-picture checks.
+Stable v0.6.12 rebuilds the v0.6.12-rc.1 runtime code after the tester reported
+load-more and regression checks passing and authorized promotion; two checks were
+not tested and the awards sheets were not reachable on the phone.
 These are checks of the supplied cases, not exhaustive Android/live Reddit tests.
 This standalone bundle does not represent a full upstream Gradle build.
 
