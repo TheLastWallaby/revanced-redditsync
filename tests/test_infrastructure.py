@@ -93,6 +93,13 @@ class InfrastructureTests(unittest.TestCase):
         self.assertIn("app.revanced.extension.synccompat.GalleryCompatTest", tests)
         self.assertIn("GalleryPatchTest", tests)
 
+    def test_link_suites_are_discovered(self):
+        tests = discover_java_tests(ROOT / "tests")
+        self.assertIn("app.revanced.extension.synccompat.LinkNormalizerTest", tests)
+        self.assertIn("LinkPatchTest", tests)
+        # Test-only stand-ins live beside the suites but are not suites themselves.
+        self.assertNotIn("app.revanced.extension.syncforreddit.FixSLinksPatch", tests)
+
     def test_comment_request_suites_are_discovered(self):
         tests = discover_java_tests(ROOT / "tests")
         self.assertIn("BatchCommentsTest", tests)

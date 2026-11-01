@@ -96,7 +96,8 @@ public final class SafeSLinksTest {
         String authorization = token == null ? null : "Bearer " + token;
         check("HEAD".equals(request.getRequestMethod()), "share requests use HEAD");
         check(!request.getInstanceFollowRedirects(), "automatic redirects disabled");
-        check(request.getConnectTimeout() == 2000 && request.getReadTimeout() == 2000, "bounded socket timeouts");
+        check(request.getConnectTimeout() > 0 && request.getConnectTimeout() <= 4000
+                && request.getReadTimeout() == request.getConnectTimeout(), "bounded socket timeouts");
         check(authorization == null
                 ? request.getRequestProperty("Authorization") == null
                 : authorization.equals(request.getRequestProperty("Authorization")), "authorization scope");
@@ -124,7 +125,11 @@ public final class SafeSLinksTest {
             "https://www.reddit.com/r/test/s/", "https://www.reddit.com/r/test/s/AbCd12/extra",
             "https://www.reddit.com/r/test%2fevil/s/AbCd12", "https://www.reddit.com/r/test/s/AbCd12%2fextra",
             "https://www.reddit.com/r/test/s/AbCd12//", "https://www.reddit.com/r/test/s/../AbCd12",
-            "https://www.reddit.com/r/test/s/AbCd12\r\nPRIVATE_ACCOUNT_DATA"
+            "https://www.reddit.com/r/test/s/AbCd12\r\nPRIVATE_ACCOUNT_DATA",
+            "https://www.reddit.com/u/s/AbCd12", "https://www.reddit.com/user//s/AbCd12",
+            "https://www.reddit.com/u/te.st/s/AbCd12", "https://www.reddit.com/users/test/s/AbCd12",
+            "https://www.reddit.com/m/test/s/AbCd12", "https://www.reddit.com/u/test/comments/s/AbCd12",
+            "http://www.reddit.com/u/test/s/AbCd12", "https://evil.invalid/u/test/s/AbCd12"
         };
         for (String value : invalid) {
             Transport transport = new Transport();
@@ -140,7 +145,8 @@ public final class SafeSLinksTest {
             "HTTPS://WWW.REDDIT.COM/r/test/s/AbCd12", "https://www.reddit.com:443/r/test/s/AbCd12",
             "https://reddit.com/r/test/s/AbCd12", "https://old.reddit.com/r/test/s/AbCd12",
             "https://new.reddit.com/r/test/s/AbCd12", "https://sh.reddit.com/r/test/s/AbCd12",
-            "https://m.reddit.com/r/test/s/AbCd12", "https://np.reddit.com/r/test/s/AbCd12"
+            "https://m.reddit.com/r/test/s/AbCd12", "https://np.reddit.com/r/test/s/AbCd12",
+            "https://www.reddit.com/u/test-user_1/s/AbCd12", "https://www.reddit.com/user/test/s/AbCd12/"
         };
         for (String value : valid) {
             String requested = value.split("#", 2)[0];
@@ -220,6 +226,28 @@ public final class SafeSLinksTest {
         failHeader.failHeader = true;
         rejected(() -> SafeSLinks.resolve(START, TOKEN, failHeader));
         check(failHeader.requests.get(0).disconnected, "setup failure releases connection");
+
+        // Each request gets at most the per-request timeout and never more than the chain deadline.
+        java.lang.reflect.Field deadline = SafeSLinks.class.getDeclaredField("DEADLINE_MS");
+        deadline.setAccessible(true);
+        long defaultDeadline = deadline.getLong(null);
+        check(defaultDeadline >= 4000 && defaultDeadline <= 10000, "chain deadline is bounded");
+        Transport fresh = new Transport().route(START, 302, POST);
+        SafeSLinks.resolve(START, TOKEN, fresh);
+        check(fresh.requests.get(0).getConnectTimeout() == 4000, "first request has the full timeout");
+        try {
+            deadline.setLong(null, 1500);
+            Transport clamped = new Transport().route(START, 302, POST);
+            check(POST.equals(SafeSLinks.resolve(START, TOKEN, clamped)), "short deadline still resolves");
+            int clampedTimeout = clamped.requests.get(0).getConnectTimeout();
+            check(clampedTimeout > 0 && clampedTimeout <= 1500, "timeout clamped to remaining deadline");
+            deadline.setLong(null, 0);
+            Transport expired = new Transport().route(START, 302, POST);
+            rejected(() -> SafeSLinks.resolve(START, TOKEN, expired));
+            check(expired.requests.isEmpty(), "expired deadline sends no request");
+        } finally {
+            deadline.setLong(null, defaultDeadline);
+        }
 
         Transport bypass = new Transport();
         check(SafeSLinks.isShareLink(START + "#bypass") && SafeSLinks.isBypass(START + "#bypass"), "browser bypass retained");

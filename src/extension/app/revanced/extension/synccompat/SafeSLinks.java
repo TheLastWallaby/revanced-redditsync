@@ -16,9 +16,14 @@ public final class SafeSLinks {
     private static final Set<String> HOSTS = new HashSet<>(Arrays.asList(
             "reddit.com", "www.reddit.com", "old.reddit.com", "new.reddit.com",
             "sh.reddit.com", "m.reddit.com", "np.reddit.com"));
-    private static final Pattern SHARE_PATH = Pattern.compile("/r/[A-Za-z0-9_]+/s/[A-Za-z0-9]+/?");
+    // Subreddit and profile share links; the token is the last segment.
+    private static final Pattern SHARE_PATH = Pattern.compile(
+            "/(?:r/[A-Za-z0-9_]+|u(?:ser)?/[A-Za-z0-9_-]+)/s/[A-Za-z0-9]+/?");
     private static final int MAX_REQUESTS = 5;
-    private static final int TIMEOUT_MS = 2000;
+    // Per-request socket timeouts, within one deadline for the whole redirect chain.
+    // Not final, so tests can shorten them.
+    private static int TIMEOUT_MS = 4000;
+    private static long DEADLINE_MS = 8000;
 
     interface ConnectionFactory {
         HttpURLConnection open(URL url) throws IOException;
@@ -89,14 +94,19 @@ public final class SafeSLinks {
     }
 
     static HttpURLConnection openConnection(String value, String token, ConnectionFactory factory) throws IOException {
+        return openConnection(value, token, factory, TIMEOUT_MS);
+    }
+
+    private static HttpURLConnection openConnection(String value, String token, ConnectionFactory factory,
+            int timeout) throws IOException {
         URI uri = shareUri(value);
         if (isBypass(value)) throw failure();
         HttpURLConnection connection = factory.open(new URL(withoutFragment(uri)));
         try {
             connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod("HEAD");
-            connection.setConnectTimeout(TIMEOUT_MS);
-            connection.setReadTimeout(TIMEOUT_MS);
+            connection.setConnectTimeout(timeout);
+            connection.setReadTimeout(timeout);
             if (token != null && !token.isEmpty()) {
                 connection.setRequestProperty("Authorization", "Bearer " + token);
             }
@@ -122,10 +132,13 @@ public final class SafeSLinks {
             if (isBypass(value)) throw failure();
             boolean authenticated = true;
             Set<String> seen = new HashSet<>();
+            long deadline = System.nanoTime() + DEADLINE_MS * 1_000_000L;
             for (int request = 0; request < MAX_REQUESTS; request++) {
                 if (!seen.add(withoutFragment(current))) throw failure();
+                long remaining = (deadline - System.nanoTime()) / 1_000_000L;
+                if (remaining <= 0) throw failure();
                 HttpURLConnection connection = openConnection(current.toASCIIString(),
-                        authenticated ? token : null, factory);
+                        authenticated ? token : null, factory, (int) Math.min(TIMEOUT_MS, remaining));
                 final String location;
                 try {
                     int status = connection.getResponseCode();
