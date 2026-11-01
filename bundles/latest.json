@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-01T06:17:03",
-  "description": "## What's Changed\n* Stop calling /api/morechildren during load-more (#51) by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/63\n* Promote phone-approved inline images to stable v0.6.11 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/66\n* Stop adding raw_json=1 to comment and gallery requests (#55) by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/67\n* Replace remaining /api/info lookups (#48); prepare v0.6.12-rc.1 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/68\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.11...v0.6.12-rc.1",
-  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.12-rc.1/patches.rvp",
+  "created_at": "2026-11-01T06:32:29",
+  "description": "## What's Changed\n* Stop calling /api/morechildren during load-more (#51) by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/63\n* Promote phone-approved inline images to stable v0.6.11 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/66\n* Stop adding raw_json=1 to comment and gallery requests (#55) by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/67\n* Replace remaining /api/info lookups (#48); prepare v0.6.12-rc.1 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/68\n* Promote phone-tested v0.6.12-rc.1 to stable v0.6.12 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/69\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.11...v0.6.12",
+  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.12/patches.rvp",
   "signature_download_url": "N/A",
-  "version": "v0.6.12-rc.1"
+  "version": "v0.6.12"
 }
