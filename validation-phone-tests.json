@@ -2,6 +2,27 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.6.12",
+      "tested_release": "v0.6.12-rc.1",
+      "results": {
+        "1_load_more_large_thread": "passed",
+        "2_literal_entity_text_via_load_more": "not tested: the tester could not set this case up",
+        "3_gallery_caption_with_ampersand_full_quality": "not tested as a separate check; galleries loading through the raw_json-free request passed under check 6",
+        "4_post_awards_sheet": "not reachable: no Awards option in post options. Sync shows it only when Reddit reports total_awards_received > 0",
+        "5_comment_awards_sheet": "not reachable: no awards option for comments, for the same reason",
+        "6_general_regressions_galleries_comment_media_share_links": "passed"
+      },
+      "promotion": "Stable v0.6.12 rebuilds the same runtime patch and extension source as the tested v0.6.12-rc.1 candidate. The tester replied \"Publish as stable\" after these results; candidate assets remain immutable.",
+      "unverified": [
+        "literal entity text (&lt;3, &amp;, < >) loaded through load-more on a phone",
+        "a gallery caption containing & on a phone",
+        "the awards sheet lookups for posts and comments on a phone (not reachable while Reddit reports no awards)",
+        "the gallery fallback for links without a post ID on a phone",
+        "separate device installation of the stable rebuild",
+        "exhaustive Reddit account/post combinations"
+      ]
+    },
+    {
       "stable": "v0.6.11",
       "tested_release": "v0.6.11-rc.2",
       "results": {
