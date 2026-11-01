@@ -23,6 +23,9 @@ personal = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(personal)
 
 class InfrastructureTests(unittest.TestCase):
+    def test_comment_image_url_patch_suite_is_discovered(self):
+        self.assertIn("CommentImageUrlPatchTest", discover_java_tests(ROOT / "tests"))
+
     def test_java_discovery_executes_packaged_and_default_package_suites(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
