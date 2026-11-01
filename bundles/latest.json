@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-01T05:26:33",
-  "description": "## What's Changed\n* Fix signed comment image URLs and prepare v0.6.11-rc.1 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/64\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.10...v0.6.11-rc.1",
-  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.11-rc.1/patches.rvp",
+  "created_at": "2026-11-01T05:42:01",
+  "description": "## What's Changed\n* Restore inline text-post images and prepare v0.6.11-rc.2 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/65\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.11-rc.1...v0.6.11-rc.2",
+  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.11-rc.2/patches.rvp",
   "signature_download_url": "N/A",
-  "version": "v0.6.11-rc.1"
+  "version": "v0.6.11-rc.2"
 }
