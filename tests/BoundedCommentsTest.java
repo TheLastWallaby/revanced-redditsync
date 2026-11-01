@@ -145,7 +145,7 @@ public final class BoundedCommentsTest {
     static void reset() throws Exception {
         bodies.clear();statuses.clear();delays.clear();throttled.clear();perId.clear();batchOmit.clear();
         retryAfter = "1";rateRemaining = null;rateReset = null;requiredAuth = null;batchBody = null;lastBatchQuery = null;
-        batchStatus = 403;peak.set(0);batchPeak.set(0);
+        batchStatus = 403;peak.set(0);batchPeak.set(0);d9.d.reset();
         limit("maxRequests",32);limit("deadlineMs",20_000);limit("timeoutMs",15_000);limit("rateReserve",10);
         limit("defaultBackoffMs",5_000);limit("maxBackoffMs",60_000);limit("failureLimit",4);
         limit("batchRecheckMs",6L*60*60*1000);
@@ -197,6 +197,8 @@ public final class BoundedCommentsTest {
                 if (rateRemaining != null) {
                     exchange.getResponseHeaders().add("X-Ratelimit-Remaining",rateRemaining);
                     exchange.getResponseHeaders().add("X-Ratelimit-Reset",rateReset);
+                    exchange.getResponseHeaders().set("Date",java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME
+                            .format(java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC)));
                 }
                 if (requiredAuth != null && !requiredAuth.equals(auth)) { send(exchange,401,"{}");return; }
                 AtomicInteger throttle = throttled.get(key);
@@ -448,6 +450,39 @@ public final class BoundedCommentsTest {
             for (String id : range("fa",8).subList(1,8)) statuses.put(id,403);
             failed = failure(range("fa",8),plain,null);
             check("requests failed".equals(failed[0]) && failed[1].contains("stop=failing"),"nothing loaded after repeated failures gives a short reason");
+
+            // Sync's own OAuthRateHelper (d9.d): extra requests report to it and respect it.
+            reset();
+            rateRemaining = "500";rateReset = "300";
+            all = load(range("sr",5));
+            check(ids(all,"t1").equals(range("sr",5)),"loads normally while reporting to Sync's rate helper");
+            boolean reported = d9.d.recorded.size()==4;
+            for (Map<String,String> seen : d9.d.recorded) {
+                reported &= "500".equals(seen.get("x-ratelimit-remaining")) && "300".equals(seen.get("x-ratelimit-reset"))
+                        && seen.get("date")!=null && seen.get("url").contains("/comments/post123/comment/sr");
+            }
+            check(reported,"each extra response reaches Sync's helper with the lower-case headers it reads");
+            reset();
+            load(range("sn",4));
+            check(d9.d.recorded.isEmpty(),"responses without rate headers are not reported");
+
+            reset();
+            d9.d.remaining = 4;d9.d.resetAt = System.currentTimeMillis()+120_000;
+            before = calls.get();
+            all = load(range("sw",5));
+            check(calls.get()==before && ids(all,"t1").equals(Collections.singletonList("sw0")) && complete(all,range("sw",5)),
+                    "Sync's stored window at the reserve starts no extra request");
+            failed = failure(range("sx",3),plain,null);
+            check("rate limited, try again shortly".equals(failed[0]) && failed[1].contains("stop=rate_limited"),
+                    "nothing loaded under Sync's exhausted window gives the rate-limit reason");
+            reset();
+            d9.d.remaining = 0;d9.d.resetAt = System.currentTimeMillis()-1_000;
+            all = load(range("sp",5));
+            check(ids(all,"t1").equals(range("sp",5)),"an expired stored window does not block requests");
+            reset();
+            d9.d.broken = true;rateRemaining = "500";rateReset = "300";
+            all = load(range("sb",5));
+            check(ids(all,"t1").equals(range("sb",5)),"an unavailable helper never fails a load");
 
             // Reddit's batch endpoint, when the configured client may use it.
             reset();

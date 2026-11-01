@@ -1,5 +1,6 @@
 package app.revanced.extension.syncforreddit;
 
+import com.android.volley.NetworkResponse;
 import com.android.volley.Request;
 
 import java.io.ByteArrayOutputStream;
@@ -9,6 +10,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -136,11 +138,41 @@ final class CommentTransport {
         synchronized (rateLock) { blockedUntil = Math.max(blockedUntil, now() + wait); }
     }
 
+    /**
+     * Sync's OAuthRateHelper (d9.d) keeps the rate window seen by all of Sync's own requests,
+     * and Sync's Volley refuses to send once it is exhausted. Waits while that stored window is
+     * at the reserve; reset times are wall-clock milliseconds.
+     */
+    static long syncWait() {
+        try {
+            long wallNow = System.currentTimeMillis();
+            long reset = d9.d.c();
+            if (reset > wallNow && d9.d.b() <= rateReserve) return Math.min(reset - wallNow, 600_000L);
+        } catch (Throwable unavailable) { /* The helper only adds information; never fail a load on it. */ }
+        return 0;
+    }
+
+    /** Hands a response's rate headers to Sync's helper, as Sync's Volley does for its own requests. */
+    static void recordWithSync(HttpURLConnection connection, int status, String url) {
+        try {
+            Map<String, String> headers = new HashMap<>();
+            // The helper looks these up with exact lower-case keys.
+            for (String name : new String[]{"date", "x-ratelimit-reset", "x-ratelimit-remaining"}) {
+                String value = connection.getHeaderField(name);
+                if (value != null) headers.put(name, value);
+            }
+            if (headers.containsKey("x-ratelimit-remaining")) {
+                d9.d.e(new NetworkResponse(status, new byte[0], headers, false, 0), url);
+            }
+        } catch (Throwable unavailable) { /* The helper only adds information; never fail a load on it. */ }
+    }
+
     /** How long until a new request may start, reserving one request of quota when it can. */
     private static long takeTurn() {
+        long sync = syncWait();
         synchronized (rateLock) {
             long current = now();
-            long until = blockedUntil;
+            long until = Math.max(blockedUntil, sync > 0 ? current + sync : 0);
             if (quota >= 0 && quotaResetAt > current && quota <= rateReserve) until = Math.max(until, quotaResetAt);
             if (until > current) return until - current;
             if (quota >= 0) quota--;
@@ -258,6 +290,7 @@ final class CommentTransport {
                     }
                     int status = connection.getResponseCode();
                     observe(connection.getHeaderField("X-Ratelimit-Remaining"), connection.getHeaderField("X-Ratelimit-Reset"));
+                    recordWithSync(connection, status, url);
                     lastStatus = status;
                     if (status == 429) {
                         backoff(connection.getHeaderField("Retry-After"));

@@ -80,7 +80,7 @@ def main():
 
     javac = [java, "-XX:-UsePerfData", "-m", "jdk.compiler/com.sun.tools.javac.Main", "-encoding", "UTF-8"]
     # Compile-only signatures (ReVanced Logger, Sync's Award model); never packaged.
-    run(*javac, "--release", "8", "-d", build / "stubs",
+    run(*javac, "--release", "8", "-cp", tools / "volley.jar", "-d", build / "stubs",
         *sorted((ROOT / "src/stubs").rglob("*.java")))
     extension_cp = cp(build / "stubs", tools / "android.jar", tools / "volley.jar", tools / "json.jar")
     run(*javac, "--release", "8", "-cp", extension_cp, "-d", build / "extension",
