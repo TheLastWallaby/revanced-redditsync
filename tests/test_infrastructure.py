@@ -112,6 +112,11 @@ class InfrastructureTests(unittest.TestCase):
                          "app.revanced.extension.shared.fixes.redgifs.RedgifsTokenManager"]:
             self.assertNotIn(stand_in, tests)
 
+    def test_reddit_video_suites_are_discovered(self):
+        tests = discover_java_tests(ROOT / "tests")
+        self.assertIn("app.revanced.extension.synccompat.RedditVideoCompatTest", tests)
+        self.assertIn("RedditVideoPatchTest", tests)
+
     def test_comment_request_suites_are_discovered(self):
         tests = discover_java_tests(ROOT / "tests")
         self.assertIn("BatchCommentsTest", tests)

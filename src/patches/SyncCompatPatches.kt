@@ -1660,3 +1660,84 @@ val refreshSyncRedgifsTokens = bytecodePatch(
             "invoke-static {v${call!!.registerC}}, $REDGIFS_REFRESH->install($OKHTTP_BUILDER)$OKHTTP_CLIENT")
     }
 }
+
+private const val REDDIT_VIDEO = "Lapp/revanced/extension/synccompat/RedditVideoCompat;"
+private const val VIDEO_PLAYER = "Lcom/laurencedawson/reddit_sync/ui/views/video/CustomExoPlayerView;"
+private const val EXO_UTILS = "Lxc/a;"
+private const val MEDIA_SOURCE = "Lcom/google/android/exoplayer2/source/MediaSource;"
+private const val DASH_FACTORY = "Lcom/google/android/exoplayer2/source/dash/DashMediaSource\$Factory;"
+private const val HLS_FACTORY = "Lcom/google/android/exoplayer2/source/hls/HlsMediaSource\$Factory;"
+
+val playSyncRedditVideosViaDash = bytecodePatch(
+    name = "Sync: play Reddit videos via DASH",
+    description = "Open Reddit-hosted videos through their DASH manifest, which Reddit still serves without a signature, " +
+        "instead of the unsigned HLS playlist Sync builds, which Reddit now refuses (HTTP 403).",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        fun mutable(type: String, what: String): MutableClassDef =
+            proxy(classes.singleOrNull { it.type == type } ?: throw PatchException(
+                "Expected Sync $what was not found. This patch targets build 23033 only.")).mutableClass
+        fun MutableMethod.code() = implementation!!.instructions
+        fun MutableMethod.calls(owner: String, name: String) =
+            code().any { it.methodRef()?.let { m -> m.definingClass == owner && m.name == name } == true }
+        fun MutableMethod.hasString(value: String) = code().any { it.stringValue() == value }
+        fun MutableMethod.targeted(index: Int): Boolean {
+            val target = code()[index]
+            return code().any { it is BuilderOffsetInstruction && it.target.location.instruction === target }
+        }
+
+        // Sync's player picks DASH for v.redd.it + .mpd (y7.c.s) and HLS for v.redd.it + .m3u8 (y7.c.t).
+        val types = mutable(LINK_TYPES, "link classifier")
+        val dash = types.methods.singleOrNull { it.name == "s" && it.parameterTypes == listOf("Ljava/lang/String;") && it.returnType == "Z" }
+        val hls = types.methods.singleOrNull { it.name == "t" && it.parameterTypes == listOf("Ljava/lang/String;") && it.returnType == "Z" }
+        layout(dash != null && dash.hasString("v.redd.it") && dash.hasString(".mpd") &&
+            hls != null && hls.hasString("v.redd.it") && hls.hasString(".m3u8"), "Sync Reddit video classifier")
+
+        // Full-screen viewer, pager and peek: rc.b.setSource stores the source, then starts the player.
+        val player = mutable(VIDEO_PLAYER, "video player")
+        val setSource = player.methods.singleOrNull {
+            it.name == "setSource" && it.parameterTypes == listOf("Ljava/lang/String;", "Z", "Z") && it.returnType == "V"
+        } ?: throw PatchException("Unsupported Sync video player setSource.")
+        val initPlayer = player.methods.singleOrNull {
+            it.name == "initPlayer" && it.parameterTypes == listOf("Z") && it.returnType == "V"
+        } ?: throw PatchException("Unsupported Sync video player initPlayer.")
+        // Feed autoplay: ExoplayerUtils.a(String) builds the media source itself.
+        val utils = mutable(EXO_UTILS, "ExoplayerUtils")
+        val autoplay = utils.methods.singleOrNull {
+            it.name == "a" && it.parameterTypes == listOf("Ljava/lang/String;") && it.returnType == MEDIA_SOURCE &&
+                AccessFlags.STATIC.isSet(it.accessFlags)
+        } ?: throw PatchException("Unsupported Sync ExoplayerUtils media source helper.")
+
+        if (setSource.code().any { it.methodRef()?.definingClass == REDDIT_VIDEO } ||
+            autoplay.code().any { it.methodRef()?.definingClass == REDDIT_VIDEO }) {
+            throw PatchException("Reddit video DASH playback is already installed.")
+        }
+        val source = setSource.implementation!!.registerCount - 4 + 1
+        val store = setSource.code().firstOrNull()
+        val stored = (store as? ReferenceInstruction)?.reference as? FieldReference
+        layout(store?.opcode == Opcode.IPUT_OBJECT && store?.registerA() == source && stored?.definingClass == VIDEO_PLAYER &&
+            stored?.name == "mSource" && stored?.type == "Ljava/lang/String;" && !setSource.targeted(0) &&
+            setSource.calls(VIDEO_PLAYER, "initPlayer"), "Sync video player setSource")
+        for ((method, what) in listOf(initPlayer to "Sync video player initPlayer", autoplay to "Sync ExoplayerUtils media source")) {
+            layout(method.calls(LINK_TYPES, "s") && method.calls(LINK_TYPES, "t") &&
+                method.calls(DASH_FACTORY, "createMediaSource") && method.calls(HLS_FACTORY, "createMediaSource"), what)
+        }
+        val url = autoplay.implementation!!.registerCount - 1
+        layout(!autoplay.targeted(0) && autoplay.code().any { insn ->
+            insn.methodRef()?.let { it.definingClass == LINK_TYPES && it.name == "s" } == true &&
+                (insn as? FiveRegisterInstruction)?.registerC == url
+        }, "Sync ExoplayerUtils media source")
+
+        // All layouts verified; edit.
+        setSource.addInstructions(0, """
+            invoke-static {p1}, $REDDIT_VIDEO->playbackSource(Ljava/lang/String;)Ljava/lang/String;
+            move-result-object p1
+        """.trimIndent())
+        autoplay.addInstructions(0, """
+            invoke-static {p0}, $REDDIT_VIDEO->playbackSource(Ljava/lang/String;)Ljava/lang/String;
+            move-result-object p0
+        """.trimIndent())
+    }
+}
