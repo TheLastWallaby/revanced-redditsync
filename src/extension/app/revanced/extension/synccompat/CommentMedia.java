@@ -189,7 +189,17 @@ public final class CommentMedia {
 
     // ------------------------------------------------------- media_metadata cache
 
-    /** Records image dimensions/types from a comment's media_metadata object. Never throws. */
+    /** Called at the shared post/comment parser entry, before either text renderer can run. */
+    public static void rememberItemMetadata(JSONObject item) {
+        if (item == null) return;
+        try {
+            if (item.has("selftext") || item.has("body")) rememberMetadata(item.optJSONObject("media_metadata"));
+        } catch (RuntimeException ignored) {
+            // Missing/malformed metadata leaves the existing link fallback.
+        }
+    }
+
+    /** Records image dimensions/types from a post's or comment's media_metadata object. Never throws. */
     public static void rememberMetadata(JSONObject mediaMetadata) {
         if (mediaMetadata == null) return;
         try {
