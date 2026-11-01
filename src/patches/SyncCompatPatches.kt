@@ -227,6 +227,20 @@ val fixSyncMoreComments = bytecodePatch(
     apply {
         val target = classes.singleOrNull { it.type == "Ly8/f;" && it.sourceFile == "OAuthCommentsMoreRequest.java" }
             ?: throw PatchException("Expected Sync OAuthCommentsMoreRequest was not found. This patch targets build 23033 only.")
+        // The extension reports its extra requests to Sync's OAuthRateHelper and reads its
+        // stored window, so the helper's static methods must have exactly these signatures.
+        val rateHelper = classes.singleOrNull { it.type == "Ld9/d;" && it.sourceFile == "OAuthRateHelper.java" }
+            ?: throw PatchException("Expected Sync OAuthRateHelper was not found. This patch targets build 23033 only.")
+        for ((name, parameters, returns) in listOf(
+            Triple("e", listOf(NETWORK, "Ljava/lang/String;"), "V"),
+            Triple("b", emptyList(), "I"),
+            Triple("c", emptyList(), "J"),
+        )) {
+            if (rateHelper.methods.none {
+                    it.name == name && it.parameterTypes == parameters && it.returnType == returns &&
+                        AccessFlags.STATIC.isSet(it.accessFlags) && AccessFlags.PUBLIC.isSet(it.accessFlags)
+                }) throw PatchException("Sync OAuthRateHelper.$name has an unexpected signature.")
+        }
         val clazz = proxy(target).mutableClass
         val parentField = "${clazz.type}->patch_continuationParent:Ljava/lang/String;"
         clazz.fields.add(MutableField(ImmutableField(clazz.type, "patch_continuationParent", "Ljava/lang/String;",

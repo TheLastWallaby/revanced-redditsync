@@ -15,6 +15,22 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
+## Unreleased: load-more requests share Sync's rate helper (issue #3)
+
+Completes the v0.6.8 change to **Sync: load more comments in batches**. Sync's
+own `OAuthRateHelper` (`d9.d`) stores Reddit's rate window, and Sync's Volley
+refuses to send its requests once that window is exhausted. The extra load-more
+requests now report each response's `x-ratelimit-*` and `date` headers to that
+helper, as Sync's Volley does for its own requests. They also wait (or stop with
+"rate limited") while the window Sync has stored is at the 10-request reserve and
+not yet reset. A helper failure never fails a load. The patch checks the
+helper's `e`, `b` and `c` signatures in build 23033 before installing.
+
+`BoundedCommentsTest` covers reporting, unreported header-less responses, a
+stored window at the reserve, an expired window and an unavailable helper, using
+a recording stand-in for the helper. Not verified: phone behavior against Sync's
+real SharedPreferences-backed helper.
+
 ## v0.6.9-rc.1 gallery resilience (issue #6)
 
 Extends **Sync: fix Reddit galleries**. A missing, failed, processing or unsupported
