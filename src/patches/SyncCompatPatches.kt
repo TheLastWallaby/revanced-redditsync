@@ -478,6 +478,47 @@ val preserveSyncMarkdownLiterals = bytecodePatch(
     }
 }
 
+/** Keep the signed source URL when Sync prepares comment image links for its renderer. */
+@Throws(PatchException::class)
+fun preserveSyncCommentImageUrls(parser: MutableClassDef) {
+    val parse = parser.methods.singleOrNull {
+        it.name == "a" && it.returnType == "V" && it.parameterTypes == listOf(
+            "Landroid/content/Context;", "I", "Lorg/json/JSONObject;", "Ljava/util/ArrayList;",
+            "I", "Z", "Z", "Ljava/lang/String;")
+    } ?: throw PatchException("Unsupported comment image parser method.")
+    val code = parse.implementation!!.instructions
+    val height = code.singleIndex("comment image height suffix") { code[it].stringValue() == "&height=" }
+    fun call(index: Int, name: String, parameters: List<String>, registers: List<Int>): Boolean {
+        val instruction = code.getOrNull(index) ?: return false
+        val ref = instruction.methodRef() ?: return false
+        val args = instruction as? FiveRegisterInstruction ?: return false
+        return instruction.opcode == Opcode.INVOKE_VIRTUAL && ref.name == name &&
+            ref.parameterTypes == parameters && args.registerCount == registers.size &&
+            listOf(args.registerC, args.registerD, args.registerE).take(registers.size) == registers
+    }
+    layout(height >= 3 && height + 6 < code.size && code[height].registerA() == 9 &&
+        code[height - 3].opcode == Opcode.NEW_INSTANCE && code[height - 3].registerA() == 4 &&
+        call(height - 1, "append", listOf("Ljava/lang/String;"), listOf(4, 0)) &&
+        call(height + 1, "append", listOf("Ljava/lang/String;"), listOf(4, 9)) &&
+        call(height + 2, "append", listOf("I"), listOf(4, 1)) &&
+        call(height + 3, "toString", emptyList(), listOf(4)) &&
+        call(height + 5, "replace", listOf("Ljava/lang/CharSequence;", "Ljava/lang/CharSequence;"), listOf(14, 0, 1)) &&
+        code[height + 6].opcode == Opcode.MOVE_RESULT_OBJECT && code[height + 6].registerA() == 14 &&
+        (height - 1..height + 3).filter { it != height }.all {
+            code[it].methodRef()?.definingClass == "Ljava/lang/StringBuilder;"
+        } && code[height + 5].methodRef()?.definingClass == "Ljava/lang/String;", "comment image height suffix")
+    val result = code[height + 4]
+    if (result.opcode == Opcode.MOVE_OBJECT && result.registerA() == 1 &&
+        (result as TwoRegisterInstruction).registerB == 0) {
+        throw PatchException("Comment image URL preservation is already installed.")
+    }
+    layout(result.opcode == Opcode.MOVE_RESULT_OBJECT && result.registerA() == 1, "comment image height result")
+    // Sync appends &height=<metadata y> to a signed CDN URL, which Reddit rejects with 403.
+    // Reuse the source URL as the replacement instead. Keep instruction widths, branches and
+    // try blocks unchanged; rememberMetadata already supplies the renderer's dimensions.
+    parse.replaceInstruction(height + 4, "move-object v1, v0")
+}
+
 val improveSyncCommentMedia = bytecodePatch(
     name = "Sync: improve inline comment media",
     description = "Size Reddit comment pictures from URL parameters in any order or from media_metadata, preserving aspect ratio, reply width and signed links; draw Giphy links inline from media_metadata; inline WebP and other parsed picture formats; keep malformed Giphy markers usable.",
@@ -656,6 +697,7 @@ val improveSyncCommentMedia = bytecodePatch(
         }
         if (sites.size != 1) throw PatchException("Expected one comment media_metadata read, found ${sites.size}.")
         val (parse, index) = sites.single()
+        preserveSyncCommentImageUrls(parser)
         val metadata = parse.implementation!!.instructions[index + 2].registerA()!!
         // Capture comment image sizes/types while Sync parses the comment; the body is unchanged.
         parse.addInstructions(index + 3,

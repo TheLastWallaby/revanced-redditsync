@@ -15,6 +15,21 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
+## Unreleased: signed comment image URLs
+
+Fixes comment pictures that show a black inline box and **GLIDE FAILED TO GRAB
+THIS IMAGE** when tapped. Sync appended `&height=<metadata height>` to signed
+`preview.redd.it` URLs for layout. Reddit rejected the reported URL with HTTP
+403; the original URL served its PNG successfully. The inline-media patch now
+keeps the source URL intact during comment parsing, so both inline images and
+taps use it. Dimensions still come from `media_metadata`. Actual URL parameters,
+including a source's own `height`, remain unchanged.
+
+`CommentImageUrlPatchTest` executes the original and patched DEX rewrite, checks
+signed query bytes and surrounding text, metadata sizing, layout/duplicate
+rejection and DEX serialization. Its optional base-APK argument also applies the
+complete named patch to the verified prepared base. Phone validation is pending.
+
 ## v0.6.10 Reddit link normalization (issue #5)
 
 Adds the selectable **Sync: normalize Reddit links** patch for
@@ -432,8 +447,9 @@ The tester confirmed the v0.6.2-rc.5 phone checks recorded in
   not stretched past its native size. Tall images stop at 1.5× the reply
   width. Extreme banners or strips, and boxes that rounding would distort by
   more than 10%, stay links.
-- The URL is never rebuilt. The old `&height` slice that dropped the signed
-  `s=` parameter is gone, and the tap target stays the original link.
+- The renderer does not rebuild the URL. See the unreleased correction above:
+  Sync's parser must also keep its synthetic `&height` out of signed image URLs.
+  The tap target and inline image then both use the original source link.
 - WebP and other picture formats are recognized from the parsed path or the
   `format=` value, not from substrings. `format=mp4` renditions are not drawn as
   pictures. Detection only adds to Sync's own list and still respects the
