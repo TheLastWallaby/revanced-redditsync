@@ -478,14 +478,35 @@ val preserveSyncMarkdownLiterals = bytecodePatch(
     }
 }
 
-/** Keep the signed source URL when Sync prepares comment image links for its renderer. */
-@Throws(PatchException::class)
-fun preserveSyncCommentImageUrls(parser: MutableClassDef) {
-    val parse = parser.methods.singleOrNull {
+private fun inlineImageParser(parser: MutableClassDef): MutableMethod =
+    parser.methods.singleOrNull {
         it.name == "a" && it.returnType == "V" && it.parameterTypes == listOf(
             "Landroid/content/Context;", "I", "Lorg/json/JSONObject;", "Ljava/util/ArrayList;",
             "I", "Z", "Z", "Ljava/lang/String;")
     } ?: throw PatchException("Unsupported comment image parser method.")
+
+/** Capture dimensions for both text posts and comments, including URLs without a height. */
+@Throws(PatchException::class)
+fun captureSyncInlineImageMetadata(parser: MutableClassDef) {
+    val parse = inlineImageParser(parser)
+    val code = parse.implementation!!.instructions
+    if (code.any { it.methodRef()?.let { ref -> ref.definingClass == MEDIA && ref.name == "rememberItemMetadata" } == true }) {
+        throw PatchException("Inline image metadata capture is already installed.")
+    }
+    val itemRegister = parse.implementation!!.registerCount - parse.parameterTypes.size + 2
+    layout(AccessFlags.STATIC.isSet(parse.accessFlags) && code.take(5).any {
+        it.opcode == Opcode.MOVE_OBJECT_FROM16 && (it as TwoRegisterInstruction).registerA == 2 &&
+            it.registerB == itemRegister
+    }, "inline image parser item parameter")
+    // p2 is the item's data object in Sync 23033, not a listing/thing wrapper. The original
+    // comment-only read never runs for selftext posts. No scratch registers or URL changes.
+    parse.addInstructions(0, "invoke-static/range {p2 .. p2}, $MEDIA->rememberItemMetadata(Lorg/json/JSONObject;)V")
+}
+
+/** Keep the signed source URL when Sync prepares comment image links for its renderer. */
+@Throws(PatchException::class)
+fun preserveSyncCommentImageUrls(parser: MutableClassDef) {
+    val parse = inlineImageParser(parser)
     val code = parse.implementation!!.instructions
     val height = code.singleIndex("comment image height suffix") { code[it].stringValue() == "&height=" }
     fun call(index: Int, name: String, parameters: List<String>, registers: List<Int>): Boolean {
@@ -687,21 +708,8 @@ val improveSyncCommentMedia = bytecodePatch(
         val parserTarget = classes.singleOrNull { it.type == "Lc9/c;" && it.sourceFile == "PostParserHelper.java" }
             ?: throw PatchException("Expected Sync PostParserHelper was not found.")
         val parser = proxy(parserTarget).mutableClass
-        val sites = parser.methods.flatMap { m ->
-            val code = m.implementation?.instructions ?: return@flatMap emptyList()
-            code.indices.filter { i ->
-                code[i].stringValue() == "media_metadata" && i + 2 < code.size &&
-                    code[i + 1].methodRef()?.name == "optJSONObject" && code[i + 2].opcode == Opcode.MOVE_RESULT_OBJECT &&
-                    code.subList(maxOf(0, i - 8), i).any { it.stringValue() == "body" }
-            }.map { m to it }
-        }
-        if (sites.size != 1) throw PatchException("Expected one comment media_metadata read, found ${sites.size}.")
-        val (parse, index) = sites.single()
         preserveSyncCommentImageUrls(parser)
-        val metadata = parse.implementation!!.instructions[index + 2].registerA()!!
-        // Capture comment image sizes/types while Sync parses the comment; the body is unchanged.
-        parse.addInstructions(index + 3,
-            "invoke-static/range {v$metadata .. v$metadata}, $MEDIA->rememberMetadata(Lorg/json/JSONObject;)V")
+        captureSyncInlineImageMetadata(parser)
     }
 }
 

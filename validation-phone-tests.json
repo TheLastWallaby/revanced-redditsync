@@ -2,6 +2,21 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": null,
+      "tested_release": "v0.6.11-rc.1",
+      "results": {
+        "reported_image_tap": "pass: tester reports that the image now loads when its link is tapped",
+        "reported_image_inline": "fail: tester reports that the image is not shown inline and still requires clicking its link",
+        "numbered_checks": "partial result for check 1; separate results for checks 2 and 3 were not supplied"
+      },
+      "promotion": "Not promoted. v0.6.11-rc.2 captures metadata for selftext posts as well as comments; rc.1 only captured comment sizes.",
+      "unverified": [
+        "inline previews disabled",
+        "GIF, video-preview, gallery and load-more regression checks",
+        "v0.6.11-rc.2 phone validation"
+      ]
+    },
+    {
       "stable": "v0.6.10",
       "tested_release": "v0.6.10-rc.1",
       "results": {
