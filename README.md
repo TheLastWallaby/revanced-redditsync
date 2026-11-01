@@ -15,6 +15,25 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
+## Unreleased: load-more without `/api/morechildren` (issue #51)
+
+Changes **Sync: load more comments in batches** for
+[issue #51](https://github.com/TheLastWallaby/revanced-redditsync/issues/51).
+Since v0.6.8 each tap first tried Reddit's `/api/morechildren` once and, when
+Reddit refused it, cached the refusal for six hours. There is no evidence that
+Reddit accepts that endpoint for Sync's client, so load-more now goes straight to
+the per-comment route and sends no request to `/api/morechildren`. The batch code
+is kept behind a switch that is off; the loading details report `batch=disabled`.
+Budgets, rate-limit handling and Sync's rate helper, cancellation, token refresh,
+continuation parents, retries, duplicate/subtree reuse and the diagnostic's
+privacy are unchanged. A 100-ID row still loads 33 comments per tap.
+
+`BoundedCommentsTest` and `BatchCommentsTest` check that 1, 20, 100 and 150 IDs
+send no `/api/morechildren` request (the loopback endpoint would answer HTTP 200)
+and make 0, 19, 32 and 32 extra requests under the per-tap budget (0, 19, 99 and
+99 without it). The batch scenarios still run with the switch turned on.
+Not yet tested on a phone; this is not in a published release.
+
 ## v0.6.10 Reddit link normalization (issue #5)
 
 Adds the selectable **Sync: normalize Reddit links** patch for
@@ -168,7 +187,8 @@ accounting, overall deadline or cancellation. Each tap now:
 - tries Reddit's `/api/morechildren` once (serially, one request at a time
   across taps) and caches the result for six hours. If it is refused or returns
   nothing usable, the per-comment route is used as before. An ID the batch omits
-  is fetched on its own and appears after the batch results.
+  is fetched on its own and appears after the batch results. Issue #51 turns
+  this attempt off (see above): load-more no longer requests `/api/morechildren`.
 
 When nothing loads, the error names the cause (rate limited, sign-in rejected,
 timed out, requests failed) and the row stays. The loading details gain a
@@ -554,7 +574,8 @@ route is the CLI; Manager import and patching still need device verification.
   most 32 additional requests per tap (four at a time), Reddit rate-limit and
   backoff handling, a 20-second deadline and cancellation, sharing Sync's own
   rate-limit helper. It reuses comments already returned and preserves failed and
-  untouched IDs, parent relationships and nested retries.
+  untouched IDs, parent relationships and nested retries. On main (unreleased),
+  it no longer tries Reddit's `/api/morechildren` endpoint first.
 - **Sync: improve inline comment media** draws comment pictures, Reddit/Giphy
   GIFs and direct Imgur pictures inline at their real aspect ratio within the
   reply width, as described above.

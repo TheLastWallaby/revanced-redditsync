@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Request bounds for "load more comments" (issue #3): budget, subtree reuse, shared
  * rate limits, 401/403/429, deadline, cancellation and Reddit's batch endpoint.
+ * The batch attempt is off by default (issue #51); its scenarios turn it on by reflection.
  * Real Volley types and HTTP to a loopback server; no Reddit account or credentials.
  */
 public final class BoundedCommentsTest {
@@ -30,6 +31,8 @@ public final class BoundedCommentsTest {
     static final Map<String,AtomicInteger> perId = new ConcurrentHashMap<>();
     static final AtomicInteger calls = new AtomicInteger(), active = new AtomicInteger(), peak = new AtomicInteger();
     static final AtomicInteger batchCalls = new AtomicInteger(), batchActive = new AtomicInteger(), batchPeak = new AtomicInteger();
+    /** /api/morechildren requests that arrived while the batch attempt was turned off. */
+    static final AtomicInteger batchCallsWhileOff = new AtomicInteger();
     static final Set<String> batchOmit = ConcurrentHashMap.newKeySet();
     static volatile String retryAfter = "1", rateRemaining, rateReset, requiredAuth, batchBody, lastBatchQuery;
     static volatile int batchStatus = 403;
@@ -129,6 +132,16 @@ public final class BoundedCommentsTest {
         field.setAccessible(true);
         if (field.getType() == int.class) field.setInt(null, (int) value); else field.setLong(null, value);
     }
+    static Field batchSwitch() throws Exception {
+        Field field = FixLoadMoreCommentsPatch.class.getDeclaredField("batchEndpoint");
+        field.setAccessible(true);
+        return field;
+    }
+    /** Turns the retained /api/morechildren attempt on or off (off by default since issue #51). */
+    static void batch(boolean on) throws Exception { batchSwitch().setBoolean(null, on); }
+    static boolean batchOn() {
+        try { return batchSwitch().getBoolean(null); } catch (Exception unavailable) { throw new AssertionError(unavailable); }
+    }
     static ThreadPoolExecutor executor() throws Exception {
         Field field = transport.getDeclaredField("executor");
         field.setAccessible(true);
@@ -149,6 +162,7 @@ public final class BoundedCommentsTest {
         limit("maxRequests",32);limit("deadlineMs",20_000);limit("timeoutMs",15_000);limit("rateReserve",10);
         limit("defaultBackoffMs",5_000);limit("maxBackoffMs",60_000);limit("failureLimit",4);
         limit("batchRecheckMs",6L*60*60*1000);
+        batch(false);
         Method shared = transport.getDeclaredMethod("resetSharedState");
         shared.setAccessible(true);
         shared.invoke(null);
@@ -215,6 +229,7 @@ public final class BoundedCommentsTest {
         });
         server.createContext("/api/morechildren", exchange -> {
             int running = batchActive.incrementAndGet();batchPeak.accumulateAndGet(running,Math::max);batchCalls.incrementAndGet();
+            if (!batchOn()) batchCallsWhileOff.incrementAndGet();
             try {
                 String raw = exchange.getRequestURI().getRawQuery();
                 lastBatchQuery = URLDecoder.decode(raw,"UTF-8");
@@ -236,28 +251,29 @@ public final class BoundedCommentsTest {
         base = "http://127.0.0.1:"+server.getAddress().getPort()+"/api/morechildren?always_show_media=1&profile_img=true";
         Map<Integer,Integer> requestCounts = new TreeMap<>();
         try {
-            // Request counts with the batch endpoint refused (HTTP 403), as Reddit does for Sync.
+            // Request counts with the batch attempt off (the default since issue #51). The loopback
+            // batch endpoint would answer HTTP 200, so any request to it would change these counts.
+            check(!batchOn(),"the /api/morechildren attempt is off by default");
             reset();
+            batchStatus = 200;
             int before = calls.get(), batchBefore = batchCalls.get();
             List<String> one = range("one",1);
             JSONArray all = load(one);
             check(ids(all,"t1").equals(one) && ids(all,"more").isEmpty(),"1 ID loads from Sync's own response");
-            check(calls.get()==before && batchCalls.get()==batchBefore,"1 ID makes no extra request");
+            check(calls.get()==before,"1 ID makes no extra request");
             requestCounts.put(1,calls.get()-before);
 
             List<String> twenty = range("tw",20);
-            before = calls.get();batchBefore = batchCalls.get();
+            before = calls.get();
             all = load(twenty);
             check(ids(all,"t1").equals(twenty) && ids(all,"more").isEmpty(),"20 IDs all load in requested order");
             check(calls.get()-before==19,"20 IDs: one comment request per extra ID");
-            check(batchCalls.get()-batchBefore==1,"batch endpoint probed once");
             requestCounts.put(20,calls.get()-before);
 
             List<String> hundred = range("h",100);
-            before = calls.get();batchBefore = batchCalls.get();
+            before = calls.get();
             all = load(hundred);
             check(calls.get()-before==32,"100 IDs: requests stop at the 32-request budget");
-            check(batchCalls.get()==batchBefore,"refused batch endpoint is not probed again");
             check(ids(all,"t1").equals(hundred.subList(0,33)),"budgeted IDs load in order");
             check(ids(all,"more").equals(hundred.subList(33,100)),"unrequested IDs stay pending in order");
             check(peak.get()<=4,"no more than four requests in flight");
@@ -274,6 +290,27 @@ public final class BoundedCommentsTest {
             List<String> next = ids(all,"more");
             all = load(next);
             check(ids(all,"t1").equals(many.subList(33,66)) && complete(all,next),"next tap continues where the budget stopped");
+            check(batchCalls.get()==batchBefore,"1, 20, 100 and 150 IDs send no /api/morechildren request");
+            batchStatus = 403;
+            for (String id : Arrays.asList("fallback:off0","off1","off2")) statuses.put(id,503);
+            String[] off = failure(range("off",3),plain,null);
+            check(off[1].contains(" batch=disabled"),"diagnostic reports the batch attempt as disabled");
+
+            // The retained batch attempt, turned on by reflection: a refused endpoint (HTTP 403,
+            // as Reddit has answered for Sync) is probed once, cached, and every ID still loads.
+            reset();
+            batch(true);
+            before = calls.get();batchBefore = batchCalls.get();
+            all = load(range("on",20));
+            check(ids(all,"t1").equals(range("on",20)) && ids(all,"more").isEmpty(),"refused batch falls back for every ID");
+            check(calls.get()-before==19 && batchCalls.get()-batchBefore==1,"batch endpoint probed once before the per-comment route");
+            before = calls.get();batchBefore = batchCalls.get();
+            all = load(range("oh",100));
+            check(batchCalls.get()==batchBefore,"refused batch endpoint is not probed again");
+            check(calls.get()-before==32 && ids(all,"t1").equals(range("oh",100).subList(0,33)),"budget unchanged after a refused batch");
+            for (String id : Arrays.asList("fallback:om0","om1","om2")) statuses.put(id,503);
+            off = failure(range("om",3),plain,null);
+            check(off[1].contains(" batch=unavailable"),"diagnostic reports the cached refusal with the attempt on");
 
             // Duplicate IDs and IDs already inside a returned tree need no request.
             before = calls.get();
@@ -484,8 +521,9 @@ public final class BoundedCommentsTest {
             all = load(range("sb",5));
             check(ids(all,"t1").equals(range("sb",5)),"an unavailable helper never fails a load");
 
-            // Reddit's batch endpoint, when the configured client may use it.
+            // Reddit's batch endpoint, when the configured client may use it (attempt turned on).
             reset();
+            batch(true);
             batchStatus = 200;
             List<String> batched = range("b",30);
             before = calls.get();batchBefore = batchCalls.get();
@@ -508,6 +546,7 @@ public final class BoundedCommentsTest {
             check(errors.isEmpty() && batchPeak.get()==1,"batch requests are serial across taps");
 
             reset();
+            batch(true);
             batchStatus = 200;
             batchBody = "{\"json\":{\"errors\":[[\"RATELIMIT\",\"busy\",\"ratelimit\"]]}}";
             before = calls.get();batchBefore = batchCalls.get();
@@ -517,8 +556,10 @@ public final class BoundedCommentsTest {
             load(range("j",5));
             check(batchCalls.get()==batchBefore && calls.get()-before==4,"unusable batch result is cached");
 
+            reset();
+            check(batchCallsWhileOff.get()==0,"no scenario with the batch attempt off sent /api/morechildren");
             System.out.println("PASS: "+checks+" checks; extra requests by requested IDs="+requestCounts
-                    +" (subtree and duplicate IDs reuse loaded trees)");
+                    +" with no /api/morechildren request (subtree and duplicate IDs reuse loaded trees)");
         } finally {
             server.stop(0);serverThreads.shutdownNow();executor().shutdownNow();
         }
