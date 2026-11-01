@@ -846,6 +846,20 @@ download that file from Releases and import it as a local patch bundle.
 Use the Sync base and patch selections described below. The validated patching
 route is the CLI; Manager import and patching still need device verification.
 
+This bundle does not patch stock Sync on its own. It builds on code added by the
+official ReVanced Sync patches, so in Manager patch in two passes:
+
+1. Patch stock Sync v23.06.30-13:39 (version code 23033) with the official
+   ReVanced Sync patches only, including **Spoof client** with your own Reddit
+   client ID. Save the resulting APK.
+2. Patch that saved APK with this bundle only: select all eleven `Sync: …`
+   patches and deselect the official ones. Check that each reports success.
+
+Applying this bundle to stock Sync fails with a message such as
+`This APK is missing the official ReVanced "Fix /s/ links" patch` (see
+[issue #70](https://github.com/TheLastWallaby/revanced-redditsync/issues/70)).
+That means the first pass was skipped, not that the Sync version is wrong.
+
 ## Included patches — cumulative v0.6.14
 
 - **Sync: secure Reddit share links** validates share URLs and redirects before
@@ -900,7 +914,9 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 ## Apply the stable RVP
 
 1. Select a **ReVanced-patched Sync 23033 free APK** with your usual OAuth/client
-   configuration and the ReVanced shared extension already present.
+   configuration and the ReVanced shared extension already present: stock Sync
+   first patched with the official ReVanced Sync patches (including Spoof
+   client, Fix /s/ links and Fix Redgifs API). Stock Sync alone is rejected.
 2. Use a base that has **none of this bundle's earlier compatibility patches**.
    Do not reapply to an APK already containing any earlier compatibility bundle.
 3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)

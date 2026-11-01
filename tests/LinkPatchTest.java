@@ -10,6 +10,7 @@ import com.android.tools.smali.dexlib2.iface.ClassDef;
 import com.android.tools.smali.dexlib2.iface.Method;
 import com.android.tools.smali.dexlib2.iface.instruction.*;
 import com.android.tools.smali.dexlib2.iface.reference.*;
+import com.android.tools.smali.dexlib2.immutable.ImmutableClassDef;
 import com.android.tools.smali.dexlib2.immutable.reference.ImmutableMethodReference;
 import com.android.tools.smali.smali.Smali;
 import com.android.tools.smali.smali.SmaliOptions;
@@ -24,6 +25,7 @@ public final class LinkPatchTest {
     private static final String HELPER = "Ly7/b;";
     private static final String TYPES = "Ly7/c;";
     private static final String MAIN = "Lcom/laurencedawson/reddit_sync/ui/activities/MainActivity;";
+    private static final String LOGGER = "Lapp/revanced/extension/shared/Logger;";
     private static int checks;
 
     private static void check(boolean condition, String message) {
@@ -43,6 +45,16 @@ public final class LinkPatchTest {
         var resources = new ResourcePatchContext(context.getApkFile$patcher(),
                 context.getPatchedFilesPath$patcher(), context.getPatchedFilesPath$patcher(), null, null);
         SyncCompatPatchesKt.getNormalizeSyncRedditLinks().getApply$patcher().invoke(context, resources);
+    }
+    /** Runs the official-base check that the shared extension step (and so every named patch) depends on. */
+    private static void applyExtension(BytecodePatchContext context) throws PatchException {
+        var dependencies = SyncCompatPatchesKt.getNormalizeSyncRedditLinks().getDependencies();
+        equal(1, dependencies.size(), "link patch has one dependency, the shared extension step");
+        var base = dependencies.iterator().next().getDependencies();
+        equal(1, base.size(), "shared extension step depends on the official-base check");
+        var resources = new ResourcePatchContext(context.getApkFile$patcher(),
+                context.getPatchedFilesPath$patcher(), context.getPatchedFilesPath$patcher(), null, null);
+        base.iterator().next().getApply$patcher().invoke(context, resources);
     }
     private static BytecodePatchContext context(Path dex, Path scratch, String name, String[] args) {
         // Optional APK argument checks the real base's complete methods instead of fixtures.
@@ -141,6 +153,40 @@ public final class LinkPatchTest {
             try { apply(malformed); throw new AssertionError("Unsupported cold-start layout accepted"); }
             catch (PatchException expected) { check(expected.getMessage().contains("cold-start"), "unsupported layout rejected"); }
             for (int i = 0; i < untouched.size(); i++) equal(before.get(i), keys(untouched.get(i)), "validation failure makes no edits");
+
+            // Stock Sync (no official Fix /s/ links hook) names the missing prerequisite, not the build (issue #70).
+            BytecodePatchContext stock = context(dex, scratch, "stock", args);
+            MutableMethod stockHelper = (MutableMethod) method(stock, HELPER, "c", 10);
+            FiveRegisterInstruction hook = (FiveRegisterInstruction) instructions(stockHelper).get(0);
+            check(reference(hook).startsWith("Lapp/revanced/extension/syncforreddit/FixSLinksPatch;->patchResolveSLink"),
+                    "inherited share-link hook is the first LinkHelper instruction");
+            stockHelper.getImplementation().replaceInstruction(0, new BuilderInstruction35c(Opcode.INVOKE_STATIC, 1,
+                    hook.getRegisterC(), 0, 0, 0, 0, new ImmutableMethodReference("Lstock/Sync;", "resolve", List.of("Ljava/lang/String;"), "Z")));
+            List<String> stockBefore = keys(stockHelper);
+            try { apply(stock); throw new AssertionError("Stock LinkHelper accepted"); }
+            catch (PatchException expected) {
+                check(expected.getMessage().contains("missing the official ReVanced \"Fix /s/ links\" patch"), "stock base names Fix /s/ links");
+                check(!expected.getMessage().contains("targets Sync build"), "stock base is not reported as a different build");
+            }
+            equal(stockBefore, keys(stockHelper), "stock rejection makes no edits");
+
+            // The shared extension step requires the official shared Logger that this bundle's code calls.
+            BytecodePatchContext shared = context(dex, scratch, "shared", args);
+            if (args.length != 0) {
+                check(shared.getClassDefs().get(LOGGER) != null, "supplied base has the official shared Logger");
+            } else {
+                check(shared.getClassDefs().get(LOGGER) == null, "fixtures start without the shared Logger");
+            }
+            ClassDef logger = shared.getClassDefs().get(LOGGER);
+            if (logger != null) shared.getClassDefs().remove(logger);
+            try { applyExtension(shared); throw new AssertionError("Missing shared Logger accepted"); }
+            catch (PatchException expected) {
+                check(expected.getMessage().contains("missing the official ReVanced \"Sync\" patch"), "missing official extension named: " + expected.getMessage());
+            }
+            shared.getClassDefs().add(logger != null ? logger : new ImmutableClassDef(LOGGER, 1, "Ljava/lang/Object;",
+                    List.of(), null, Set.of(), List.of(), List.of()));
+            applyExtension(shared);
+            check(true, "official shared Logger accepted");
             System.out.println("PASS: " + checks + " link patch checks (production hooks + executed DEX methods"
                     + (args.length != 0 ? ", supplied base APK" : ", fixtures") + ")");
         } finally {
