@@ -127,7 +127,7 @@ public final class RedditVideoPatchTest {
             }, "Reddit video classifier");
 
             System.out.println("PASS: " + checks + " Reddit video patch checks (production hooks"
-                    + (apk ? ", supplied base APK" : ", executed layout fixtures") + ")");
+                    + (apk ? ", supplied stock APK" : ", executed layout fixtures") + ")");
         } finally {
             try (var paths = Files.walk(scratch)) {
                 for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);

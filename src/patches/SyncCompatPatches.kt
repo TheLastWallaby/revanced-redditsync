@@ -42,27 +42,7 @@ private const val MARKDOWN = "Lapp/revanced/extension/synccompat/MarkdownCompat;
 private const val GALLERY = "Lapp/revanced/extension/synccompat/GalleryCompat;"
 private const val GALLERY_RESULT = "Lapp/revanced/extension/synccompat/GalleryCompat\$Result;"
 
-private const val OFFICIAL_LOGGER = "Lapp/revanced/extension/shared/Logger;"
-
-/** A stock APK passes the version check but lacks the official ReVanced code this bundle builds on. */
-private fun officialPatchMissing(patch: String) = PatchException(
-    "This APK is missing the official ReVanced \"$patch\" patch. Patch stock Sync 23033 with the official " +
-        "ReVanced Sync patches first (including Spoof client), then apply this bundle to that output.")
-
-// This bundle's code calls the official shared extension's Logger, which is not bundled here.
-// Checked before anything is merged, so stock Sync fails every patch with the same clear message.
-private val officialBasePatch = bytecodePatch {
-    apply {
-        if (classes.none { it.type == OFFICIAL_LOGGER }) throw officialPatchMissing("Sync")
-    }
-}
-
-private val extensionPatch = bytecodePatch {
-    dependsOn(officialBasePatch)
-    extendWith("extensions/synccompat.rve")
-}
-
-private fun MutableMethod.resetBody(registers: Int, code: String) {
+internal fun MutableMethod.resetBody(registers: Int, code: String) {
     implementation = MutableMethodImplementation(registers)
     addInstructions(code)
 }
@@ -82,7 +62,7 @@ val secureSyncShareLinks = bytecodePatch(
     description = "Validate HTTPS Reddit origins and share paths before authentication; validate redirects and drop credentials across origins.",
 ) {
     compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
-    dependsOn(extensionPatch)
+    dependsOn(extensionPatch, fixSLinksPatch)
     apply {
         val target = classes.singleOrNull { it.type == SLINK_BASE }
             ?: throw officialPatchMissing("Fix /s/ links")
@@ -95,12 +75,20 @@ val secureSyncShareLinks = bytecodePatch(
             it is ReferenceInstruction && it.reference.toString().startsWith(SLINK)
         } == true) throw PatchException("Share-link security patch is already installed.")
         val connection = method("getHttpURLConnection", listOf("Ljava/lang/String;", "Ljava/lang/String;"), "Ljava/net/HttpURLConnection;")
-        val worker = method("lambda\$resolveLink\$4", listOf("Ljava/lang/String;", "Landroid/content/Context;"), "V")
-        // Reuse the inherited Runnable and token/pending-URL lifecycle. Fail on another base layout.
+        // The background worker lambda. Its exact name depends on the compiler (javac/R8 keep
+        // lambda$resolveLink$4; D8 appends the class), so find it by its signature.
+        val worker = clazz.methods.singleOrNull {
+            it.name.startsWith("lambda\$resolveLink\$") && it.returnType == "V" &&
+                it.parameterTypes == listOf("Ljava/lang/String;", "Landroid/content/Context;")
+        } ?: throw PatchException("Unsupported share-link resolver method: lambda\$resolveLink worker")
+        // Reuse the Runnable that calls the worker and the token/pending-URL lifecycle. Fail on another layout.
         val runnable = classes.singleOrNull { c ->
             c.superclass == "Ljava/lang/Object;" && c.interfaces.contains("Ljava/lang/Runnable;") &&
                 c.methods.any { it.name == "<init>" && it.parameterTypes == listOf(SLINK_BASE, "Ljava/lang/String;", "Landroid/content/Context;") }
         } ?: throw PatchException("Expected inherited share-link background task was not found.")
+        if (runnable.methods.none { run -> run.name == "run" && run.implementation?.instructions?.any {
+                (it as? ReferenceInstruction)?.reference.let { r -> r is MethodReference && r.definingClass == SLINK_BASE && r.name == worker.name }
+            } == true }) throw PatchException("Unsupported share-link background task: it does not run the worker.")
         for ((name, type) in listOf("accessToken" to "Ljava/lang/String;", "webViewActivityClass" to "Ljava/lang/Class;")) {
             if (clazz.fields.none { it.name == name && it.type == type }) {
                 throw PatchException("Unsupported inherited share-link resolver field: $name")
@@ -407,25 +395,25 @@ val fixSyncMoreComments = bytecodePatch(
 private const val SETTINGS = "Lcom/laurencedawson/reddit_sync/singleton/SettingsSingleton;"
 private const val SETTINGS_VALUES = "Lcom/laurencedawson/reddit_sync/singleton/SettingsSingleton\$Settings;"
 
-private fun Instruction.stringValue(): String? =
+internal fun Instruction.stringValue(): String? =
     ((this as? ReferenceInstruction)?.reference as? StringReference)?.string
 
-private fun Instruction.methodRef(): MethodReference? =
+internal fun Instruction.methodRef(): MethodReference? =
     (this as? ReferenceInstruction)?.reference as? MethodReference
 
-private fun Instruction.registerA(): Int? = (this as? OneRegisterInstruction)?.registerA
+internal fun Instruction.registerA(): Int? = (this as? OneRegisterInstruction)?.registerA
 
 private fun Instruction.branchTarget(): Instruction =
     (this as BuilderOffsetInstruction).target.location.instruction
         ?: throw PatchException("Unsupported comment media branch layout.")
 
-private fun List<BuilderInstruction>.singleIndex(what: String, predicate: (Int) -> Boolean): Int {
+internal fun List<BuilderInstruction>.singleIndex(what: String, predicate: (Int) -> Boolean): Int {
     val matches = indices.filter(predicate)
     if (matches.size != 1) throw PatchException("Expected one $what in Sync 23033, found ${matches.size}.")
     return matches.single()
 }
 
-private fun layout(valid: Boolean, what: String) {
+internal fun layout(valid: Boolean, what: String) {
     if (!valid) throw PatchException("Unsupported $what layout. This patch targets Sync build 23033 only.")
 }
 
@@ -762,7 +750,7 @@ val showSyncCommentVideoPreviews = bytecodePatch(
     description = "Draw Reddit-hosted and Imgur MP4/gifv comment videos as a still frame with a play button within the reply width, and open reddit.com/link/.../video/... links in Sync's video viewer instead of a browser redirect to a missing post.",
 ) {
     compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
-    dependsOn(extensionPatch)
+    dependsOn(extensionPatch, fixSLinksPatch)
     apply {
         val helper = classes.singleOrNull { it.type == "Ly7/b;" && it.sourceFile == "LinkHelper.java" }
             ?: throw PatchException("Expected Sync LinkHelper was not found. This patch targets build 23033 only.")
@@ -1475,7 +1463,7 @@ val normalizeSyncRedditLinks = bytecodePatch(
         "links at the same place in Sync; keep context, sort and signed media parameters and drop known tracking parameters.",
 ) {
     compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
-    dependsOn(extensionPatch)
+    dependsOn(extensionPatch, fixSLinksPatch)
     apply {
         fun mutable(type: String, what: String): MutableClassDef =
             proxy(classes.singleOrNull { it.type == type } ?: throw PatchException(
@@ -1612,7 +1600,7 @@ val refreshSyncRedgifsTokens = bytecodePatch(
         "(shared by concurrent requests, bounded in time and size, never logged) and retry the request once.",
 ) {
     compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
-    dependsOn(extensionPatch)
+    dependsOn(extensionPatch, fixRedgifsApiPatch)
     apply {
         @Suppress("UNUSED_PARAMETER")
         fun inherited(type: String, what: String) = classes.singleOrNull { it.type == type }

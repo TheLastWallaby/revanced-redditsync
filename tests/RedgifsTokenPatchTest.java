@@ -1,3 +1,4 @@
+import app.revanced.local.synccompat.OfficialSyncPatchesKt;
 import app.revanced.local.synccompat.SyncCompatPatchesKt;
 import app.revanced.patcher.patch.BytecodePatchContext;
 import app.revanced.patcher.patch.PatchException;
@@ -120,12 +121,12 @@ public final class RedgifsTokenPatchTest {
                 k.getImplementation().replaceInstruction(indexOf(k, INHERITED, "install") + 1, new BuilderInstruction10x(Opcode.NOP));
             }, "OkHttpHelper RedGifs install");
 
-            // Stock Sync without the official Fix Redgifs API patch names that prerequisite (issue #70).
+            // Without the bundled Fix Redgifs API code, the refresh names that prerequisite (issue #70).
             rejects(dex, scratch, args, "no-official-redgifs", c -> c.getClassDefs().remove(c.getClassDefs().get(TOKENS)),
-                    "missing the official ReVanced \"Fix Redgifs API\" patch");
+                    "missing the \"Fix Redgifs API\" patch's changes");
 
             System.out.println("PASS: " + checks + " RedGifs token patch checks (production hook"
-                    + (args.length != 0 ? ", supplied base APK" : ", layout fixtures") + ")");
+                    + (args.length != 0 ? ", supplied stock APK" : ", layout fixtures") + ")");
         } finally {
             try (var paths = Files.walk(scratch)) {
                 for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);
@@ -151,12 +152,26 @@ public final class RedgifsTokenPatchTest {
         SyncCompatPatchesKt.getRefreshSyncRedgifsTokens().getApply$patcher().invoke(context, resources);
     }
     private static BytecodePatchContext context(Path dex, Path scratch, String name, String[] args) {
-        // Optional APK argument checks the real base's classes and methods instead of fixtures.
+        // Optional stock APK argument checks the real classes and methods instead of fixtures.
         File source = args.length != 0 ? Path.of(args[0]).toFile() : dex.toFile();
         BytecodePatchContext context = new BytecodePatchContext(source, scratch.resolve(name).toFile());
         context.getClassDefs().initializeCache$patcher();
+        if (args.length != 0) {
+            try { prepare(context, OfficialSyncPatchesKt.getFixRedgifsApiPatch(), java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>())); }
+            catch (PatchException e) { throw new AssertionError("Stock APK preparation failed: " + e.getMessage(), e); }
+        }
         return context;
     }
+    /** With a stock APK, first apply the bundled official patch this suite builds on (dependencies first). */
+    private static void prepare(BytecodePatchContext context, app.revanced.patcher.patch.Patch patch,
+                                java.util.Set<app.revanced.patcher.patch.Patch> applied) throws PatchException {
+        if (!applied.add(patch)) return;
+        for (app.revanced.patcher.patch.Patch dependency : patch.getDependencies()) prepare(context, dependency, applied);
+        var resources = new ResourcePatchContext(context.getApkFile$patcher(),
+                context.getPatchedFilesPath$patcher(), context.getPatchedFilesPath$patcher(), null, null);
+        patch.getApply$patcher().invoke(context, resources);
+    }
+
     private static MutableClassDef mutable(BytecodePatchContext context, String type) {
         ClassDef clazz = context.getClassDefs().get(type);
         if (clazz == null) throw new AssertionError("Missing class " + type);

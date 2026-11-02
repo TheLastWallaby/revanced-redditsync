@@ -1,3 +1,4 @@
+import app.revanced.local.synccompat.OfficialSyncPatchesKt;
 import app.revanced.local.synccompat.SyncCompatPatchesKt;
 import app.revanced.patcher.patch.BytecodePatchContext;
 import app.revanced.patcher.patch.Patch;
@@ -23,10 +24,11 @@ import java.util.*;
  * patches that both rewrite the link at the start of LinkHelper (y7.b.c), to the link fixtures in
  * both orders and checks each succeeds with the same result.
  *
- * With a local prepared base APK argument: applies every named patch in this bundle to the real
- * base in name order (the CLI's order) and in reverse, so every pair of patches runs both ways
- * round. Each patch must succeed in both, and every class they change must come out the same.
- * Nothing is saved or signed.
+ * With a local stock Sync 23033 APK argument: applies every named patch in this bundle, including
+ * the bundled official ones, to the real APK in name order (the CLI's order) and in reverse, each
+ * after its dependencies as ReVanced Patcher does, so every pair of patches runs both ways round.
+ * Each patch must succeed in both, and every class they change must come out the same. Nothing is
+ * saved or signed.
  */
 public final class PatchInteractionTest {
     private static final String HELPER = "Ly7/b;";
@@ -138,8 +140,9 @@ public final class PatchInteractionTest {
             BytecodePatchContext context = new BytecodePatchContext(apk, scratch.resolve(run.getKey().replace(' ', '-')).toFile());
             context.getClassDefs().initializeCache$patcher();
             List<String> failures = new ArrayList<>();
+            Set<Patch> applied = Collections.newSetFromMap(new IdentityHashMap<>());
             for (Patch patch : run.getValue()) {
-                try { apply(context, patch); }
+                try { applyWithDependencies(context, patch, applied); }
                 catch (Throwable failure) { failures.add(patch.getName() + ": " + failure.getMessage()); }
             }
             check(failures.isEmpty(), run.getKey() + ": every patch succeeds, failed " + failures);
@@ -161,20 +164,34 @@ public final class PatchInteractionTest {
         }
         check(different.isEmpty(), "classes differ by patch order: " + different);
         System.out.println("PASS: " + checks + " patch interaction checks (" + patches.size()
-                + " patches in both name orders, supplied base APK)");
+                + " patches in both name orders, supplied stock APK)");
     }
 
-    /** Every named patch the Kotlin file publishes, as the RVP does. */
+    /** Every named patch the Kotlin files publish, as the RVP does; Spoof client gets a test client ID. */
     private static List<Patch> bundlePatches() throws ReflectiveOperationException {
         List<Patch> result = new ArrayList<>();
-        for (java.lang.reflect.Method getter : SyncCompatPatchesKt.class.getMethods()) {
-            if (Modifier.isStatic(getter.getModifiers()) && getter.getParameterCount() == 0
-                    && Patch.class.isAssignableFrom(getter.getReturnType())) {
-                Patch patch = (Patch) getter.invoke(null);
-                if (patch.getName() != null) result.add(patch);
+        for (Class<?> file : List.of(SyncCompatPatchesKt.class, OfficialSyncPatchesKt.class)) {
+            for (java.lang.reflect.Method getter : file.getMethods()) {
+                if (Modifier.isStatic(getter.getModifiers()) && getter.getParameterCount() == 0
+                        && Patch.class.isAssignableFrom(getter.getReturnType())) {
+                    Patch patch = (Patch) getter.invoke(null);
+                    if (patch.getName() != null) result.add(patch);
+                }
             }
         }
+        for (Patch patch : result)
+            if ("Spoof client".equals(patch.getName())) {
+                patch.getOptions().set("OAuth client ID", "InteractionTestClient");
+                patch.getOptions().set("User-Agent", "InteractionTest/1.0"); // the default is random per run
+            }
         return result;
+    }
+
+    /** Dependencies first and once, as ReVanced Patcher does. */
+    private static void applyWithDependencies(BytecodePatchContext context, Patch patch, Set<Patch> applied) throws PatchException {
+        if (!applied.add(patch)) return;
+        for (Patch dependency : patch.getDependencies()) applyWithDependencies(context, dependency, applied);
+        apply(context, patch);
     }
 
     private static String firstDifference(List<String> a, List<String> b) {
