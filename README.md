@@ -4,10 +4,11 @@ Unofficial ReVanced compatibility patches for **Sync for Reddit
 v23.06.30-13:39**, version code **23033**, free package
 `com.laurencedawson.reddit_sync`.
 
-**Stable v0.6.14** plays Reddit-hosted videos again by opening them through
-their DASH manifest instead of the unsigned HLS playlist Reddit now refuses. It
-rebuilds the runtime code from the phone-tested v0.6.14-rc.1 candidate,
-retaining v0.6.13's RedGifs full-screen fix, v0.6.12's move away from Reddit's legacy
+**Stable v0.7.0** patches stock Sync in one pass: it includes ports of the
+official ReVanced Sync patches (Spoof client, Fix /s/ links, Fix Redgifs API and
+others) that earlier releases needed applied first. It rebuilds the runtime code
+from the phone-tested v0.7.0-rc.1 candidate, retaining v0.6.14's Reddit video
+playback through DASH, v0.6.13's RedGifs full-screen fix, v0.6.12's move away from Reddit's legacy
 `/api/morechildren` and `/api/info` endpoints and default text encoding,
 v0.6.11's signed inline image URLs, v0.6.10's Reddit link normalization, v0.6.9's gallery resilience and rate-helper sharing, v0.6.8's bounded
 load-more requests, v0.6.7's literal Markdown replacements, v0.6.6's direct media resolution, v0.6.5's Imgur comment video
@@ -17,11 +18,17 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
-## Next release (v0.7.0): one-pass patching from stock Sync (issue #70)
+## v0.7.0 one-pass patching from stock Sync (issue #70)
 
-Candidate v0.7.0-rc.1 is awaiting phone testing; it is not a stable release.
-Until v0.7.0 is stable, use stable v0.6.14 with the two-pass setup under
-[ReVanced Manager remote bundle](#revanced-manager-remote-bundle).
+The [v0.7.0 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.0)
+rebuilds the runtime code from the phone-tested
+[v0.7.0-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.0-rc.1).
+Apply it to **stock** Sync and check all patch results (19 with Use /user/ endpoint).
+
+On rc.1 the tester reported that it all looks good and authorized stable
+publication; only an overall result was given for the ten numbered checks.
+ReVanced Manager patching was not part of that test. See
+`validation-phone-tests.json`.
 
 Earlier releases only worked on an APK already patched with the official ReVanced
 Sync patches; on stock Sync they failed
@@ -56,12 +63,14 @@ for two small local changes noted in the files. ReVanced's shared extension
 the port, so ReVanced applies it first. The bundle rejects an APK that already
 contains ReVanced code; do not combine it with the official ReVanced Sync patches.
 
-**Checks so far.** On the stock APK, ReVanced CLI applied all 19 patches
+**Checks.** On the stock APK, ReVanced CLI applied all 19 patches
 successfully, in name order and in reverse with identical results. Its Sync
-classes, manifest and resources match the current prepared base plus v0.6.14,
+classes, manifest and resources match the earlier prepared base plus v0.6.14,
 except for the client ID. `OfficialSyncPatchTest` checks each port on
-stock-layout fixtures in CI (and on the real APK locally). Phone and ReVanced
-Manager testing are pending.
+stock-layout fixtures in CI (and on the real APK locally). The private v0.7.0-rc.1
+build reported all 19 patches succeeded and passed signature, class and resource
+verification; the tester then reported the ten phone checks looking good.
+ReVanced Manager patching has not been tested.
 
 ## v0.6.14 Reddit video playback (issue #74)
 
@@ -858,22 +867,24 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Stable v0.6.14 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.14)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.14/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.14/sync-gallery-comments-compat-v0.6.14-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.14/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.14/build-info.json)
+- [Stable v0.7.0 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.0)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.0/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.0/sync-gallery-comments-compat-v0.7.0-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.0/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.0/build-info.json)
+- [Archived v0.7.0-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.0-rc.1)
+- [Previous stable v0.6.14](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.14)
+  (needs an APK already patched with the official ReVanced Sync patches)
 - [Archived v0.6.14-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.14-rc.1)
 - [Previous stable v0.6.13](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.13)
-- [Archived v0.6.13-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.13-rc.2)
-- [Previous stable v0.6.12](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.12)
 
 For unpublished changes, download the `patch-bundle-<run>-<attempt>` artifact from
 the PR's passing [CI run](https://github.com/TheLastWallaby/revanced-redditsync/actions/workflows/ci.yml).
 CI and releases provide the same four outputs: `patches.rvp`, the source ZIP,
 `SHA256SUMS` and `build-info.json`. Local builds write them to `output/`.
 Old `dist/` files are historical and are not current release artifacts.
-Supply your own prepared base APK and original signing key when applying patches.
+Supply your own stock Sync APK, Reddit client ID and original signing key when
+applying patches.
 
 ## ReVanced Manager remote bundle
 
@@ -892,23 +903,28 @@ download that file from Releases and import it as a local patch bundle.
 Use the Sync base and patch selections described below. The validated patching
 route is the CLI; Manager import and patching still need device verification.
 
-This bundle does not patch stock Sync on its own. It builds on code added by the
-official ReVanced Sync patches, so in Manager patch in two passes:
+Since v0.7.0 the bundle includes the official ReVanced Sync patches, so in
+Manager patch **stock** Sync v23.06.30-13:39 (version code 23033) in one pass:
 
-1. Patch stock Sync v23.06.30-13:39 (version code 23033) with the official
-   ReVanced Sync patches only, including **Spoof client** with your own Reddit
-   client ID. Save the resulting APK.
-2. Patch that saved APK with this bundle only: select all eleven `Sync: …`
-   patches and deselect the official ones. Check that each reports success.
+1. Select only this bundle's patches. Deselect or remove the official ReVanced
+   Sync patches: the bundle rejects an APK that already contains ReVanced code.
+2. Set **Spoof client**'s `OAuth client ID` to your Reddit client ID, and its
+   `Redirect URI` if your Reddit app does not use `http://redditsync/auth`.
+3. Check that every selected patch reports success.
 
-Applying this bundle to stock Sync fails with a message such as
-`This APK is missing the official ReVanced "Fix /s/ links" patch` (see
-[issue #70](https://github.com/TheLastWallaby/revanced-redditsync/issues/70)).
-That means the first pass was skipped, not that the Sync version is wrong.
-From v0.7.0 the bundle includes these patches and needs only one pass on stock
-Sync (see [Next release](#next-release-v070-one-pass-patching-from-stock-sync-issue-70)).
+Releases up to v0.6.14 instead needed two passes: the official ReVanced Sync
+patches first, then this bundle on that output
+([issue #70](https://github.com/TheLastWallaby/revanced-redditsync/issues/70)).
 
-## Included patches — cumulative v0.6.14
+## Included patches — cumulative v0.7.0
+
+Official ReVanced Sync patches, ported for build 23033 (see
+[v0.7.0](#v070-one-pass-patching-from-stock-sync-issue-70)): **Spoof client**,
+**Disable ads**, **Disable Sync for Lemmy bottom sheet**, **Fix /s/ links**,
+**Fix Redgifs API**, **Fix post thumbnails**, **Fix video downloads** and
+**Use /user/ endpoint** (off by default).
+
+This bundle's own patches:
 
 - **Sync: secure Reddit share links** validates share URLs and redirects before
   sending credentials, as described above.
@@ -961,24 +977,24 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
 
 ## Apply the stable RVP
 
-1. Select a **ReVanced-patched Sync 23033 free APK** with your usual OAuth/client
-   configuration and the ReVanced shared extension already present: stock Sync
-   first patched with the official ReVanced Sync patches (including Spoof
-   client, Fix /s/ links and Fix Redgifs API). Stock Sync alone is rejected.
-2. Use a base that has **none of this bundle's earlier compatibility patches**.
-   Do not reapply to an APK already containing any earlier compatibility bundle.
-3. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
-   and apply all eleven named patches (ten in v0.6.13, nine in v0.6.10 to v0.6.12, eight in v0.6.7 to v0.6.9, seven in v0.6.6, six in v0.6.4 and v0.6.5,
-   five in v0.6.3, four in v0.6.2, three in v0.6.1). Check that each reports success.
-4. Sign the result with your own keystore. Matching the key used by your current
+1. Start from **stock** Sync v23.06.30-13:39 (version code 23033, free
+   package) with no ReVanced patches. An APK that already contains ReVanced code
+   is rejected. (Releases up to v0.6.14 instead needed an APK already patched
+   with the official ReVanced Sync patches.)
+2. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
+   and apply the default patches: the eight ported official patches except Use
+   /user/ endpoint, plus this bundle's eleven. Set Spoof client's
+   `OAuth client ID` (and `Redirect URI`/`User-Agent` if needed). Check that
+   each patch reports success.
+3. Sign the result with your own keystore. Matching the key used by your current
    installation allows an in-place update.
 
-This bundle adds the gallery/comment fixes, share-link hardening, inline
-comment media, award data handling, comment video previews, direct media
-resolution, literal Markdown replacements and Reddit link normalization. It expects
-the existing ReVanced shared Logger class; its source stub is for compilation only. It does not
-supply OAuth configuration or unrelated Sync patches. It relies on the base's own RedGifs fix,
-which the RedGifs patch extends; the OkHttp and RedGifs stubs are also compile-only.
+This bundle adds the official Sync fixes and its own gallery/comment fixes,
+share-link hardening, inline comment media, award data handling, comment video
+previews, direct media resolution, literal Markdown replacements, Reddit link
+normalization, DASH video playback and RedGifs token refresh. Its small local
+`Logger`/`Utils` replace ReVanced's shared extension; the OkHttp and Sync class
+stubs under `src/stubs` are compile-only.
 
 The validated route is **ReVanced CLI 6.0.0 / Patcher 22.0.0**. Android Manager
 import/loading has not been tested. Example CLI command from a clone of this
@@ -987,10 +1003,14 @@ repository, using your own paths for the other files:
 ```sh
 java -jar revanced-cli-6.0.0-all.jar patch \
   -p output/patches.rvp -b \
+  -O "OAuth client ID=your-reddit-client-id" -e "Spoof client" \
   --keystore your-signing-key.keystore \
-  -o Sync-v23.06.30-compat-v0.6.6.apk \
-  Sync-v23.06.30-revanced-base.apk
+  -o Sync-v23.06.30-compat-v0.7.0.apk \
+  Sync-v23.06.30-stock.apk
 ```
+
+Add `-O "Redirect URI=..."` before `-e "Spoof client"` if your Reddit app uses
+another redirect URI, and `-e "Use /user/ endpoint"` to apply that optional patch.
 
 Supply the CLI's password and alias options if your keystore requires them.
 `-b` loads this custom unsigned patch bundle. Keep signing keys private.
@@ -1122,6 +1142,9 @@ the RedGifs fix looking good and authorized promotion; only an overall result
 was given.
 Stable v0.6.14 rebuilds the v0.6.14-rc.1 runtime code after the tester reported
 Reddit video playback looking good and authorized promotion; only an overall
+result was given.
+Stable v0.7.0 rebuilds the v0.7.0-rc.1 runtime code after the tester reported
+all ten one-pass checks looking good and authorized promotion; only an overall
 result was given.
 These are checks of the supplied cases, not exhaustive Android/live Reddit tests.
 This standalone bundle does not represent a full upstream Gradle build.
