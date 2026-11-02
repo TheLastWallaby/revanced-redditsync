@@ -181,13 +181,26 @@ def main():
         configuration = json.loads((inputs_dir / "inputs.json").read_text())
         base = inputs_dir / "base.apk"
         if sha(base) != configuration["base_apk_sha256"]:
-            raise ValueError("Prepared base APK checksum differs from private configuration")
+            raise ValueError("Stock base APK checksum differs from private configuration")
         if not re.fullmatch(r"[0-9a-f]{64}", configuration["signer_sha256"]):
             raise ValueError("Expected original signing certificate is missing")
+        # Since v0.7.0 the bundle includes the official ReVanced Sync patches: the base is stock Sync.
         with zipfile.ZipFile(base) as archive:
             for name in archive.namelist():
-                if re.fullmatch(r"classes[0-9]*\.dex", name) and b"Lapp/revanced/extension/synccompat/RequestCompat;" in archive.read(name):
-                    raise ValueError("Base already contains compatibility patches; do not stack bundles")
+                if re.fullmatch(r"classes[0-9]*\.dex", name) and b"Lapp/revanced/" in archive.read(name):
+                    raise ValueError("Base already contains ReVanced patches; use stock Sync 23033")
+        client_id = os.environ.get("REDDIT_CLIENT_ID", "")
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", client_id):
+            raise SystemExit("REDDIT_CLIENT_ID has not been configured")
+        # Spoof client options and extra patches (such as "Use /user/ endpoint") from inputs.json.
+        spoof = configuration.get("spoof_client", {})
+        extra = configuration.get("enable", [])
+        if not isinstance(spoof, dict) or not isinstance(extra, list) or not all(isinstance(n, str) for n in extra):
+            raise ValueError("Unsupported spoof_client/enable configuration")
+        options = {"OAuth client ID": client_id}
+        for key, option in [("redirect_uri", "Redirect URI"), ("user_agent", "User-Agent")]:
+            if spoof.get(key):
+                options[option] = str(spoof[key])
         keystore = args.local_keystore or temp / "signing.keystore"
         if not args.local_keystore:
             encoded = os.environ.get("SIGNING_KEY_B64", "")
@@ -202,6 +215,7 @@ def main():
         java = str(Path(shutil.which("java")).resolve())
         signing_env = os.environ.copy()
         signing_env.pop("SIGNING_KEY_B64", None)
+        signing_env.pop("REDDIT_CLIENT_ID", None)
         command = [java, "-XX:-UsePerfData", "-jar", tools / "revanced-cli.jar", "patch",
                    "-p", bundle_dir / "patches.rvp", "-b", "-o", apk, "-t", temp / "patch",
                    "--keystore", keystore]
@@ -209,11 +223,16 @@ def main():
                             ("KEY_ALIAS", "--keystore-entry-alias"), ("KEY_PASSWORD", "--keystore-entry-password")]:
             if os.environ.get(key):
                 command += [option, os.environ[key]]
+        for option, value in options.items():
+            command += ["-O", f"{option}={value}"]
+        command += ["-e", "Spoof client"]
+        for name in extra:
+            command += ["-e", name]
         command.append(base)
         listing = subprocess.run([java, "-XX:-UsePerfData", "-jar", str(tools / "revanced-cli.jar"), "list-patches",
                                   "-p", str(bundle_dir / "patches.rvp"), "-b"],
                                  capture_output=True, text=True, errors="replace", check=True)
-        expected = enabled_patches(listing.stdout + listing.stderr)
+        expected = sorted(set(enabled_patches(listing.stdout + listing.stderr)) | set(extra))
         patched = check_patch_results(run_logged(*command, env=signing_env, sensitive=True), expected)
         print(f"All {len(patched)} patches succeeded: " + ", ".join(patched), flush=True)
         report = args.output / "verification.json"

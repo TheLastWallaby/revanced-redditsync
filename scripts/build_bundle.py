@@ -56,7 +56,7 @@ def main():
     current = version()
     epoch = int(os.environ.get("SOURCE_DATE_EPOCH") or git("show", "-s", "--format=%ct", "HEAD"))
     build, output = ROOT / "build", ROOT / "output"
-    for name in ["stubs", "extension", "tests", "patches", "dex-extension", "dex-patches"]:
+    for name in ["stubs", "extension", "tests", "patches", "dex-extension", "dex-patches", "test-resources"]:
         target = build / name
         if target.exists():
             shutil.rmtree(target)
@@ -79,8 +79,8 @@ def main():
                           for path in directory.rglob("*") if path.is_file()}, epoch)
 
     javac = [java, "-XX:-UsePerfData", "-m", "jdk.compiler/com.sun.tools.javac.Main", "-encoding", "UTF-8"]
-    # Compile-only signatures (ReVanced Logger, Sync's Award model); never packaged.
-    run(*javac, "--release", "8", "-cp", tools / "volley.jar", "-d", build / "stubs",
+    # Compile-only signatures (Sync's own classes, OkHttp, androidx annotations); never packaged.
+    run(*javac, "--release", "8", "-cp", cp(tools / "volley.jar", tools / "android.jar"), "-d", build / "stubs",
         *sorted((ROOT / "src/stubs").rglob("*.java")))
     extension_cp = cp(build / "stubs", tools / "android.jar", tools / "volley.jar", tools / "json.jar")
     run(*javac, "--release", "8", "-cp", extension_cp, "-d", build / "extension",
@@ -92,14 +92,17 @@ def main():
         "--classpath", tools / "android.jar", "--classpath", tools / "volley.jar",
         "--classpath", tools / "json.jar", "--classpath", build / "stubs.jar",
         "--output", build / "dex-extension", build / "extension.jar")
+    # Tests apply the extension step itself, which loads the extension as a classpath resource.
+    (build / "test-resources/extensions").mkdir(parents=True)
+    shutil.copyfile(build / "dex-extension/classes.dex", build / "test-resources/extensions/synccompat.rve")
     run(java, "-XX:-UsePerfData", "-cp", str(tools / "kotlin/kotlinc/lib") + "/*",
         "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler", "-Xskip-prerelease-check",
         "-Xallow-unstable-dependencies", "-no-stdlib", "-no-reflect", "-jvm-target", "17",
         "-Xlambdas=class", "-Xstring-concat=inline", "-classpath", tools / "revanced-cli.jar",
-        "-d", build / "patches", ROOT / "src/patches/SyncCompatPatches.kt")
+        "-d", build / "patches", *sorted((ROOT / "src/patches").glob("*.kt")))
     # Patch tests apply the compiled production hooks to DEX fixtures. Compile the
     # hooks first and use the same pinned Patcher/Smali implementation as the CLI.
-    test_cp = cp(build / "stubs", build / "extension", build / "patches",
+    test_cp = cp(build / "stubs", build / "extension", build / "patches", build / "test-resources",
                  tools / "volley.jar", tools / "json.jar", tools / "android.jar", tools / "revanced-cli.jar")
     run(*javac, "-cp", test_cp, "-d", build / "tests", *sorted((ROOT / "tests").rglob("*.java")))
     tests = run_java_tests(ROOT / "tests", java, cp(build / "tests", test_cp))

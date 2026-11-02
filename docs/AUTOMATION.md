@@ -5,8 +5,11 @@ executable Java test suite under tests/, both compilers, bundle validation, and 
 actual ReVanced CLI bundle-load check. Its downloadable artifact contains
 `patches.rvp`, a source ZIP, `SHA256SUMS`, and `build-info.json`.
 
-The bundle is cumulative: rebuild from the prepared base each time. Do not apply
-new bundles over an APK containing earlier compatibility patches.
+The bundle is cumulative: rebuild from the base each time. Do not apply new
+bundles over an APK containing earlier compatibility patches. Since v0.7.0 the
+bundle includes ports of the official ReVanced Sync patches, so the base is
+**stock** Sync v23.06.30-13:39 (version code 23033); an APK that already contains
+ReVanced code is rejected. Releases before v0.7.0 used a ReVanced-prepared base.
 
 ## Regular use
 
@@ -87,7 +90,7 @@ On Windows, run the same commands with `python`. To read Sync's own code for a
 fix, run `python3 scripts/inspect_base.py` with `gh` access to the private
 builder. It downloads `base.apk` and `inputs.json` from the private
 `build-inputs` release, checks the configured base checksum and that the base
-holds none of this bundle's patches, and disassembles every DEX file into the
+holds no ReVanced patches (stock Sync), and disassembles every DEX file into the
 ignored `local-inspect/smali/` with the baksmali included in the pinned ReVanced
 CLI. The APK and its smali never leave that ignored directory.
 
@@ -101,15 +104,19 @@ signing inputs if the repository is public and never runs on pull requests.
 With GitHub CLI signed in with repository/workflow access:
 
 ```sh
-python3 scripts/setup_private_builder.py \
-  --base /private/path/prepared-base.apk \
+REDDIT_CLIENT_ID=YOUR_REDDIT_CLIENT_ID python3 scripts/setup_private_builder.py \
+  --base /private/path/stock-sync-23033.apk \
   --keystore /private/path/original.keystore \
-  --signer-sha256 ORIGINAL_INSTALLED_APP_CERTIFICATE_SHA256
+  --signer-sha256 ORIGINAL_INSTALLED_APP_CERTIFICATE_SHA256 \
+  --redirect-uri YOUR_REGISTERED_REDIRECT_URI
 ```
 
 The script creates the private repository, commits the builder, stores the
-existing signing key as `SIGNING_KEY_B64` in Actions secrets, and uploads the
-prepared base and its checksums as private release assets. It does not generate
+existing signing key as `SIGNING_KEY_B64` and the Reddit OAuth client ID (from the
+`REDDIT_CLIENT_ID` environment variable) as `REDDIT_CLIENT_ID` in Actions secrets,
+and uploads the stock base, its checksums and the optional Spoof client settings
+(`--redirect-uri`, `--user-agent`) and extra patches (`--enable`, for example
+`"Use /user/ endpoint"`) as private release assets. It does not generate
 a replacement key. Optional signing passwords/alias are read from the
 `KEYSTORE_PASSWORD`, `KEY_ALIAS`, and `KEY_PASSWORD` environment variables and
 sent to GitHub through stdin, never written to source.
@@ -121,8 +128,25 @@ The expected signer fingerprint must match the installed app, not merely a new
 key that happens to load. After patching, the private builder verifies the APK's
 signature, original signing identity, preservation of all existing classes, and
 unchanged non-code resources/manifest. The base APK checksum must match its
-private input configuration. A base that already contains this bundle is
-rejected.
+private input configuration. A base that already contains ReVanced code is
+rejected. The store's source stamp (`stamp-cert-sha256`), which re-signing
+removes, is treated as a signing file.
+
+### Moving an existing private builder to the stock base (v0.7.0)
+
+Builders set up before v0.7.0 hold a ReVanced-prepared base. Before building the
+first v0.7.0 candidate, with the owner's approval:
+
+1. Sync the changed builder files (`build_apk.py`, the workflow, README.md,
+   AGENTS.md and `VerifyPersonalApk.java`) using the mapping below.
+2. Add the `REDDIT_CLIENT_ID` Actions secret with the client ID the current app
+   uses.
+3. Replace `base.apk` in the `build-inputs` release with stock Sync 23033 and
+   update `inputs.json`: the stock checksum, the unchanged signer, and
+   `spoof_client`/`enable` values that reproduce the old base's settings
+   (redirect URI, User-Agent, and any default-off patches it used).
+
+Building a pre-v0.7.0 tag afterwards needs the old prepared base again.
 
 The initial v0.6.0 public release predates `build-info.json`. It remains unchanged;
 automatic personal builds start with the next release produced by this
@@ -146,11 +170,19 @@ failed or unverified update.
 - ReVanced CLI applies the bundle's patches sorted by name, so renaming a patch
   can change the order. Patches that edit the same Sync method must give the
   same result in any order. `PatchInteractionTest` checks the shared LinkHelper
-  entry on fixtures in CI. Given a local prepared base
+  entry on fixtures in CI. Given a local stock APK
   (`local-inspect/inputs/base.apk` from `scripts/inspect_base.py`), it applies
-  every named patch in name order and reverse order. Each must succeed both ways,
+  every named patch, including the bundled official ones, each after its
+  dependencies, in name order and reverse order. Each must succeed both ways,
   and every changed class must be identical. Run that before merging a patch
   that edits a method another patch already changes.
+- `src/patches/OfficialSyncPatches.kt` ports the official ReVanced Sync patches
+  (ReVanced Patches v6.1.0; originals in `upstream/revanced-patches-v6.1.0/`).
+  Patches that build on official code depend on the port, so it is applied
+  first. `OfficialSyncPatchTest` applies the ports with their dependencies,
+  including the real extension merge, to stock-layout fixtures in CI and, given
+  a local stock APK, to the real classes. The builder copies the extension DEX to
+  `build/test-resources/extensions/synccompat.rve` on the test classpath for this.
 - Public workflow permissions are read-only except release publishing and feed
   updates. No private signing secrets are passed to public builds.
 - If main requires pull requests for all changes, let the feed updater submit a

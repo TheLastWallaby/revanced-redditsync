@@ -17,6 +17,52 @@ This is a community/local bundle rather than an official ReVanced release.
 Compatibility with Pro/dev packages, other Sync builds, or all account/post
 combinations has not been established.
 
+## Next release (v0.7.0): one-pass patching from stock Sync (issue #70)
+
+Candidate v0.7.0-rc.1 is awaiting phone testing; it is not a stable release.
+Until v0.7.0 is stable, use stable v0.6.14 with the two-pass setup under
+[ReVanced Manager remote bundle](#revanced-manager-remote-bundle).
+
+Earlier releases only worked on an APK already patched with the official ReVanced
+Sync patches; on stock Sync they failed
+([issue #70](https://github.com/TheLastWallaby/revanced-redditsync/issues/70)).
+v0.7.0 includes ports of those patches, so stock Sync v23.06.30-13:39 (version
+code 23033) is patched in one pass:
+
+| Patch | Default | What it does |
+| --- | --- | --- |
+| Spoof client | on (needs options) | Uses your Reddit OAuth client ID; also moves Sync's `ssl.reddit.com` sign-in URLs to `www.reddit.com` and its Imgur upload to Imgur's API |
+| Disable ads | on | Turns off Sync's ads |
+| Disable Sync for Lemmy bottom sheet | on | Skips the sign-up sheet at startup |
+| Fix /s/ links | on | Resolves Reddit share links |
+| Fix Redgifs API | on | Sends RedGifs requests with temporary tokens and Sync's User-Agent |
+| Fix post thumbnails | on | Unescapes `&amp;` in thumbnail URLs |
+| Fix video downloads | on | Saves both the video and audio track |
+| Use /user/ endpoint | off | Uses `/user/` instead of `/u/` for profile requests |
+
+**Spoof client options.** `OAuth client ID` (required), `Redirect URI` (default
+Sync's `http://redditsync/auth`; must match your Reddit app) and `User-Agent`
+(default: a random one, as the official patch). The official patch has only the
+client ID; the other two options keep a non-default setup working.
+
+**How it relates to the official patches.** They are ports of ReVanced Patches
+v6.1.0 (GPLv3; originals in `upstream/revanced-patches-v6.1.0/`) written for build
+23033: each checks the exact Sync code it changes before editing and refuses to
+run twice. The Sync-specific ReVanced extension code is included unchanged except
+for two small local changes noted in the files. ReVanced's shared extension
+(settings screens, YouTube support) is not included; small local `Logger` and
+`Utils` classes replace the parts Sync uses. Patches that build on official code
+(share links, link normalization, comment video links, RedGifs tokens) depend on
+the port, so ReVanced applies it first. The bundle rejects an APK that already
+contains ReVanced code; do not combine it with the official ReVanced Sync patches.
+
+**Checks so far.** On the stock APK, ReVanced CLI applied all 19 patches
+successfully, in name order and in reverse with identical results. Its Sync
+classes, manifest and resources match the current prepared base plus v0.6.14,
+except for the client ID. `OfficialSyncPatchTest` checks each port on
+stock-layout fixtures in CI (and on the real APK locally). Phone and ReVanced
+Manager testing are pending.
+
 ## v0.6.14 Reddit video playback (issue #74)
 
 The [v0.6.14 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.14)
@@ -859,6 +905,8 @@ Applying this bundle to stock Sync fails with a message such as
 `This APK is missing the official ReVanced "Fix /s/ links" patch` (see
 [issue #70](https://github.com/TheLastWallaby/revanced-redditsync/issues/70)).
 That means the first pass was skipped, not that the Sync version is wrong.
+From v0.7.0 the bundle includes these patches and needs only one pass on stock
+Sync (see [Next release](#next-release-v070-one-pass-patching-from-stock-sync-issue-70)).
 
 ## Included patches — cumulative v0.6.14
 
@@ -971,7 +1019,9 @@ versioning. The manual `--tools` route below remains available.
   OkHttp and the inherited RedGifs fix), excluded from the APK.
 - `tests/`: JVM/loopback HTTP tests and minimal Android test adapters.
 - `tools/UpdateVerifier.java`: APK/code/signature verification.
-- `upstream/`: original files from the upstream implementation.
+- `upstream/`: original files from the upstream implementation, including the
+  official ReVanced Sync patches (`upstream/revanced-patches-v6.1.0/`) that
+  `src/patches/OfficialSyncPatches.kt` ports.
 - `changes-from-v0.5.1.diff`: this version's runtime changes.
 - `validation.json`: recorded checks, output digest and user test status.
 - `validation-share-links.json`: historical local security/smoke-test evidence.
@@ -1086,6 +1136,10 @@ artificial fixtures.
 The batch design derives from ReVanced merge request !6999 at commit
 `f33036fe57220442e5c58077f9f73d878b158681`, plus local compatibility fixes:
 https://gitlab.com/ReVanced/revanced-patches/-/merge_requests/6999
+
+The official Sync patch ports and the included ReVanced extension code derive
+from ReVanced Patches v6.1.0 (commit `b632d0f04239d49f14425f86f21784a526594518`,
+GPL-3.0): https://gitlab.com/ReVanced/revanced-patches
 
 The combined source uses GPL-3.0. Original authored compatibility code also
 retains its MIT notice in LICENSE-MIT. Existing app code and dependencies

@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -38,9 +39,13 @@ def scaffold(destination):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", default="TheLastWallaby/revanced-redditsync-personal")
-    parser.add_argument("--base", type=Path)
+    parser.add_argument("--base", type=Path, help="Stock Sync 23033 APK (v23.06.30-13:39), with no ReVanced patches")
     parser.add_argument("--keystore", type=Path)
     parser.add_argument("--signer-sha256")
+    parser.add_argument("--redirect-uri", help="Spoof client Redirect URI registered for your Reddit client")
+    parser.add_argument("--user-agent", help="Spoof client User-Agent (default: random, as the official patch)")
+    parser.add_argument("--enable", action="append", default=[],
+                        help="Also apply this default-off patch, for example 'Use /user/ endpoint'")
     parser.add_argument("--export", type=Path, help="Only prepare the private repository files; no API changes")
     args = parser.parse_args()
     if args.export:
@@ -52,7 +57,12 @@ def main():
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.repository):
         parser.error("Repository must be owner/name")
     if not args.base or not args.base.is_file() or not args.keystore or not args.keystore.is_file():
-        parser.error("Supply your prepared base APK and original signing key")
+        parser.error("Supply the stock Sync APK and your original signing key")
+    with zipfile.ZipFile(args.base) as archive:
+        if any(re.fullmatch(r"classes[0-9]*\.dex", n) and b"Lapp/revanced/" in archive.read(n) for n in archive.namelist()):
+            parser.error("The base already contains ReVanced patches; supply stock Sync 23033")
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", os.environ.get("REDDIT_CLIENT_ID", "")):
+        parser.error("Set REDDIT_CLIENT_ID to your Reddit OAuth client ID (stored as an Actions secret)")
     if not args.signer_sha256 or not re.fullmatch(r"[0-9a-fA-F]{64}", args.signer_sha256):
         parser.error("Supply the signing certificate SHA-256 of your installed app")
     if args.repository == "TheLastWallaby/revanced-redditsync":
@@ -73,7 +83,7 @@ def main():
             raise SystemExit("Repository is not private; private inputs were not uploaded")
         run("gh", "secret", "set", "SIGNING_KEY_B64", "--repo", args.repository,
             data=base64.b64encode(args.keystore.read_bytes()))
-        for name in ["KEYSTORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD"]:
+        for name in ["KEYSTORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD", "REDDIT_CLIENT_ID"]:
             if os.environ.get(name):
                 run("gh", "secret", "set", name, "--repo", args.repository, data=os.environ[name].encode())
         inputs = directory / "private-inputs"
@@ -81,11 +91,15 @@ def main():
         shutil.copyfile(args.base, inputs / "base.apk")
         with args.base.open("rb") as stream:
             base_hash = hashlib.file_digest(stream, "sha256").hexdigest()
-        (inputs / "inputs.json").write_text(json.dumps({
-            "base_apk_sha256": base_hash, "signer_sha256": args.signer_sha256.lower()
-        }, indent=2) + "\n")
+        configuration = {"base_apk_sha256": base_hash, "signer_sha256": args.signer_sha256.lower()}
+        spoof = {key: value for key, value in [("redirect_uri", args.redirect_uri), ("user_agent", args.user_agent)] if value}
+        if spoof:
+            configuration["spoof_client"] = spoof
+        if args.enable:
+            configuration["enable"] = args.enable
+        (inputs / "inputs.json").write_text(json.dumps(configuration, indent=2) + "\n")
         run("gh", "release", "create", "build-inputs", "--repo", args.repository, "--prerelease",
-            "--title", "Private build inputs", "--notes", "Prepared base only; signing key is stored separately in Actions secrets.",
+            "--title", "Private build inputs", "--notes", "Stock Sync base and patch settings only; signing key and client ID are stored separately in Actions secrets.",
             inputs / "base.apk", inputs / "inputs.json")
         print("Private builder provisioned: https://github.com/" + args.repository)
 

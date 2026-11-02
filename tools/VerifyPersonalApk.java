@@ -33,7 +33,8 @@ public class VerifyPersonalApk {
       while (entries.hasMoreElements()) {
         var entry = entries.nextElement();
         String name = entry.getName();
-        if (entry.isDirectory() || name.matches("classes[0-9]*\\.dex") ||
+        // stamp-cert-sha256 is the store's source stamp, a signing artifact that re-signing removes.
+        if (entry.isDirectory() || name.matches("classes[0-9]*\\.dex") || name.equals("stamp-cert-sha256") ||
             name.startsWith("META-INF/") && (name.endsWith(".SF") || name.endsWith(".RSA") ||
                                            name.endsWith(".DSA") || name.endsWith(".EC") || name.endsWith("MANIFEST.MF"))) continue;
         var replacement = apk.getEntry(name);
