@@ -1006,6 +1006,19 @@ This bundle's own patches:
   RedGifs rejects the base's cached one and retries that request once, as
   described above.
 
+Unreleased, on `main` for the next release:
+
+- **Sync: fix RedGifs link IDs** reads the RedGifs video ID from links with a
+  slash before their query or fragment, such as `redgifs.com/watch/<id>/?92`.
+  Sync's own reader (`LinkHandler.d`) took the text after the last `/` and
+  then cut at `?`/`#`, so it read an empty ID and full screen, peek, downloads
+  and enhanced autoplay failed with "Error connecting to Redgifs". The patch
+  removes the query, fragment and trailing slashes from RedGifs links before
+  Sync reads them; links Sync already read correctly give the same ID.
+  `RedgifsLinkPatchTest` runs the reader before and after the patch (a
+  hand-written model of it in CI, and Sync's real method locally).
+  Not tested on a phone.
+
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
 comment listings. A more marker, unrelated comment, wrong post, unknown shape,
