@@ -1773,3 +1773,36 @@ val playSyncRedditVideosViaDash = bytecodePatch(
         """.trimIndent())
     }
 }
+
+private const val REDGIFS_LINKS = "Lapp/revanced/extension/synccompat/RedgifsLinkCompat;"
+private const val LINK_HANDLER = "Ly7/a;"
+
+val fixSyncRedgifsLinkIds = bytecodePatch(
+    name = "Sync: fix RedGifs link IDs",
+    description = "Read the RedGifs video ID from links with a slash before their query or fragment, such as " +
+        "redgifs.com/watch/<id>/?92, which Sync read as an empty ID (\"Error connecting to Redgifs\").",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        // LinkHandler.d (getGfycatId) gives the RedGifs ID for full screen, peek, downloads and autoplay.
+        val handler = proxy(classes.singleOrNull { it.type == LINK_HANDLER && it.sourceFile == "LinkHandler.java" }
+            ?: throw PatchException("Expected Sync LinkHandler was not found. This patch targets build 23033 only.")).mutableClass
+        val id = handler.methods.singleOrNull {
+            it.name == "d" && it.parameterTypes == listOf("Ljava/lang/String;") && it.returnType == "Ljava/lang/String;" &&
+                AccessFlags.STATIC.isSet(it.accessFlags)
+        } ?: throw PatchException("Unsupported Sync RedGifs ID reader.")
+        val code = id.implementation!!.instructions
+        if (code.any { it.methodRef()?.definingClass == REDGIFS_LINKS }) throw PatchException("RedGifs link ID fix is already installed.")
+        // p0 is the link: Sync takes the text after its last "/", then cuts at "?" and "#".
+        layout(id.implementation!!.registerCount == 9 &&
+            listOf("/", "?", "#", ".webm", "-size_restricted", "-max-1mb-poster", "Crashing getGfycatId() URL: ")
+                .all { s -> code.any { it.stringValue() == s } } &&
+            code.any { it.methodRef()?.let { m -> m.definingClass == "Ljava/lang/String;" && m.name == "lastIndexOf" } == true },
+            "Sync RedGifs ID reader")
+        id.addInstructions(0, """
+            invoke-static {p0}, $REDGIFS_LINKS->normalize(Ljava/lang/String;)Ljava/lang/String;
+            move-result-object p0
+        """.trimIndent())
+    }
+}
