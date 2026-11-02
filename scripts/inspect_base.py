@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download the prepared Sync base APK from the private builder and disassemble it for reading.
+"""Download the stock Sync base APK from the private builder and disassemble it for reading.
 
 The APK and its smali stay in the ignored local-inspect/ directory. Never commit or
 publish them. Requires gh access to the private repository and a bootstrapped toolchain.
@@ -15,7 +15,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PRIVATE_REPO = "TheLastWallaby/revanced-redditsync-personal"
-EXTENSION_MARKER = b"Lapp/revanced/extension/synccompat/"
+EXTENSION_MARKER = b"Lapp/revanced/"
 
 
 def sha256(path):
@@ -35,7 +35,7 @@ def verify_base(base, inputs):
         if not dex:
             raise ValueError("Base APK contains no DEX files")
         if any(EXTENSION_MARKER in archive.read(name) for name in dex):
-            raise ValueError("Base APK already contains this bundle's patches")
+            raise ValueError("Base APK already contains ReVanced patches; the base is stock Sync 23033")
     return dex
 
 

@@ -4,8 +4,8 @@ AI agents: read `AGENTS.md` before changing this builder, and follow the public
 [automation guide](https://github.com/TheLastWallaby/revanced-redditsync/blob/main/docs/AUTOMATION.md).
 
 This template belongs in a separate **private** repository. It checks for a new
-stable public patch release every 30 minutes, then builds a cumulative APK using
-your prepared base and original signing key. Run it manually to choose a release
+stable public patch release every 30 minutes, then builds a cumulative APK from
+stock Sync and your original signing key. Run it manually to choose a release
 or rebuild immediately. No cross-repository write token is needed.
 
 The workflow refuses public repositories. Signing inputs never enter public CI
@@ -16,13 +16,32 @@ One-time setup is automated by the public repository's
 scripts/setup_private_builder.py. It creates the private repository, copies these
 files plus the locked tool installer and APK verifier, stores your signing key as
 a repository secret, and creates the private build-inputs release containing
-base.apk and inputs.json. The base is your supported ReVanced-prepared Sync 23033
-APK without any version of the compatibility bundle. The expected certificate
-fingerprint must match your installed APK.
+base.apk and inputs.json. Since public v0.7.0 the bundle includes the official
+ReVanced Sync patches, so the base is **stock** Sync v23.06.30-13:39 (version code
+23033) with no ReVanced patches; the builder rejects an already patched APK. Builds
+of public releases before v0.7.0 need the old ReVanced-prepared base instead. The
+expected certificate fingerprint must match your installed APK.
 
-Required secret: SIGNING_KEY_B64. Optional secrets: KEYSTORE_PASSWORD, KEY_ALIAS
+Required secrets: SIGNING_KEY_B64 and REDDIT_CLIENT_ID (the OAuth client ID for
+the bundled Spoof client patch). Optional secrets: KEYSTORE_PASSWORD, KEY_ALIAS
 and KEY_PASSWORD. Empty passwords use the ReVanced CLI defaults. Never replace the
 original signing key with a newly generated one.
+
+inputs.json holds the base checksum, the expected signer and optional patch
+settings:
+
+```json
+{
+  "base_apk_sha256": "<stock APK SHA-256>",
+  "signer_sha256": "<installed app certificate SHA-256>",
+  "spoof_client": {"redirect_uri": "<registered redirect URI>", "user_agent": "<User-Agent>"},
+  "enable": ["Use /user/ endpoint"]
+}
+```
+
+spoof_client values become the Spoof client options; omitted ones keep the patch
+defaults (Sync's own redirect URI and a random User-Agent). enable lists extra
+default-off patches. Every enabled patch must report success.
 
 After a successful build, open Releases and install the APK from Sync vX.Y.Z as
 an update. Verification checks signatures, original signing identity, existing
@@ -48,7 +67,7 @@ builder now stops before publishing unless every patch the bundle enables report
 `succeeded` exactly once, and lists them in `verification.json` as
 `patches_succeeded`; builds made before this check have no such list. Also
 check `verification.json` for the original signer, preserved classes and unchanged
-resources/manifest. The builder checks the configured base checksum separately.
+resources/manifest. The builder checks the configured stock base checksum separately.
 Install the candidate as an update and test the changed feature on the phone.
 Stable publication follows confirmation that the candidate works.
 

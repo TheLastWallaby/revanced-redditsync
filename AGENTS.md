@@ -1,7 +1,9 @@
 # Working on Sync compatibility patches
 
 This repository distributes a cumulative ReVanced patch bundle for the free Sync
-23033 package. A source edit alone is not a completed fix.
+23033 package. Since v0.7.0 it includes ports of the official ReVanced Sync patches
+(src/patches/OfficialSyncPatches.kt) and is applied to stock Sync in one pass.
+A source edit alone is not a completed fix.
 
 - Read the issue, README, docs/AUTOMATION.md and relevant helpers before editing.
   Start from current main. Update an existing issue PR instead of opening a
@@ -11,10 +13,11 @@ This repository distributes a cumulative ReVanced patch bundle for the free Sync
   worktree from current main (for example ../revanced-redditsync-issue<N>) and
   leave those changes untouched.
 - When a fix depends on Sync's own code (method signatures, call sites, helpers
-  such as rate or token handling), inspect the prepared base instead of guessing:
+  such as rate or token handling), inspect the base instead of guessing:
   python3 scripts/inspect_base.py downloads base.apk and inputs.json from the
   private build-inputs release, checks the configured base checksum and that no
-  bundle patch is present, and writes smali to the ignored local-inspect/. Never
+  ReVanced patch is present, and writes smali to the ignored local-inspect/.
+  The base is stock Sync; official-patch edits come from this bundle's ports. Never
   commit, attach or publish that APK or its disassembly. If private access is
   unavailable, say which code could not be inspected.
 - Add a named, optional patch for unrelated functionality. Test the actual logic
@@ -44,8 +47,9 @@ This repository distributes a cumulative ReVanced patch bundle for the free Sync
   Keep tool downloads pinned by SHA-256 in toolchain.lock.json.
 - Never commit an APK, account credentials, signing key or secret. Public CI builds
   RVP/source artifacts only; personal APK signing runs in a private repository.
-- Use a supported ReVanced-prepared base with none of this bundle's patches.
-  Never stack a new cumulative bundle over an already compatibility-patched APK.
+- Use stock Sync 23033 (v23.06.30-13:39) with no ReVanced patches as the base.
+  Never stack a new cumulative bundle over an already patched APK. Patches that
+  build on official ReVanced code must depend on the bundled port.
 - Verify every selected named patch reports success when making a test APK.
   ReVanced CLI 6.0.0 can save/sign an APK after a patch error; exit status, an
   output file, a green workflow or a valid signature alone is insufficient.

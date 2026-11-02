@@ -9,10 +9,13 @@ also follow the public repository's root AGENTS.md and run its required checks.
 - This repository builds personal APKs from released cumulative patch bundles.
   Implement Reddit functionality fixes in the public patch repository; do not
   fork patch logic into this builder or stack bundles on an already patched APK.
+  Since public v0.7.0 the bundle includes the official ReVanced Sync patches and
+  is applied to stock Sync 23033.
 - Use the trusted default branch and the existing Build my Sync APK workflow.
   Signing must remain private and must not run on pull requests or in public CI.
-- Preserve the original signing key, its Actions secrets, the build-inputs
-  release and its configured base checksum/expected signer. Never generate a
+- Preserve the original signing key, its Actions secrets (including
+  REDDIT_CLIENT_ID), the build-inputs release and its configured base
+  checksum/expected signer and patch settings. Never generate a
   replacement signing identity, print secrets or commit APKs/keys/account data.
 
 ## Candidate builds and handoff
@@ -20,9 +23,10 @@ also follow the public repository's root AGENTS.md and run its required checks.
 - Scheduled builds follow the newest stable public release. To test a candidate,
   manually run Build my Sync APK with its exact tag, such as v0.6.1-rc.1.
   Use force only for an intentional rebuild of an already built version.
-- Validate release checksums, version/build metadata and the prepared base
-  checksum. Use the existing supported Sync 23033 prepared base with none of
-  the custom compatibility patches and the original installed app's signer.
+- Validate release checksums, version/build metadata and the stock base
+  checksum. Use stock Sync 23033 (v23.06.30-13:39) with no ReVanced patches and
+  the original installed app's signer; releases before v0.7.0 need the old
+  ReVanced-prepared base instead.
 - Inspect the patch-step logs and require every selected named patch to report
   success. ReVanced CLI 6.0.0 can save/sign an APK after a patch error; a zero
   exit code, saved APK, green workflow or valid signature alone is insufficient.
