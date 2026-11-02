@@ -117,6 +117,14 @@ class InfrastructureTests(unittest.TestCase):
         self.assertIn("app.revanced.extension.synccompat.RedditVideoCompatTest", tests)
         self.assertIn("RedditVideoPatchTest", tests)
 
+    def test_retired_media_and_random_subreddit_suites_are_discovered(self):
+        tests = discover_java_tests(ROOT / "tests")
+        self.assertIn("app.revanced.extension.synccompat.RetiredMediaHostsTest", tests)
+        self.assertIn("RetiredMediaPatchTest", tests)
+        self.assertIn("RandomSubredditPatchTest", tests)
+        # The shared instruction runner has no main method; it is not a suite.
+        self.assertNotIn("DexRunner", tests)
+
     def test_comment_request_suites_are_discovered(self):
         tests = discover_java_tests(ROOT / "tests")
         self.assertIn("BatchCommentsTest", tests)
