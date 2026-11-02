@@ -4,19 +4,60 @@ Unofficial ReVanced compatibility patches for **Sync for Reddit
 v23.06.30-13:39**, version code **23033**, free package
 `com.laurencedawson.reddit_sync`.
 
-**Stable v0.7.0** patches stock Sync in one pass: it includes ports of the
-official ReVanced Sync patches (Spoof client, Fix /s/ links, Fix Redgifs API and
-others) that earlier releases needed applied first. It rebuilds the runtime code
-from the phone-tested v0.7.0-rc.1 candidate, retaining v0.6.14's Reddit video
-playback through DASH, v0.6.13's RedGifs full-screen fix, v0.6.12's move away from Reddit's legacy
-`/api/morechildren` and `/api/info` endpoints and default text encoding,
-v0.6.11's signed inline image URLs, v0.6.10's Reddit link normalization, v0.6.9's gallery resilience and rate-helper sharing, v0.6.8's bounded
-load-more requests, v0.6.7's literal Markdown replacements, v0.6.6's direct media resolution, v0.6.5's Imgur comment video
-posters, v0.6.4's Reddit video support, v0.6.3's award data, v0.6.2's inline
-comment media and v0.6.1's share-link security fixes.
-This is a community/local bundle rather than an official ReVanced release.
-Compatibility with Pro/dev packages, other Sync builds, or all account/post
-combinations has not been established.
+One patch bundle that gets Sync working again with today's Reddit: sign-in,
+galleries, "load more comments", Reddit videos, RedGifs, share links and more.
+Since **v0.7.0** it is applied to the stock Sync APK in one pass; the official
+ReVanced Sync patches are included.
+
+This is a community bundle, not an official ReVanced release. Only the free
+Sync build above is supported; Pro/dev packages and other versions are not.
+
+## Quick start (ReVanced Manager)
+
+You need an Android phone with [ReVanced Manager](https://revanced.app/) and
+these two things:
+
+- **The stock Sync APK.** Sync for Reddit **v23.06.30-13:39** (version code
+  23033), the free `com.laurencedawson.reddit_sync` package, from
+  [APKMirror](https://www.apkmirror.com/apk/red-apps-ltd/sync-for-reddit/sync-for-reddit-v23-06-30-1339-release/).
+  Use the unmodified APK, not one you already patched.
+- **A Reddit OAuth client ID** for an "installed app". This is the hard part:
+  since November 2025 Reddit approves new API apps individually, and approval is
+  often slow or refused, so a client ID created today may not work. If you have
+  one from before then, use it. Neither this bundle nor the official ReVanced
+  patches include one.
+
+Then:
+
+1. In ReVanced Manager, add this bundle by URL (in Manager versions with the
+   custom bundle editor: **Patches** → pencil icon → **Add patches** →
+   **Enter URL**):
+
+   ```
+   https://raw.githubusercontent.com/TheLastWallaby/revanced-redditsync/main/bundles/stable.json
+   ```
+
+2. Select the stock Sync APK from storage.
+3. Use only this bundle's patches. If the official ReVanced patches are also
+   loaded, deselect their Sync patches: this bundle already includes them and
+   refuses an APK that has ReVanced code in it.
+4. Open the settings of **Spoof client** and enter your **OAuth client ID**. If
+   your Reddit app was registered with a redirect URI other than
+   `http://redditsync/auth`, enter that as **Redirect URI** too.
+5. Patch. Every selected patch should report success; if any fails, don't
+   install the result.
+6. Install. It can't install over a Sync signed with a different key, such as
+   the original Play Store app or a copy patched on another device: uninstall
+   that first, which removes its settings. Later updates install over this one
+   as long as you patch with the same Manager.
+
+Problems? Open an
+[issue](https://github.com/TheLastWallaby/revanced-redditsync/issues) and attach
+Manager's patch log. ReVanced Manager patching has not been tested by the
+maintainers yet; the tested route is ReVanced CLI (see
+[Apply the stable RVP](#apply-the-stable-rvp)).
+
+The rest of this page is version history and technical detail.
 
 ## v0.7.0 one-pass patching from stock Sync (issue #70)
 
