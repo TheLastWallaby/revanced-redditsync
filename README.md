@@ -1164,6 +1164,5 @@ The official Sync patch ports and the included ReVanced extension code derive
 from ReVanced Patches v6.1.0 (commit `b632d0f04239d49f14425f86f21784a526594518`,
 GPL-3.0): https://gitlab.com/ReVanced/revanced-patches
 
-The combined source uses GPL-3.0. Original authored compatibility code also
-retains its MIT notice in LICENSE-MIT. Existing app code and dependencies
-retain their own licenses.
+This repository is licensed under GPL-3.0 (see LICENSE). Existing app code and
+dependencies retain their own licenses.
