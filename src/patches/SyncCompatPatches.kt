@@ -1806,3 +1806,116 @@ val fixSyncRedgifsLinkIds = bytecodePatch(
         """.trimIndent())
     }
 }
+
+private const val RETIRED = "Lapp/revanced/extension/synccompat/RetiredMediaHosts;"
+private const val TYPE_HELPER = "Lc8/e;"
+private const val IMAGE_HELPER = "Lc8/a;"
+private const val VOLLEY_REQUEST = "Lcom/android/volley/Request;"
+
+/** Sync's resolver requests for retired services: class, source file, URL marker, replacement URL. */
+private val RETIRED_REQUESTS = listOf(
+    listOf("Lr8/a;", "CheckDeviantArtRequest.java", "http://backend.deviantart.com/oembed?url=", "sync-compat-retired:deviantart"),
+    listOf("Lr8/c;", "EroshareGalleryRequest.java", "https://api.eroshare.com/api/v1/albums/", "sync-compat-retired:eroshare"),
+    listOf("Lr8/j;", "TumblrRequest.java", "https://api.tumblr.com/v2/blog/", "sync-compat-retired:tumblr"),
+)
+
+val skipSyncRetiredMediaHosts = bytecodePatch(
+    name = "Sync: skip retired media hosts",
+    description = "Show links to vid.me, sli.mg, Eroshare, picsarus, Tumblr posts and DeviantArt pages as ordinary link " +
+        "cards that open the original URL, instead of sending them to the shut-down resolvers (or DeviantArt's plain-HTTP " +
+        "oEmbed lookup) and failing.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        fun mutable(type: String, source: String): MutableClassDef =
+            proxy(classes.singleOrNull { it.type == type && it.sourceFile == source } ?: throw PatchException(
+                "Expected Sync $source was not found. This patch targets build 23033 only.")).mutableClass
+        fun MutableClassDef.method(name: String, parameters: List<String>, returns: String): MutableMethod =
+            methods.singleOrNull { it.name == name && it.parameterTypes == parameters && it.returnType == returns &&
+                AccessFlags.STATIC.isSet(it.accessFlags) } ?: throw PatchException("Unsupported Sync method $type->$name.")
+        fun MutableMethod.code() = implementation!!.instructions
+        fun MutableMethod.calls(owner: String, name: String) =
+            code().any { it.methodRef()?.let { m -> m.definingClass == owner && m.name == name } == true }
+        fun MutableMethod.hasStrings(vararg values: String) = values.all { v -> code().any { it.stringValue() == v } }
+        fun MutableMethod.targeted(index: Int): Boolean {
+            val target = code()[index]
+            return code().any { it is BuilderOffsetInstruction && it.target.location.instruction === target }
+        }
+        val string = listOf("Ljava/lang/String;")
+
+        // LinkTypeHelper (y7.c). j is Sync's "is this media?" check for taps, posts, comments and previews.
+        val types = mutable(LINK_TYPES, "LinkTypeHelper.java")
+        val media = types.method("j", string, "Z")
+        if (media.code().any { it.methodRef()?.definingClass == RETIRED }) throw PatchException("Retired media host skip is already installed.")
+        layout(media.implementation!!.registerCount >= 2 && media.hasStrings("i.reddituploads.com", "v.redd.it") &&
+            listOf("H", "z", "e").all { media.calls(LINK_TYPES, it) }, "Sync media link classifier")
+        // Each classifier only routes to a shut-down resolver: vid.me (H), sli.mg (z), DeviantArt's
+        // plain-HTTP oEmbed (e) and Tumblr's v2 blog API (C). All read the host with y7.c.a.
+        val dead = mapOf(
+            "H" to listOf("vid.me", "https://vid.me/"),
+            "z" to listOf("sli.mg", "https://sli.mg/"),
+            "e" to listOf("deviantart.com", "/gallery/"),
+            "C" to listOf("tumblr.com", "post"),
+        ).map { (name, strings) ->
+            types.method(name, string, "Z").also {
+                layout(it.hasStrings(*strings.toTypedArray()) && it.calls(LINK_TYPES, "a") &&
+                    it.implementation!!.registerCount <= 4, "Sync $name link classifier")
+            }
+        }
+
+        // SyncTypeHelper.h (c8.e.h): kind 3 is a link post; .gif/.gifv links become GIF posts before j runs.
+        val typeHelper = mutable(TYPE_HELPER, "SyncTypeHelper.java")
+        val postType = typeHelper.method("h", listOf("Lorg/json/JSONObject;", "I"), "I")
+        layout(postType.implementation!!.registerCount == 8 && postType.hasStrings("url", "imgur.com/gallery/xIolo", ".gifv") &&
+            postType.calls(LINK_TYPES, "j") && postType.code().first().let { it.opcode == Opcode.CONST_4 && it.registerA() == 0 },
+            "Sync post type helper")
+
+        // ImageHelper.b (c8.a.b): rewrites picsarus links to plain-HTTP image URLs and sli.mg to i.sli.mg.
+        val image = mutable(IMAGE_HELPER, "ImageHelper.java").method("b", string + string, "Ljava/lang/String;")
+        layout(image.implementation!!.registerCount >= 3 && image.hasStrings("http://picsarus.com/", "https://i.sli.mg/") &&
+            image.calls(LINK_TYPES, "z") && image.code().first().opcode == Opcode.INVOKE_VIRTUAL, "Sync image URL helper")
+
+        // The resolver requests themselves: replace the URL just before Volley's Request constructor.
+        val requests = RETIRED_REQUESTS.map { (type, source, marker, replacement) ->
+            val request = mutable(type, source)
+            val init = request.methods.singleOrNull {
+                it.name == "<init>" && it.parameterTypes == listOf("Ljava/lang/String;", LISTENER, ERROR_LISTENER)
+            } ?: throw PatchException("Unsupported Sync $source constructor.")
+            val superCall = init.code().singleIndex("$source Request constructor call") { i ->
+                init.code()[i].methodRef()?.toString() == "$VOLLEY_REQUEST-><init>(ILjava/lang/String;$ERROR_LISTENER)V"
+            }
+            val call = init.code()[superCall] as FiveRegisterInstruction
+            layout(request.superclass == VOLLEY_REQUEST && call.registerCount == 4 && !init.targeted(superCall) &&
+                request.methods.any { m -> m.implementation?.instructions?.any { it.stringValue() == marker } == true },
+                "Sync $source")
+            Triple(init, superCall, "const-string v${call.registerE}, \"$replacement\"")
+        }
+
+        // All layouts verified; edit.
+        for (classifier in dead) classifier.resetBody(classifier.implementation!!.registerCount, """
+            const/4 v0, 0x0
+            return v0
+        """.trimIndent())
+        media.addInstructionsWithLabels(0, """
+            invoke-static {p0}, $RETIRED->isRetired(Ljava/lang/String;)Z
+            move-result v0
+            if-eqz v0, :original
+            const/4 v0, 0x0
+            return v0
+        """.trimIndent(), ExternalLabel("original", media.code()[0]))
+        postType.addInstructionsWithLabels(0, """
+            invoke-static {p0, p1}, $RETIRED->postType(Lorg/json/JSONObject;I)I
+            move-result v0
+            if-ltz v0, :original
+            return v0
+        """.trimIndent(), ExternalLabel("original", postType.code()[0]))
+        image.addInstructionsWithLabels(0, """
+            invoke-static {p0}, $RETIRED->isRetired(Ljava/lang/String;)Z
+            move-result v0
+            if-eqz v0, :original
+            return-object p0
+        """.trimIndent(), ExternalLabel("original", image.code()[0]))
+        for ((init, index, replacement) in requests) init.addInstructions(index, replacement)
+    }
+}

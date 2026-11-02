@@ -1018,6 +1018,40 @@ Unreleased, on `main` for the next release:
   `RedgifsLinkPatchTest` runs the reader before and after the patch (a
   hand-written model of it in CI, and Sync's real method locally).
   Not tested on a phone.
+- **Sync: skip retired media hosts**
+  ([issue #57](https://github.com/TheLastWallaby/revanced-redditsync/issues/57))
+  shows links to shut-down media services as ordinary link cards that open the
+  original URL in the browser, as Sync does for links it doesn't recognize.
+  Before, Sync 23033 opened them in its viewers and asked resolvers that no
+  longer answer, or loaded previews from the dead hosts:
+
+  | Links | Sync 23033 did | With the patch |
+  |---|---|---|
+  | vid.me | Viewer (`LinkTypeHelper.H`, `y7.c.H`) | Link card / browser |
+  | sli.mg, `i.sli.mg` | Viewer (`y7.c.z`); previews rewritten to `i.sli.mg` | Link card / browser |
+  | DeviantArt pages | Viewer, then plain-HTTP `http://backend.deviantart.com/oembed?url=` (`y7.c.e`, `CheckDeviantArtRequest` `r8.a`) | Link card / browser |
+  | Tumblr posts | Album viewer, then `api.tumblr.com/v2/blog/` (`y7.c.C`, `TumblrRequest` `r8.j`) | Link card / browser |
+  | Eroshare, picsarus links with an image or GIF extension | Image viewer and image/GIF post previews from the dead host; picsarus rewritten to plain-HTTP `http://picsarus.com/<id>.jpg` | Link card / browser |
+
+  The four classifiers for vid.me, sli.mg, DeviantArt and Tumblr posts now
+  always answer "no". Sync's media check (`y7.c.j`), post-type helper
+  (`SyncTypeHelper.h`, `c8.e.h`) and image-URL helper (`ImageHelper.b`,
+  `c8.a.b`) first ask `RetiredMediaHosts`, which matches `vid.me`, `sli.mg`,
+  `eroshare.com` and `picsarus.com` and their subdomains over http, https or no
+  scheme, in any case. Such a link is not media, a link post stays a link post
+  (with Reddit's own thumbnail) and its URL is not rewritten. As a backstop, the
+  three resolver requests (`r8.a`, Eroshare's `EroshareGalleryRequest` `r8.c`
+  and `r8.j`) get a non-network URL (`sync-compat-retired:<service>`), which
+  Sync's network stack rejects before connecting. Sync's own "vid.me" and
+  "Tumblr posts" settings no longer have any effect. Imgur, RedGifs, Giphy,
+  Gfycat, Streamable, YouTube, Reddit-hosted media, Tumblr media files
+  (`*.media.tumblr.com`) and DeviantArt galleries keep Sync's handling.
+  `RetiredMediaHostsTest` covers the host table (schemes, subdomains, casing,
+  ports, look-alike hosts and other URI schemes). `RetiredMediaPatchTest`
+  applies the patch and executes the classifiers, post-type and image-URL
+  helpers and request constructors before and after it, and walks the media
+  part of Sync's link router (`LinkHelper`, `y7.b.c`) with them: on hand-written
+  models in CI, and on Sync's real methods locally. Not tested on a phone.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
