@@ -10,6 +10,12 @@ public final class Uri {
     public static Uri parse(String value) { return new Uri(value); }
     public String getPath() { return uri.getPath(); }
     public String getHost() { return uri.getHost(); }
+    /** Decoded, non-empty path segments, as Android returns them. */
+    public java.util.List<String> getPathSegments() {
+        java.util.List<String> segments = new java.util.ArrayList<>();
+        if (uri.getPath() != null) for (String part : uri.getPath().split("/")) if (!part.isEmpty()) segments.add(part);
+        return java.util.Collections.unmodifiableList(segments);
+    }
     public Builder buildUpon() { return new Builder(uri); }
     @Override public String toString() { return uri.toString(); }
     public static final class Builder {
