@@ -19,7 +19,8 @@ combinations has not been established.
 
 ## Next release (v0.7.0): one-pass patching from stock Sync (issue #70)
 
-Not released yet; until then use stable v0.6.14 with the two-pass setup under
+Candidate v0.7.0-rc.1 is awaiting phone testing; it is not a stable release.
+Until v0.7.0 is stable, use stable v0.6.14 with the two-pass setup under
 [ReVanced Manager remote bundle](#revanced-manager-remote-bundle).
 
 Earlier releases only worked on an APK already patched with the official ReVanced
