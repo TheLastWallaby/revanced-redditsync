@@ -2,6 +2,21 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.7.0",
+      "tested_release": "v0.7.0-rc.1",
+      "results": {
+        "overall": "passed: the tester replied \"All good\"; no individual results were given for the ten numbered checks (update install keeping sign-in, feed/vote/comment, optional re-sign-in, /s/ share link, RedGifs feed and full screen, post thumbnails, video download with sound, profile, no ads or Lemmy sheet, gallery/load-more/video regressions)"
+      },
+      "promotion": "Stable v0.7.0 rebuilds the same runtime patch and extension source as the tested v0.7.0-rc.1 candidate, built from stock Sync 23033 by the private builder with all 19 patches reported as succeeded. The tester replied \"All good\" and authorized stable publication; candidate assets remain immutable.",
+      "unverified": [
+        "individual results for the ten numbered checks",
+        "whether the optional re-sign-in check (3) was performed",
+        "ReVanced Manager import and one-pass patching",
+        "Spoof client defaults (Sync's redirect URI, random User-Agent); the tested build used custom values",
+        "separate device installation of the stable rebuild"
+      ]
+    },
+    {
       "stable": "v0.6.14",
       "tested_release": "v0.6.14-rc.1",
       "results": {
