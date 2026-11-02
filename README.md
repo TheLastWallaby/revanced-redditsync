@@ -59,6 +59,31 @@ maintainers yet; the tested route is ReVanced CLI (see
 
 The rest of this page is version history and technical detail.
 
+## v0.7.1-rc.1 candidate: retired media hosts, random subreddit and RedGifs link IDs
+
+The [v0.7.1-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.1-rc.1)
+is for phone testing. Apply it to **stock** Sync and check all patch results (22
+with Use /user/ endpoint). Stable remains v0.7.0 until the candidate passes and
+stable publication is authorized. It has not been tested on a phone yet.
+
+It adds three selectable patches, described under
+[Included patches](#included-patches--cumulative-v070):
+
+- **Sync: skip retired media hosts**
+  ([issue #57](https://github.com/TheLastWallaby/revanced-redditsync/issues/57)):
+  links to vid.me, sli.mg, Eroshare, picsarus, Tumblr posts and DeviantArt pages
+  become ordinary link cards that open the original URL, instead of going to
+  resolvers that no longer answer.
+- **Sync: hide random subreddit**
+  ([issue #54](https://github.com/TheLastWallaby/revanced-redditsync/issues/54)):
+  the Random chip, actions and toggles are hidden, and random links and
+  selections show "Random subreddit is no longer available from Reddit." without
+  asking Reddit's retired endpoints.
+- **Sync: fix RedGifs link IDs**: RedGifs links with a slash before their query,
+  such as `redgifs.com/watch/<id>/?92`, open again.
+
+Not changed: Sync's `old.reddit.com` handling, including its over-18 handoff.
+
 ## v0.7.0 one-pass patching from stock Sync (issue #70)
 
 The [v0.7.0 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.0)
@@ -1006,7 +1031,8 @@ This bundle's own patches:
   RedGifs rejects the base's cached one and retries that request once, as
   described above.
 
-Unreleased, on `main` for the next release:
+New in the [v0.7.1-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.1-rc.1)
+(not stable yet; see [above](#v071-rc1-candidate-retired-media-hosts-random-subreddit-and-redgifs-link-ids)):
 
 - **Sync: fix RedGifs link IDs** reads the RedGifs video ID from links with a
   slash before their query or fragment, such as `redgifs.com/watch/<id>/?92`.
@@ -1052,6 +1078,33 @@ Unreleased, on `main` for the next release:
   helpers and request constructors before and after it, and walks the media
   part of Sync's link router (`LinkHelper`, `y7.b.c`) with them: on hand-written
   models in CI, and on Sync's real methods locally. Not tested on a phone.
+- **Sync: hide random subreddit**
+  ([issue #54](https://github.com/TheLastWallaby/revanced-redditsync/issues/54)).
+  Reddit retired its random subreddit. Sync 23033 still offered it, and every
+  entry opened its random sheet (`RandomProgressDialogBottomSheet`, `t9.m1`),
+  which asked Reddit for `r/random.json` or `r/randnsfw.json`
+  (`RandomRequest`, `r8.d`). The patch hides the entries it can and shows
+  "Random subreddit is no longer available from Reddit." for the rest, without
+  a request:
+
+  | Entry | Sync 23033 code | With the patch |
+  |---|---|---|
+  | **Random** chip in the front-page toolbar chips | `DefaultSubredditChipGroup` (`chip_random`, `onPreviewsClicked`) | Hidden |
+  | **Random** and **Random NSFW** action buttons | `ActionsManager` (`t7.b`) actions 5 and 6 | Hidden, also when already saved in the action list |
+  | **Random** and **Random nsfw** in the actions sheet's "Action visibility" menu | `ActionsBottomSheetFragment.showMore` | Hidden |
+  | Choosing `random` or `random_nsfw` as a subreddit (for example an entry you added to your own list) | `VerticalPostsFragment.onSubredditSelected` | Message |
+  | Tapping an `r/random`, `r/random_nsfw` or `r/randnsfw` link | `LinkHandler.T` (`y7.a.T`) | Message |
+
+  Before, an `r/randnsfw` link opened as an ordinary subreddit, which also asked
+  Reddit for `r/randnsfw`; it now shows the message too. As a backstop, the
+  random sheet itself shows the message and closes instead of sending
+  `RandomRequest`. The stored Random action settings stay but have no effect.
+  Other subreddits, links, actions and menu items are unchanged.
+  `RandomSubredditPatchTest` runs each entry before and after the patch with
+  stand-ins for Android and Sync's services that record what Sync asks for:
+  stock Sync opens the sheet and queues `RandomRequest`; the patched entries
+  show the message or are hidden, and nothing is queued. It runs on hand-written
+  models in CI, and passed on Sync's real methods locally. Not tested on a phone.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty

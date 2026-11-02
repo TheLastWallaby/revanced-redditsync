@@ -1919,3 +1919,184 @@ val skipSyncRetiredMediaHosts = bytecodePatch(
         for ((init, index, replacement) in requests) init.addInstructions(index, replacement)
     }
 }
+
+private const val RANDOM = "Lapp/revanced/extension/synccompat/RandomSubreddit;"
+private const val RANDOM_MESSAGE = "Random subreddit is no longer available from Reddit."
+private const val RANDOM_SHEET = "Lt9/m1;"
+private const val STATIC_TOAST = "Lgb/p;->e(Ljava/lang/String;Landroid/content/Context;)V"
+private const val SHOW_SHEET = "Ls9/g;->e(Ljava/lang/Class;Landroidx/fragment/app/FragmentManager;Landroid/os/Bundle;)V"
+private const val FRAGMENT_ACTIVITY = "Landroidx/fragment/app/Fragment;->B0()Landroidx/fragment/app/FragmentActivity;"
+private const val SUBREDDIT_SELECTED = "Lh7/d0;"
+private const val CHIPS = "Lcom/laurencedawson/reddit_sync/sections/posts/toolbar/chip_groups/"
+
+val hideSyncRandomSubreddit = bytecodePatch(
+    name = "Sync: hide random subreddit",
+    description = "Hide the Random chip, the Random and Random NSFW actions and their visibility toggles, and show " +
+        "\"$RANDOM_MESSAGE\" for r/random and r/randnsfw links instead of asking Reddit's retired random endpoints.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        fun mutable(type: String, source: String): MutableClassDef =
+            proxy(classes.singleOrNull { it.type == type && it.sourceFile == source } ?: throw PatchException(
+                "Expected Sync $source was not found. This patch targets build 23033 only.")).mutableClass
+        fun MutableClassDef.method(name: String, parameters: List<String>, returns: String): MutableMethod =
+            methods.singleOrNull { it.name == name && it.parameterTypes == parameters && it.returnType == returns }
+                ?: throw PatchException("Unsupported Sync method $type->$name.")
+        fun MutableMethod.code() = implementation!!.instructions
+        fun MutableMethod.calls(ref: String) = code().any { it.methodRef()?.toString() == ref }
+        fun MutableMethod.callsNamed(owner: String, name: String) =
+            code().any { it.methodRef()?.let { m -> m.definingClass == owner && m.name == name } == true }
+        fun MutableMethod.hasStrings(vararg values: String) = values.all { v -> code().any { it.stringValue() == v } }
+        fun MutableMethod.usesClass(type: String) = code().any {
+            it.opcode == Opcode.CONST_CLASS && (it as ReferenceInstruction).reference.toString() == type
+        }
+        fun MutableMethod.targeted(index: Int): Boolean {
+            val target = code()[index]
+            return code().any { it is BuilderOffsetInstruction && it.target.location.instruction === target }
+        }
+        fun FiveRegisterInstruction.registers() = listOf(registerC, registerD, registerE, registerF, registerG).take(registerCount)
+        fun Instruction.fieldEndsWith(suffix: String) =
+            (this as? ReferenceInstruction)?.reference?.toString()?.endsWith(suffix) == true
+
+        // The only request: RandomProgressDialogBottomSheet (t9.m1).v4 sends RandomRequest (r8.d).
+        val request = mutable("Lr8/d;", "RandomRequest.java")
+        layout(request.methods.any { m -> m.implementation?.instructions?.let { code ->
+            code.any { it.stringValue() == "r/random.json" } && code.any { it.stringValue() == "r/randnsfw.json" } } == true
+        }, "Sync RandomRequest")
+        val sheet = mutable(RANDOM_SHEET, "RandomProgressDialogBottomSheet.java")
+        val send = sheet.method("v4", emptyList(), "V")
+        if (send.code().none { it.opcode == Opcode.NEW_INSTANCE && (it as ReferenceInstruction).reference.toString() == "Lr8/d;" })
+            throw PatchException("Random subreddit is already hidden.")
+        val error = mutable("Lt9/m1\$b;", "RandomProgressDialogBottomSheet.java").method("onErrorResponse", listOf(VOLLEY_ERROR), "V")
+        val dialog = "Landroidx/fragment/app/c;->z3()Landroid/app/Dialog;"
+        val dismiss = "Lcom/google/android/material/bottomsheet/BottomSheetDialogFragment;->x3()V"
+        layout(send.implementation!!.registerCount >= 2 && send.callsNamed("Lm8/a;", "c") &&
+            error.hasStrings("Error grabbing random subreddit") && error.calls(dialog) && error.calls(dismiss) &&
+            error.calls(STATIC_TOAST) && error.calls(FRAGMENT_ACTIVITY), "Sync random subreddit sheet")
+
+        // Tapped links: LinkHandler.T (y7.a.T) opens the sheet for r/random and r/random_nsfw.
+        val links = mutable(LINK_HANDLER, "LinkHandler.java").method("T", listOf("Landroid/content/Context;", "Ljava/lang/String;"), "V")
+        layout(links.implementation!!.registerCount >= 3 && links.hasStrings("random", "random_nsfw") &&
+            links.usesClass(RANDOM_SHEET) && links.calls(SHOW_SHEET) &&
+            links.calls("$LINK_TYPES->n(Ljava/lang/String;)Z") && links.calls("$LINK_HANDLER->o(Ljava/lang/String;)Ljava/lang/String;") &&
+            links.callsNamed("Lcom/laurencedawson/reddit_sync/ui/activities/CasualActivity;", "c1") &&
+            links.code().first().let { it.opcode == Opcode.NEW_INSTANCE && it.registerA() == 0 }, "Sync subreddit link handler")
+
+        // Selections (chip, actions, a user's own "random" entry): VerticalPostsFragment.onSubredditSelected.
+        val posts = mutable("Lcom/laurencedawson/reddit_sync/ui/fragments/posts/VerticalPostsFragment;", "VerticalPostsFragment.java")
+        val selected = posts.method("onSubredditSelected", listOf(SUBREDDIT_SELECTED), "V")
+        layout(selected.implementation!!.registerCount >= 4 && selected.hasStrings("random", "random_nsfw") &&
+            selected.usesClass(RANDOM_SHEET) && selected.calls(SHOW_SHEET) &&
+            selected.code().first().let { first -> first.opcode == Opcode.IGET_OBJECT && first.registerA() == 0 &&
+                first.fieldEndsWith("$SUBREDDIT_SELECTED->a:Ljava/lang/String;") },
+            "Sync subreddit selection")
+
+        // Actions (ActionsManager, t7.b): 5 = Random, 6 = Random NSFW. f says whether an action is on;
+        // c is the list the actions sheet shows, edits and saves.
+        val actions = mutable("Lt7/b;", "ActionsManager.java")
+        val enabled = actions.method("f", listOf("I"), "Z")
+        val list = actions.method("c", emptyList(), "Ljava/util/ArrayList;")
+        layout(enabled.implementation!!.registerCount == 2 && enabled.hasStrings("Unknown action") &&
+            enabled.code().first().let { it.opcode == Opcode.CONST_4 && it.registerA() == 0 } &&
+            enabled.code().any { it.fieldEndsWith("->actionsRandom:Z") } &&
+            enabled.code().any { it.fieldEndsWith("->actionsRandomNsfw:Z") } &&
+            list.code().size == 2 && list.code()[0].opcode == Opcode.IGET_OBJECT && list.code()[0].registerA() == 0 &&
+            list.code()[0].fieldEndsWith("Lt7/b;->a:Ljava/util/ArrayList;") &&
+            list.code()[1].opcode == Opcode.RETURN_OBJECT && list.code()[1].registerA() == 0, "Sync ActionsManager")
+
+        // The "Action visibility" menu (ActionsBottomSheetFragment.showMore): hide its Random toggles before it shows.
+        val sheetActions = mutable("Lcom/laurencedawson/reddit_sync/ui/fragment_dialogs/bottom/ActionsBottomSheetFragment;",
+            "ActionsBottomSheetFragment.java")
+        val more = sheetActions.method("showMore", listOf("Landroid/view/View;"), "V")
+        val moreCode = more.code()
+        val show = moreCode.size - 2
+        val listener = moreCode.getOrNull(show - 1) as? FiveRegisterInstruction
+        val popup = (moreCode.getOrNull(show) as? FiveRegisterInstruction)?.registers()
+        layout(more.hasStrings("Action visibility", "Random", "Random nsfw") &&
+            moreCode.last().opcode == Opcode.RETURN_VOID && moreCode[show].methodRef()?.toString() == "Lm/e;->e()V" &&
+            moreCode[show - 1].methodRef()?.let { it.definingClass == "Lm/e;" && it.name == "d" } == true &&
+            listener?.registerCount == 2 && popup?.size == 1 && listener.registerC == popup.single() &&
+            listener.registerD < 16 && popup.single() < 16 && !more.targeted(show) &&
+            moreCode.any { it.methodRef()?.toString() == "Lm/e;->a()Landroid/view/Menu;" &&
+                (it as FiveRegisterInstruction).registerC == popup.single() },
+            "Sync action visibility menu")
+
+        // The toolbar chip: ButterKnife binds the view whose click handler (onPreviewsClicked) selects "random".
+        val chips = mutable("${CHIPS}DefaultSubredditChipGroup;", "DefaultSubredditChipGroup.java")
+        val previews = chips.method("onPreviewsClicked", emptyList(), "V")
+        layout(previews.hasStrings("random") && previews.code().any {
+            it.opcode == Opcode.NEW_INSTANCE && (it as ReferenceInstruction).reference.toString() == SUBREDDIT_SELECTED
+        }, "Sync random chip")
+        val binding = mutable("${CHIPS}DefaultSubredditChipGroup_ViewBinding;", "DefaultSubredditChipGroup_ViewBinding.java")
+        val bind = binding.methods.singleOrNull { it.name == "<init>" } ?: throw PatchException("Unsupported Sync chip binding.")
+        val bindCode = bind.code()
+        val label = bindCode.singleIndex("random chip binding") { bindCode[it].stringValue() == "method 'onPreviewsClicked'" }
+        val stored = label + 3
+        val chip = bindCode.getOrNull(label + 2)?.registerA()
+        val spare = bindCode.getOrNull(stored + 1)
+        val spareRegister = spare?.registerA()
+        layout(bindCode.getOrNull(label + 1)?.methodRef()?.toString() == "Lq2/c;->c(Landroid/view/View;ILjava/lang/String;)Landroid/view/View;" &&
+            bindCode[label + 2].opcode == Opcode.MOVE_RESULT_OBJECT && chip != null && chip < 16 &&
+            bindCode.getOrNull(stored)?.let { it.opcode == Opcode.IPUT_OBJECT && it.registerA() == chip } == true &&
+            spare?.opcode == Opcode.NEW_INSTANCE && spareRegister != null && spareRegister != chip && spareRegister < 16 &&
+            !bind.targeted(stored + 1), "Sync random chip binding")
+
+        // All layouts verified; edit.
+        send.resetBody(send.implementation!!.registerCount, """
+            invoke-virtual {p0}, $FRAGMENT_ACTIVITY
+            move-result-object v0
+            const-string v1, "$RANDOM_MESSAGE"
+            invoke-static {v1, v0}, $STATIC_TOAST
+            if-eqz v0, :done
+            invoke-virtual {p0}, $dialog
+            move-result-object v0
+            if-eqz v0, :done
+            invoke-virtual {p0}, $dismiss
+            :done
+            return-void
+        """.trimIndent())
+        links.addInstructionsWithLabels(0, """
+            invoke-static {p1}, $LINK_TYPES->n(Ljava/lang/String;)Z
+            move-result v0
+            if-nez v0, :original
+            invoke-static {p1}, $LINK_HANDLER->o(Ljava/lang/String;)Ljava/lang/String;
+            move-result-object v0
+            invoke-static {v0}, $RANDOM->isRandom(Ljava/lang/String;)Z
+            move-result v0
+            if-eqz v0, :original
+            const-string v0, "$RANDOM_MESSAGE"
+            invoke-static {v0, p0}, $STATIC_TOAST
+            return-void
+        """.trimIndent(), ExternalLabel("original", links.code()[0]))
+        selected.addInstructionsWithLabels(0, """
+            iget-object v0, p1, $SUBREDDIT_SELECTED->a:Ljava/lang/String;
+            invoke-static {v0}, $RANDOM->isRandom(Ljava/lang/String;)Z
+            move-result v0
+            if-eqz v0, :original
+            invoke-virtual {p0}, $FRAGMENT_ACTIVITY
+            move-result-object v1
+            const-string v0, "$RANDOM_MESSAGE"
+            invoke-static {v0, v1}, $STATIC_TOAST
+            return-void
+        """.trimIndent(), ExternalLabel("original", selected.code()[0]))
+        enabled.addInstructionsWithLabels(0, """
+            invoke-static {p0}, $RANDOM->isRandomAction(I)Z
+            move-result v0
+            if-eqz v0, :original
+            const/4 v0, 0x0
+            return v0
+        """.trimIndent(), ExternalLabel("original", enabled.code()[0]))
+        list.addInstructions(1, "invoke-static {v0}, $RANDOM->removeRandomActions(Ljava/util/List;)V")
+        val menu = listener!!.registerD
+        more.addInstructions(show, """
+            invoke-virtual {v${popup!!.single()}}, Lm/e;->a()Landroid/view/Menu;
+            move-result-object v$menu
+            invoke-static {v$menu}, $RANDOM->hideRandomItems(Landroid/view/Menu;)V
+        """.trimIndent())
+        bind.addInstructions(stored + 1, """
+            const/16 v$spareRegister, 0x8
+            invoke-virtual {v$chip, v$spareRegister}, Landroid/view/View;->setVisibility(I)V
+        """.trimIndent())
+    }
+}

@@ -4,9 +4,7 @@ import app.revanced.patcher.patch.PatchException;
 import app.revanced.patcher.patch.ResourcePatchContext;
 import app.revanced.com.android.tools.smali.dexlib2.mutable.MutableMethod;
 import com.android.tools.smali.dexlib2.Opcode;
-import com.android.tools.smali.dexlib2.builder.BuilderExceptionHandler;
 import com.android.tools.smali.dexlib2.builder.BuilderOffsetInstruction;
-import com.android.tools.smali.dexlib2.builder.BuilderTryBlock;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction21c;
 import com.android.tools.smali.dexlib2.iface.ClassDef;
 import com.android.tools.smali.dexlib2.iface.instruction.*;
@@ -15,8 +13,6 @@ import com.android.tools.smali.dexlib2.immutable.reference.ImmutableStringRefere
 import com.android.tools.smali.smali.Smali;
 import com.android.tools.smali.smali.SmaliOptions;
 import java.io.File;
-import java.lang.reflect.Array;
-import java.lang.reflect.InvocationTargetException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.file.*;
@@ -91,7 +87,7 @@ public final class RetiredMediaPatchTest {
             Map<String, List<String>> before = new LinkedHashMap<>();
             for (MutableMethod m : edited(patchedContext)) before.put(signature(m), keys(m));
             apply(patchedContext);
-            Runner stock = new Runner(stockContext), patched = new Runner(patchedContext);
+            DexRunner stock = runner(stockContext), patched = runner(patchedContext);
 
             hooks(patchedContext, before);
 
@@ -138,9 +134,9 @@ public final class RetiredMediaPatchTest {
             String[] inputs = {"https://www.deviantart.com/artist/art/Title-123", "https://www.eroshare.com/abcd1234",
                     "https://example.tumblr.com/post/123/title"};
             for (int n = 0; n < requests.length; n++) {
-                String stockUrl = stock.requestUrl(requests[n][0], inputs[n]);
+                String stockUrl = requestUrl(stock, stockContext, requests[n][0], inputs[n]);
                 check(stockUrl.startsWith(requests[n][1]), "stock request " + requests[n][0] + " uses " + requests[n][1] + ", got " + stockUrl);
-                String url = patched.requestUrl(requests[n][0], inputs[n]);
+                String url = requestUrl(patched, patchedContext, requests[n][0], inputs[n]);
                 equal(requests[n][2], url, "patched request " + requests[n][0]);
                 try { new URL(url); throw new AssertionError("network URL " + url); }
                 catch (MalformedURLException expected) { check(true, "no network scheme in " + url); }
@@ -244,7 +240,7 @@ public final class RetiredMediaPatchTest {
         return link;
     }
 
-    private static String route(Runner run, String link) {
+    private static String route(DexRunner run, String link) {
         String v4 = schemeAsSync(link);
         if (yes(run.call(TYPES, "K", v4))) return "YouTube";
         if (yes(run.call(TYPES, "C", v4))) return "Tumblr viewer";
@@ -301,323 +297,23 @@ public final class RetiredMediaPatchTest {
         return result;
     }
 
-    // ---- Strict instruction runner ----
+    // ---- Runner ----
 
-    /**
-     * Executes Sync methods from a patch context. Sync's own static methods run instruction by
-     * instruction; String, URI, Locale, regex, org.json, the Android test adapters and the
-     * production RetiredMediaHosts run on the JVM; Sync's log calls do nothing. Any other call,
-     * field or opcode fails the suite.
-     */
-    private static final class Runner {
-        private static final Set<String> LOGS = Set.of("Lwc/i;", "Lt7/k;");
-        private static final List<String> JVM = List.of("Ljava/lang/", "Ljava/net/URI;", "Ljava/util/Locale;",
-                "Ljava/util/regex/", "Lorg/json/JSONObject;", "Landroid/webkit/", "Landroid/text/TextUtils;", "Landroid/net/Uri;", "Ljava/util/List;", RETIRED);
-        private final BytecodePatchContext context;
-        private final Map<String, Object> statics = new HashMap<>();
-        private final Set<String> initialized = new HashSet<>();
-
-        Runner(BytecodePatchContext context) { this.context = context; }
-
-        Object call(String owner, String name, Object... args) {
-            for (MutableMethod m : context.proxy(context.getClassDefs().get(owner)).getMutableClass().getMethods())
-                if (m.getName().equals(name) && m.getParameterTypes().size() == args.length && isStatic(m)) return run(m, args);
-            throw new AssertionError("Missing " + owner + "->" + name);
-        }
-
-        /** The URL a request constructor hands to Volley's Request constructor. */
-        String requestUrl(String type, String link) {
-            MutableMethod init = method(context, type, "<init>", List.of(INIT_PARAMS.split("(?<=;)")));
-            try { run(init, new Object[] {new Uninitialized(type), link, null, null}); }
-            catch (RequestUrl url) { return url.url; }
-            throw new AssertionError(type + " never called Request");
-        }
-
-        private Object run(MutableMethod method, Object[] args) {
-            List<Instruction> code = code(method);
-            Map<Instruction, Integer> index = new IdentityHashMap<>();
-            for (int n = 0; n < code.size(); n++) index.put(code.get(n), n);
-            Object[] r = new Object[method.getImplementation().getRegisterCount()];
-            System.arraycopy(args, 0, r, r.length - args.length, args.length);
-            Object result = null;
-            Throwable caught = null;
-            int pc = 0, steps = 0;
-            while (true) {
-                if (++steps > 20000) throw new AssertionError("Unbounded execution in " + signature(method));
-                Instruction i = code.get(pc);
-                int next = pc + 1;
-                try {
-                    switch (i.getOpcode()) {
-                        case NOP: case CHECK_CAST: break;
-                        case CONST_STRING: case CONST_STRING_JUMBO: r[a(i)] = string(i); break;
-                        case CONST_4: case CONST_16: case CONST: r[a(i)] = ((NarrowLiteralInstruction) i).getNarrowLiteral(); break;
-                        case MOVE: case MOVE_FROM16: case MOVE_OBJECT: case MOVE_OBJECT_FROM16:
-                            r[a(i)] = r[((TwoRegisterInstruction) i).getRegisterB()]; break;
-                        case MOVE_RESULT: case MOVE_RESULT_OBJECT: r[a(i)] = result; break;
-                        case MOVE_EXCEPTION: r[a(i)] = caught; break;
-                        case ADD_INT_LIT8: case ADD_INT_LIT16: {
-                            TwoRegisterInstruction t = (TwoRegisterInstruction) i;
-                            r[t.getRegisterA()] = (Integer) r[t.getRegisterB()] + ((NarrowLiteralInstruction) i).getNarrowLiteral();
-                            break;
-                        }
-                        case ADD_INT_2ADDR: case SUB_INT_2ADDR: {
-                            TwoRegisterInstruction t = (TwoRegisterInstruction) i;
-                            int x = (Integer) r[t.getRegisterA()], y = (Integer) r[t.getRegisterB()];
-                            r[t.getRegisterA()] = i.getOpcode() == Opcode.ADD_INT_2ADDR ? x + y : x - y;
-                            break;
-                        }
-                        case ARRAY_LENGTH: r[a(i)] = Array.getLength(r[((TwoRegisterInstruction) i).getRegisterB()]); break;
-                        case AGET_OBJECT: {
-                            ThreeRegisterInstruction t = (ThreeRegisterInstruction) i;
-                            r[t.getRegisterA()] = Array.get(r[t.getRegisterB()], (Integer) r[t.getRegisterC()]);
-                            break;
-                        }
-                        case APUT_OBJECT: {
-                            ThreeRegisterInstruction t = (ThreeRegisterInstruction) i;
-                            Array.set(r[t.getRegisterB()], (Integer) r[t.getRegisterC()], r[t.getRegisterA()]);
-                            break;
-                        }
-                        case NEW_ARRAY: {
-                            TwoRegisterInstruction t = (TwoRegisterInstruction) i;
-                            String type = ((TypeReference) ((ReferenceInstruction) i).getReference()).getType();
-                            try { r[t.getRegisterA()] = Array.newInstance(type(type.substring(1)), (Integer) r[t.getRegisterB()]); }
-                            catch (ClassNotFoundException missing) { throw new AssertionError("Unknown array type " + type); }
-                            break;
-                        }
-                        case INSTANCE_OF: {
-                            TwoRegisterInstruction t = (TwoRegisterInstruction) i;
-                            String type = ((TypeReference) ((ReferenceInstruction) i).getReference()).getType();
-                            Object value = r[t.getRegisterB()];
-                            boolean is;
-                            try { is = value != null && type(type).isInstance(value); }
-                            catch (ClassNotFoundException notJvm) { is = false; } // Sync's own types: values here are JVM objects
-                            r[t.getRegisterA()] = is ? 1 : 0;
-                            break;
-                        }
-                        case IGET: case IGET_OBJECT: case IGET_BOOLEAN: {
-                            TwoRegisterInstruction t = (TwoRegisterInstruction) i;
-                            FieldReference f = (FieldReference) ((ReferenceInstruction) i).getReference();
-                            r[t.getRegisterA()] = ((SyncObject) r[t.getRegisterB()]).fields.getOrDefault(f.getName(),
-                                    f.getType().startsWith("L") || f.getType().startsWith("[") ? null : 0);
-                            break;
-                        }
-                        case IPUT: case IPUT_OBJECT: case IPUT_BOOLEAN: {
-                            TwoRegisterInstruction t = (TwoRegisterInstruction) i;
-                            FieldReference f = (FieldReference) ((ReferenceInstruction) i).getReference();
-                            ((SyncObject) r[t.getRegisterB()]).fields.put(f.getName(), r[t.getRegisterA()]);
-                            break;
-                        }
-                        case NEW_INSTANCE: r[a(i)] = new Uninitialized(((TypeReference) ((ReferenceInstruction) i).getReference()).getType()); break;
-                        case SGET_OBJECT: r[a(i)] = staticField((FieldReference) ((ReferenceInstruction) i).getReference()); break;
-                        case SPUT_OBJECT: {
-                            FieldReference f = (FieldReference) ((ReferenceInstruction) i).getReference();
-                            check(context.getClassDefs().get(f.getDefiningClass()) != null, "only Sync statics are written");
-                            statics.put(f.toString(), r[a(i)]);
-                            break;
-                        }
-                        case IF_EQZ: case IF_NEZ: case IF_LTZ: case IF_GEZ: case IF_GTZ: case IF_LEZ: {
-                            Object v = r[a(i)];
-                            int x = v instanceof Integer ? (Integer) v : v == null ? 0 : 1;
-                            boolean jump;
-                            switch (i.getOpcode()) {
-                                case IF_EQZ: jump = x == 0; break;
-                                case IF_NEZ: jump = x != 0; break;
-                                case IF_LTZ: jump = x < 0; break;
-                                case IF_GEZ: jump = x >= 0; break;
-                                case IF_GTZ: jump = x > 0; break;
-                                default: jump = x <= 0;
-                            }
-                            if (jump) next = target(index, i);
-                            break;
-                        }
-                        case IF_EQ: case IF_NE: case IF_LT: case IF_GE: case IF_GT: case IF_LE: {
-                            TwoRegisterInstruction t = (TwoRegisterInstruction) i;
-                            Object x = r[t.getRegisterA()], y = r[t.getRegisterB()];
-                            int cmp = x instanceof Integer && y instanceof Integer ? Integer.compare((Integer) x, (Integer) y) : (x == y ? 0 : 1);
-                            boolean jump;
-                            switch (i.getOpcode()) {
-                                case IF_EQ: jump = cmp == 0; break;
-                                case IF_NE: jump = cmp != 0; break;
-                                case IF_LT: jump = cmp < 0; break;
-                                case IF_GE: jump = cmp >= 0; break;
-                                case IF_GT: jump = cmp > 0; break;
-                                default: jump = cmp <= 0;
-                            }
-                            if (jump) next = target(index, i);
-                            break;
-                        }
-                        case GOTO: case GOTO_16: case GOTO_32: next = target(index, i); break;
-                        case INVOKE_STATIC: case INVOKE_VIRTUAL: case INVOKE_DIRECT: case INVOKE_INTERFACE:
-                        case INVOKE_STATIC_RANGE: case INVOKE_VIRTUAL_RANGE: case INVOKE_DIRECT_RANGE: case INVOKE_INTERFACE_RANGE:
-                            result = invoke(i, r);
-                            break;
-                        case THROW: throw new Thrown((Throwable) r[a(i)]);
-                        case RETURN: case RETURN_OBJECT: return r[a(i)];
-                        case RETURN_VOID: return null;
-                        default: throw new AssertionError("Unsupported opcode " + i.getOpcode() + " in " + signature(method));
-                    }
-                } catch (Thrown thrown) {
-                    Integer handler = handler(method, pc, thrown.value);
-                    if (handler == null) throw thrown;
-                    caught = thrown.value;
-                    next = handler;
-                }
-                pc = next;
-            }
-        }
-
-        private Integer handler(MutableMethod method, int pc, Throwable value) {
-            for (BuilderTryBlock block : method.getImplementation().getTryBlocks()) {
-                if (pc < block.start.getLocation().getIndex() || pc >= block.end.getLocation().getIndex()) continue;
-                for (BuilderExceptionHandler h : block.getExceptionHandlers()) {
-                    String type = h.getExceptionType();
-                    try {
-                        if (type == null || type(type).isInstance(value)) return h.getHandler().getLocation().getIndex();
-                    } catch (ClassNotFoundException missing) {
-                        throw new AssertionError("Unknown exception type " + type);
-                    }
-                }
-            }
-            return null;
-        }
-
-        private Object invoke(Instruction i, Object[] r) {
-            MethodReference call = (MethodReference) ((ReferenceInstruction) i).getReference();
-            int[] regs;
-            if (i instanceof RegisterRangeInstruction) {
-                RegisterRangeInstruction range = (RegisterRangeInstruction) i;
-                regs = new int[range.getRegisterCount()];
-                for (int n = 0; n < regs.length; n++) regs[n] = range.getStartRegister() + n;
-            } else {
-                FiveRegisterInstruction f = (FiveRegisterInstruction) i;
-                regs = Arrays.copyOf(new int[] {f.getRegisterC(), f.getRegisterD(), f.getRegisterE(), f.getRegisterF(), f.getRegisterG()},
-                        f.getRegisterCount());
-            }
-            Object[] values = new Object[regs.length];
-            for (int n = 0; n < regs.length; n++) values[n] = r[regs[n]];
-            String owner = call.getDefiningClass();
-            String ref = call.toString();
-            if (ref.equals(REQUEST_INIT)) throw new RequestUrl((String) values[2]);
-            if (LOGS.contains(owner)) {
-                equal("V", call.getReturnType(), "Sync log call " + ref);
-                return null;
-            }
-            boolean isStatic = i.getOpcode() == Opcode.INVOKE_STATIC || i.getOpcode() == Opcode.INVOKE_STATIC_RANGE;
-            Object receiver = isStatic || values.length == 0 ? null : values[0];
-            if (receiver instanceof Uninitialized && call.getName().equals("<init>")
-                    && context.getClassDefs().get(((Uninitialized) receiver).type) != null) {
-                SyncObject made = new SyncObject(((Uninitialized) receiver).type);
-                for (int n = 0; n < r.length; n++) if (r[n] == receiver) r[n] = made;
-                values[0] = receiver = made;
-            }
-            if (receiver instanceof SyncObject) {
-                if (ref.equals("Ljava/lang/Object;-><init>()V")) return null;
-                boolean direct = i.getOpcode() == Opcode.INVOKE_DIRECT || i.getOpcode() == Opcode.INVOKE_DIRECT_RANGE;
-                for (String type = direct ? owner : ((SyncObject) receiver).type; type != null; ) {
-                    ClassDef definition = context.getClassDefs().get(type);
-                    if (definition == null) break;
-                    for (MutableMethod m : context.proxy(definition).getMutableClass().getMethods())
-                        if (m.getName().equals(call.getName()) && m.getReturnType().equals(call.getReturnType())
-                                && m.getParameterTypes().equals(call.getParameterTypes().stream().map(Object::toString).toList()))
-                            return run(m, values);
-                    type = definition.getSuperclass();
-                }
-                throw new AssertionError("Missing Sync method " + ref);
-            }
-            ClassDef dexClass = context.getClassDefs().get(owner);
-            if (dexClass != null && isStatic && !owner.equals(RETIRED)) {
-                for (MutableMethod m : context.proxy(dexClass).getMutableClass().getMethods())
-                    if (m.getName().equals(call.getName()) && m.getReturnType().equals(call.getReturnType())
-                            && m.getParameterTypes().equals(call.getParameterTypes().stream().map(Object::toString).toList()))
-                        return run(m, values);
-                throw new AssertionError("Missing Sync method " + ref);
-            }
-            if (JVM.stream().noneMatch(owner::startsWith)) throw new AssertionError("Unexpected call " + ref);
-            try {
-                Class<?> type = type(owner);
-                List<? extends CharSequence> params = call.getParameterTypes();
-                Class<?>[] types = new Class<?>[params.size()];
-                for (int n = 0; n < types.length; n++) types[n] = type(params.get(n).toString());
-                int offset = isStatic ? 0 : 1;
-                Object[] arguments = new Object[types.length];
-                for (int n = 0; n < types.length; n++) arguments[n] = toJvm(values[n + offset], types[n]);
-                if (call.getName().equals("<init>")) {
-                    Object made = type.getConstructor(types).newInstance(arguments);
-                    Object placeholder = values[0];
-                    for (int n = 0; n < r.length; n++) if (r[n] == placeholder) r[n] = made;
-                    return null;
-                }
-                Object value = type.getMethod(call.getName(), types).invoke(isStatic ? null : values[0], arguments);
-                return fromJvm(value);
-            } catch (InvocationTargetException thrown) {
-                throw new Thrown(thrown.getCause());
-            } catch (ReflectiveOperationException | IllegalArgumentException missing) {
-                throw new AssertionError("Cannot call " + ref + " with " + Arrays.toString(values), missing);
-            }
-        }
-
-        private Object staticField(FieldReference field) {
-            String owner = field.getDefiningClass();
-            ClassDef dexClass = context.getClassDefs().get(owner);
-            if (dexClass != null) {
-                if (initialized.add(owner)) {
-                    for (MutableMethod m : context.proxy(dexClass).getMutableClass().getMethods())
-                        if (m.getName().equals("<clinit>")) run(m, new Object[0]);
-                }
-                if (!statics.containsKey(field.toString())) throw new AssertionError("Unset Sync static " + field);
-                return statics.get(field.toString());
-            }
-            if (JVM.stream().noneMatch(owner::startsWith)) throw new AssertionError("Unexpected field " + field);
-            try { return type(owner).getField(field.getName()).get(null); }
-            catch (ReflectiveOperationException missing) { throw new AssertionError("Cannot read " + field, missing); }
-        }
-
-        private static Object toJvm(Object value, Class<?> type) {
-            if (type == boolean.class) return !Integer.valueOf(0).equals(value);
-            if (type == char.class) return (char) (int) (Integer) value;
-            // Dex writes null as the constant 0.
-            if (!type.isPrimitive() && Integer.valueOf(0).equals(value) && type != Object.class) return null;
-            return value;
-        }
-        private static Object fromJvm(Object value) {
-            if (value instanceof Boolean) return (Boolean) value ? 1 : 0;
-            if (value instanceof Character) return (int) (Character) value;
-            return value;
-        }
-        private static int a(Instruction i) { return ((OneRegisterInstruction) i).getRegisterA(); }
-        private static int target(Map<Instruction, Integer> index, Instruction branch) {
-            Integer at = index.get(((BuilderOffsetInstruction) branch).getTarget().getLocation().getInstruction());
-            if (at == null) throw new AssertionError("Branch target not found");
-            return at;
-        }
+    private static DexRunner runner(BytecodePatchContext context) {
+        return new DexRunner(context, (ref, arguments) -> {
+            if (ref.equals(REQUEST_INIT)) throw new RequestUrl((String) arguments[2]);
+            return DexRunner.PASS;
+        }, RETIRED);
     }
 
-    private static Class<?> type(String descriptor) throws ClassNotFoundException {
-        switch (descriptor) {
-            case "I": return int.class;
-            case "Z": return boolean.class;
-            case "C": return char.class;
-            case "J": return long.class;
-            default:
-                if (descriptor.startsWith("[")) return Class.forName(descriptor.replace('/', '.'));
-                return Class.forName(descriptor.substring(1, descriptor.length() - 1).replace('/', '.'));
-        }
+    /** The URL a request constructor hands to Volley's Request constructor. */
+    private static String requestUrl(DexRunner run, BytecodePatchContext context, String type, String link) {
+        MutableMethod init = method(context, type, "<init>", List.of(INIT_PARAMS.split("(?<=;)")));
+        try { run.run(init, new Object[] {new DexRunner.Uninitialized(type), link, null, null}); }
+        catch (RequestUrl url) { return url.url; }
+        throw new AssertionError(type + " never called Request");
     }
 
-    private static final class Uninitialized {
-        final String type;
-        Uninitialized(String type) { this.type = type; }
-    }
-    /** An instance of one of Sync's own classes, with its fields. */
-    private static final class SyncObject {
-        final String type;
-        final Map<String, Object> fields = new HashMap<>();
-        SyncObject(String type) { this.type = type; }
-    }
-    private static final class Thrown extends RuntimeException {
-        final Throwable value;
-        Thrown(Throwable value) { super(null, null, false, false); this.value = value; }
-    }
     private static final class RequestUrl extends RuntimeException {
         final String url;
         RequestUrl(String url) { super(null, null, false, false); this.url = url; }
