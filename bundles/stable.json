@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-01T21:21:47",
-  "description": "## What's Changed\n* Play Reddit videos through their DASH manifest (#74); prepare v0.6.14-rc.1 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/75\n* Promote phone-tested v0.6.14-rc.1 to stable v0.6.14 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/76\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.13...v0.6.14",
-  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.6.14/patches.rvp",
+  "created_at": "2026-11-02T01:21:07",
+  "description": "## What's Changed\n* Make overlapping patches order-independent; fail private APK builds on any patch error by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/77\n* Name the missing official patches when applied to stock Sync (#70) by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/78\n* Include the official Sync patches so stock Sync patches in one pass (#70) by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/79\n* Promote phone-tested v0.7.0-rc.1 to stable v0.7.0 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/80\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.6.14...v0.7.0",
+  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.0/patches.rvp",
   "signature_download_url": "N/A",
-  "version": "v0.6.14"
+  "version": "v0.7.0"
 }
