@@ -48,3 +48,8 @@
     iget-object v0, p0, Lx8/a;->s:Ljava/util/Map;
     return-object v0
 .end method
+
+.method public parseNetworkError(Lcom/android/volley/VolleyError;)Lcom/android/volley/VolleyError;
+    .registers 2
+    return-object p1
+.end method

@@ -2490,9 +2490,12 @@ val uploadSyncImagesToReddit = bytecodePatch(
         // for the literal "errors": [] and then reads json.data.things[0].data. d(message, retry) reports errors.
         val comment = mutable(COMMENT_REQUEST, "OAuthCommentRequest.java")
         val commentParse = comment.method("parseNetworkResponse", listOf(NETWORK), VOLLEY_RESPONSE)
-        if (commentParse.usesHelper()) throw PatchException("Images are already uploaded to Reddit.")
+        val commentError = comment.method("parseNetworkError", listOf(VOLLEY_ERROR), VOLLEY_ERROR)
+        if (commentParse.usesHelper() || commentError.usesHelper()) throw PatchException("Images are already uploaded to Reddit.")
         val commentInit = comment.methods.singleOrNull { it.name == "<init>" }
         layout(comment.superclass == SYNC_REQUEST && public.isSet(commentParse.accessFlags) &&
+            public.isSet(commentError.accessFlags) && commentError.implementation!!.registerCount - 2 in 0..14 &&
+            commentError.hasStrings("Could not connect to Reddit") && commentError.calls("$COMMENT_REQUEST->d(Ljava/lang/String;Z)V") &&
             commentParse.hasStrings("\"errors\": []", "things", "json", "data") &&
             commentInit?.hasStrings("thing_id", "text", "api_type") == true &&
             comment.methods.any { it.name == "d" && it.parameterTypes == listOf("Ljava/lang/String;", "Z") && public.isSet(it.accessFlags) } &&
@@ -2566,6 +2569,12 @@ val uploadSyncImagesToReddit = bytecodePatch(
         submitParse.addInstructions(0, """
             invoke-static/range {p0 .. p1}, $IMAGE_UPLOAD->submitResponse(Ljava/lang/Object;$NETWORK)$NETWORK
             move-result-object p1
+        """.trimIndent())
+
+        // Sync reports a failed comment only as a notification; for a converted comment, the reason
+        // is also shown as a toast first.
+        commentError.addInstructions(0, """
+            invoke-static {p0, p1}, $IMAGE_UPLOAD->commentError(Ljava/lang/Object;$VOLLEY_ERROR)V
         """.trimIndent())
 
         commentParse.addInstructions(0, """

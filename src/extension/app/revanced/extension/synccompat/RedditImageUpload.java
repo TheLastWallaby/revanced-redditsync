@@ -100,6 +100,8 @@ public final class RedditImageUpload {
     public static final String UNSUPPORTED_PLACE = "Reddit images can only be added to new comments, replies and text posts. Remove the image to send this.";
     public static final String POST_FAILED = "Reddit couldn't process this image, so the post wasn't created.";
     public static final String POST_UNCONFIRMED = "Reddit accepted the image post but didn't confirm it. Check your profile before posting again.";
+    public static final String COMMENT_REFUSED = "Reddit refused the text with the image (HTTP %d).";
+    public static final String COMMENT_UNEXPECTED = "Reddit sent an unexpected reply to the comment with the image. Check the thread before sending it again.";
 
     static final String LEASE_URL = "https://oauth.reddit.com/api/media/asset.json?raw_json=1";
     static final String CONVERT_URL = "https://oauth.reddit.com/api/convert_rte_body_format?raw_json=1";
@@ -146,8 +148,10 @@ public final class RedditImageUpload {
         Map<String, String> params(Object request);
         /** Sends Sync's request on as it was going: m8.a.b, or m8.a.g for another account. */
         void resend(Context context, Object request, String token, boolean exchange);
-        /** Reports a send failure the way Sync does for that request, keeping its text. */
+        /** Reports a send failure the way Sync does for that request, keeping its text, and as a toast. */
         void fail(Object request, String message);
+        /** Shows a message on Sync's main thread; needs no notification permission. */
+        void toast(String message);
     }
 
     static Platform platform = new AndroidPlatform();
@@ -701,12 +705,15 @@ public final class RedditImageUpload {
             }
             return false;
         }
+        boolean comment = COMMENT_PATH.equals(path(url));
         ConvertRequest convert = new ConvertRequest(context, text, ids, document -> {
-            params.remove("text");
+            // Infinity for Reddit sends a comment's richtext_json with an empty text; a text post has none.
+            if (comment) params.put("text", "");
+            else params.remove("text");
             params.put("richtext_json", document);
             CONVERTED.put(request, Boolean.TRUE);
             platform.resend(context, request, token, exchange);
-        }, error -> platform.fail(request, message(error)));
+        }, error -> platform.fail(request, sendMessage(error)));
         try {
             platform.queue(context, convert);
         } catch (RuntimeException | LinkageError failed) {
@@ -721,16 +728,8 @@ public final class RedditImageUpload {
      */
     static Target target(String url, Map<String, String> params) {
         if (params == null) return Target.NONE;
-        String path;
-        try {
-            URI uri = new URI(url);
-            if (!"https".equalsIgnoreCase(uri.getScheme()) || !OAUTH_HOST.equalsIgnoreCase(uri.getHost())) return Target.NONE;
-            path = uri.getRawPath();
-        } catch (URISyntaxException bad) {
-            return Target.NONE;
-        }
+        String path = path(url);
         if (path == null) return Target.NONE;
-        if (path.endsWith("/")) path = path.substring(0, path.length() - 1);
         String thing = params.get("thing_id");
         if (path.equals(COMMENT_PATH)) {
             return thing != null && (thing.startsWith("t1_") || thing.startsWith("t3_")) ? Target.CONVERT : Target.UNSUPPORTED;
@@ -738,6 +737,57 @@ public final class RedditImageUpload {
         if (path.equals(SUBMIT_PATH)) return "self".equals(params.get("kind")) ? Target.CONVERT : Target.NONE;
         if (path.equals("/api/editusertext") || path.equals("/api/compose")) return Target.UNSUPPORTED;
         return Target.NONE;
+    }
+
+    /** The path of an HTTPS oauth.reddit.com URL without a trailing slash, or null. */
+    static String path(String url) {
+        try {
+            URI uri = new URI(url);
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || !OAUTH_HOST.equalsIgnoreCase(uri.getHost())) return null;
+            String path = uri.getRawPath();
+            if (path == null) return null;
+            return path.endsWith("/") ? path.substring(0, path.length() - 1) : path;
+        } catch (URISyntaxException | RuntimeException bad) {
+            return null;
+        }
+    }
+
+    /**
+     * What the user sees when Reddit's converter or the comment itself fails: as {@link #message},
+     * but a refusal names the text and carries Reddit's own short explanation when it gives one.
+     */
+    static String sendMessage(VolleyError error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (!(cause instanceof VolleyError) || ((VolleyError) cause).networkResponse == null) continue;
+            NetworkResponse response = ((VolleyError) cause).networkResponse;
+            int code = response.statusCode;
+            if (code >= 400 && code < 500 && code != 401 && code != 429 && !(code == 403 && insufficientScope(response))) {
+                String detail = redditExplanation(response.data);
+                return String.format(Locale.ROOT, COMMENT_REFUSED, code) + (detail == null ? "" : " Reddit said: " + detail);
+            }
+            break;
+        }
+        return message(error);
+    }
+
+    /** Reddit's short error text from a JSON reply (errors[0][1], explanation or message), or null. */
+    static String redditExplanation(byte[] data) {
+        if (data == null || data.length == 0 || data.length > MAX_REPLY_BYTES) return null;
+        try {
+            JSONObject root = new JSONObject(new String(data, StandardCharsets.UTF_8));
+            String text = null;
+            JSONObject json = root.optJSONObject("json");
+            JSONArray errors = json == null ? null : json.optJSONArray("errors");
+            if (errors != null && errors.optJSONArray(0) != null) text = errors.optJSONArray(0).optString(1, null);
+            if (text == null || text.isEmpty()) text = root.optString("explanation", null);
+            if (text == null || text.isEmpty()) text = root.optString("message", null);
+            if (text == null) return null;
+            text = text.replaceAll("\\s+", " ").trim();
+            if (text.isEmpty()) return null;
+            return text.length() > 160 ? text.substring(0, 157) + "..." : text;
+        } catch (JSONException malformed) {
+            return null;
+        }
     }
 
     /** The asset IDs of the images inserted in {@code text}. */
@@ -841,16 +891,41 @@ public final class RedditImageUpload {
                         changed = true;
                     }
                 }
+                // Sync reports it only as a notification, which Android may not show.
+                String shown = redditExplanation(root.toString().getBytes(StandardCharsets.UTF_8));
+                toast(shown == null ? COMMENT_UNEXPECTED : shown);
                 return changed ? copy(response, root.toString()) : response;
             }
             JSONObject thing;
             if (root.optJSONObject("data") != null && root.opt("kind") instanceof String) thing = root;
             else if (root.optString("name").startsWith("t1_") || (root.has("id") && root.has("body")))
                 thing = new JSONObject().put("kind", "t1").put("data", root);
-            else return response;
+            else {
+                toast(COMMENT_UNEXPECTED);
+                return response;
+            }
             return copy(response, "{\"json\": {\"errors\": [], \"data\": {\"things\": [" + thing + "]}}}");
         } catch (JSONException malformed) {
+            toast(COMMENT_UNEXPECTED);
             return response;
+        }
+    }
+
+    /**
+     * Start of OAuthCommentRequest.parseNetworkError: for a comment this helper converted, the reason
+     * also appears as a toast. Sync's own report ("Could not connect to Reddit", a notification) is
+     * unchanged.
+     */
+    public static void commentError(Object request, VolleyError error) {
+        if (request == null || error == null || !CONVERTED.containsKey(request)) return;
+        toast(sendMessage(error));
+    }
+
+    private static void toast(String message) {
+        try {
+            platform.toast(message);
+        } catch (RuntimeException | LinkageError unavailable) {
+            // Sync's own report still runs.
         }
     }
 
@@ -1065,9 +1140,18 @@ public final class RedditImageUpload {
         /**
          * OAuthCommentRequest (y8.e) has no error listener; its {@code d(message, true)} posts Sync's
          * "Error submitting comment" notification with a Retry action that keeps the text. Other
-         * requests get the message through their error listener.
+         * requests get the message through their error listener. See also {@link #toast}.
          */
+        @Override public void toast(String message) {
+            android.content.Context context = app.revanced.extension.shared.Utils.getContext();
+            if (context == null) return;
+            main(() -> android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show());
+        }
+
         @Override public void fail(Object request, String message) {
+            // The image post screen shows its error listener's message itself; everything else also
+            // gets a toast, because Sync's comment errors are notifications Android may not show.
+            if (!request.getClass().getName().equals("y8.x0")) toast(message);
             main(() -> {
                 if (request.getClass().getName().equals("y8.e")) {
                     try {

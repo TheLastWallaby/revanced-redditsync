@@ -243,6 +243,7 @@ public final class RedditImageUploadTest {
         final Map<String, byte[]> files = new HashMap<>();
         final List<String> failures = new CopyOnWriteArrayList<>();
         final List<Object[]> resent = new CopyOnWriteArrayList<>();
+        final List<String> toasts = new CopyOnWriteArrayList<>();
         volatile boolean signedIn = true;
         volatile boolean offline;
         volatile CountDownLatch event = new CountDownLatch(1);
@@ -281,6 +282,8 @@ public final class RedditImageUploadTest {
             resent.add(new Object[] {request, token, exchange});
             event.countDown();
         }
+
+        @Override public void toast(String message) { toasts.add(message); }
 
         @Override public void fail(Object request, String message) {
             failures.add(message);
@@ -383,6 +386,7 @@ public final class RedditImageUploadTest {
         uploadAnswer = null;
         sync.failures.clear();
         sync.resent.clear();
+        sync.toasts.clear();
         sync.signedIn = true;
         sync.offline = false;
         RedditImageUpload.resetState();
@@ -813,7 +817,7 @@ public final class RedditImageUploadTest {
         equal(request, sync.resent.get(0)[0], "the same request");
         equal("account-token", sync.resent.get(0)[1], "with Sync's token argument");
         equal(false, sync.resent.get(0)[2], "through m8.a.b");
-        check(!request.params().containsKey("text"), "text replaced");
+        equal("", request.params().get("text"), "a comment's Markdown text is replaced by an empty text, as Infinity sends it");
         JSONObject document = new JSONObject(request.params().get("richtext_json"));
         equal("img", document.getJSONArray("document").getJSONObject(1).getString("e"), "richtext_json holds the image");
         equal("media1", document.getJSONArray("document").getJSONObject(1).getString("id"), "with its media ID");
@@ -848,6 +852,8 @@ public final class RedditImageUploadTest {
                 {500, "", "Reddit isn't available right now (HTTP 500). Try again later."},
                 {401, "", RedditImageUpload.SIGN_IN_AGAIN},
                 {429, "", RedditImageUpload.RATE_LIMITED},
+                {400, "{\"message\": \"Bad Request\", \"error\": 400}", "Reddit refused the text with the image (HTTP 400). Reddit said: Bad Request"},
+                {403, "", "Reddit refused the text with the image (HTTP 403)."},
                 {200, "{\"output\": {}}", RedditImageUpload.MALFORMED},
                 {200, "nope", RedditImageUpload.MALFORMED},
                 {200, null, RedditImageUpload.IMAGE_NOT_RECOGNIZED},
@@ -943,10 +949,11 @@ public final class RedditImageUploadTest {
         equal("/api/comment", posted.path, "comment endpoint");
         equal("bearer " + TOKEN, posted.headers.get("authorization"), "comment carries Sync's bearer token");
         Map<String, String> form = posted.form();
-        check(!form.containsKey("text"), "no Markdown text sent");
+        equal("", form.get("text"), "no Markdown text sent: an empty text with richtext_json");
         equal("t1_c8", form.get("thing_id"), "parent kept");
         check(form.get("richtext_json").contains("\"id\":\"media2\""), "richtext_json with the image sent");
         equal("Look at this\n\nhttps://preview.redd.it/media2.png", delivered.get(), "Reddit's bare comment reaches Sync's parser");
+        check(sync.toasts.isEmpty(), "a posted comment shows no extra message: " + sync.toasts);
 
         // The kind/data shape is wrapped as it is.
         NetworkResponse kinded = new NetworkResponse(200, ("{\"kind\": \"t1\", \"data\": {\"id\": \"c10\", \"body\": \"hi\"}}")
@@ -957,18 +964,48 @@ public final class RedditImageUploadTest {
                 + "\"media type not allowed\", \"richtext_json\"]]}}").getBytes(StandardCharsets.UTF_8), false, 0, Collections.emptyList());
         equal("error: " + RedditImageUpload.MEDIA_NOT_ALLOWED, syncComment(RedditImageUpload.commentResponse(request, refused)),
                 "comment media not allowed: a clear message");
+        equal(List.of(RedditImageUpload.MEDIA_NOT_ALLOWED), sync.toasts, "and as a toast, which needs no notification permission");
+        sync.toasts.clear();
         NetworkResponse archived = new NetworkResponse(200, ("{\"json\": {\"errors\": [[\"TOO_OLD\", \"that's a piece of history\", "
                 + "\"parent\"]]}}").getBytes(StandardCharsets.UTF_8), false, 0, Collections.emptyList());
         check(RedditImageUpload.commentResponse(request, archived) == archived, "other Reddit errors unchanged");
+        equal(List.of("that's a piece of history"), sync.toasts, "Reddit's own error text as a toast");
+        sync.toasts.clear();
         NetworkResponse wrapped = new NetworkResponse(200, "{\"json\": {\"errors\": [], \"data\": {\"things\": []}}}".getBytes(StandardCharsets.UTF_8),
                 false, 0, Collections.emptyList());
         check(RedditImageUpload.commentResponse(request, wrapped) == wrapped, "a wrapped success unchanged");
+        check(sync.toasts.isEmpty(), "a wrapped success: no message");
         NetworkResponse junk = new NetworkResponse(200, "<html>".getBytes(StandardCharsets.UTF_8), false, 0, Collections.emptyList());
         check(RedditImageUpload.commentResponse(request, junk) == junk, "malformed reply unchanged");
+        equal(List.of(RedditImageUpload.COMMENT_UNEXPECTED), sync.toasts, "malformed reply: a clear message");
+        sync.toasts.clear();
+        NetworkResponse odd = new NetworkResponse(200, "{\"something\": \"else\"}".getBytes(StandardCharsets.UTF_8), false, 0, Collections.emptyList());
+        check(RedditImageUpload.commentResponse(request, odd) == odd, "unknown reply unchanged");
+        equal(List.of(RedditImageUpload.COMMENT_UNEXPECTED), sync.toasts, "unknown reply: a clear message");
+        sync.toasts.clear();
+
+        // Network-level failures of the comment (Sync says only "Could not connect to Reddit", as a notification).
+        NetworkResponse badRequest = new NetworkResponse(400, "{\"explanation\": \"richtext_json is invalid\", \"reason\": \"BAD\"}"
+                .getBytes(StandardCharsets.UTF_8), false, 0, Collections.emptyList());
+        RedditImageUpload.commentError(request, new ClientError(badRequest));
+        equal(List.of("Reddit refused the text with the image (HTTP 400). Reddit said: richtext_json is invalid"), sync.toasts,
+                "HTTP 400 for the comment: Reddit's reason as a toast");
+        sync.toasts.clear();
+        RedditImageUpload.commentError(request, new NoConnectionError(new java.net.ConnectException("refused")));
+        equal(List.of(RedditImageUpload.OFFLINE), sync.toasts, "no connection: a clear message");
+        sync.toasts.clear();
+        RedditImageUpload.commentError(request, new TimeoutError());
+        equal(List.of(RedditImageUpload.TIMED_OUT), sync.toasts, "timeout: a clear message");
+        sync.toasts.clear();
+        RedditImageUpload.commentError(comment("t1_y", "plain"), new TimeoutError());
+        RedditImageUpload.commentError(null, new TimeoutError());
+        RedditImageUpload.commentError(request, null);
+        check(sync.toasts.isEmpty(), "other comments' failures keep Sync's own report only");
         // Comments without images are never adapted.
         TextRequest other = comment("t1_x", "no image");
         check(RedditImageUpload.commentResponse(other, refused) == refused, "other comments' replies unchanged");
         check(RedditImageUpload.commentResponse(null, refused) == refused, "null request unchanged");
+        check(sync.toasts.isEmpty(), "other comments: no message");
     }
 
     // ---- Image posts ----

@@ -59,13 +59,20 @@ maintainers yet; the tested route is ReVanced CLI (see
 
 The rest of this page is version history and technical detail.
 
-## v0.7.3-rc.1 candidate: image uploads to Reddit (issue #53)
+## v0.7.3-rc.2 candidate: image uploads to Reddit (issue #53)
 
-The [v0.7.3-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3-rc.1)
+The [v0.7.3-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3-rc.2)
 is for phone testing. Apply it to **stock** Sync and check all patch results (25
 with Use /user/ endpoint). Stable remains v0.7.2 until the candidate passes and
-stable publication is authorized. It has not been tested on a phone or with live
-Reddit yet.
+stable publication is authorized.
+
+On the earlier [v0.7.3-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3-rc.1)
+image posts worked on the phone. A comment with an image showed "Submitting" but
+was never posted, and no error appeared: Sync reports comment errors only as a
+notification, which Android may not show. rc.2 shows every failure of a comment
+or text post with an image as a message on screen too, including Reddit's own
+reason, and sends the comment with an empty `text` next to `richtext_json`, as
+Infinity for Reddit does (rc.1 left `text` out). See `validation-phone-tests.json`.
 
 It adds one selectable patch, described under
 [Included patches](#included-patches--cumulative-v072):
@@ -1263,7 +1270,7 @@ New in [v0.7.2](#v072-comment-restore-from-arctic-shift-and-video-download-manif
   tester reported the rc.2 phone checks, including downloads with and without
   sound, as an overall pass.
 
-New in the [v0.7.3-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3-rc.1):
+New in the [v0.7.3-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3-rc.2):
 
 - **Sync: upload images to Reddit**
   ([issue #53](https://github.com/TheLastWallaby/revanced-redditsync/issues/53)).
@@ -1279,7 +1286,7 @@ New in the [v0.7.3-rc.1 candidate](https://github.com/TheLastWallaby/revanced-re
   | Lease | `https://oauth.reddit.com/api/media/asset.json` | The image's type (`mimetype`, read from the file's own header) and `api_type=json`, as one of Sync's own signed-in requests: Sync attaches its bearer token and User-Agent and refreshes the token as for any Reddit call |
   | Upload | `https://reddit-uploaded-media.s3-accelerate.amazonaws.com/`, Reddit's upload host | Reddit's upload fields, unchanged and in order, then the image. No Reddit token, no cookies, no redirects. Any other address in Reddit's reply (another host, plain HTTP, a port, user-info, a path) is refused before anything is sent |
   | Image post | Sync's own `oauth.reddit.com/api/submit` | `kind=image` with the uploaded image's address instead of a link post. Reddit answers with a websocket on `*.wss.redditmedia.com` that reports the new post; Sync then opens it as before |
-  | Image in a comment, reply or text post | `oauth.reddit.com/api/convert_rte_body_format`, then Sync's own `api/comment` or `api/submit` | The editor inserts `![img](<id>)` (`![gif](<id>)` for a GIF) at the cursor instead of Sync's "Insert image" link dialog. When sending, Reddit's own converter turns the whole text into Reddit's rich-text form with the image, and Sync sends that (`richtext_json`) in place of the Markdown |
+  | Image in a comment, reply or text post | `oauth.reddit.com/api/convert_rte_body_format`, then Sync's own `api/comment` or `api/submit` | The editor inserts `![img](<id>)` (`![gif](<id>)` for a GIF) at the cursor instead of Sync's "Insert image" link dialog. When sending, Reddit's own converter turns the whole text into Reddit's rich-text form with the image, and Sync sends that (`richtext_json`) in place of the Markdown (a comment with an empty `text`, as Infinity sends it) |
 
   - **Types and size:** JPEG, PNG, GIF and WebP, at most 20 MB. Reddit allows
     larger GIFs; the patch reads the image into memory once and keeps one limit.
@@ -1293,7 +1300,9 @@ New in the [v0.7.3-rc.1 candidate](https://github.com/TheLastWallaby/revanced-re
     timeout, an unexpected reply or upload address. Upload errors appear where
     Sync showed "Failed to upload image", and the image stays selected. A
     comment that can't be sent shows Sync's "Error submitting comment"
-    notification, whose **Retry** keeps the text.
+    notification, whose **Retry** keeps the text, and (since rc.2) the same
+    reason as a message on screen, because Android may not show Sync's
+    notifications. A refusal includes Reddit's own short explanation.
   - **Comment images need a subreddit that allows them.** Otherwise Reddit
     refuses the comment (`META_MEDIA_TYPE_NOT_ALLOWED`) and the notification
     says "This subreddit doesn't allow images in comments. Remove the image and

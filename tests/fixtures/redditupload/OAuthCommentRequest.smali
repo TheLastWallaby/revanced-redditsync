@@ -2,7 +2,7 @@
 # api/comment or api/editusertext; the constructor fills thing_id, text and api_type; d reports an
 # error (Sync posts a notification with Retry). The parser looks for the literal "errors": [] and
 # then hands json.data.things[0].data to Sync's comment parser (c9.c.b); otherwise it reports
-# errors[0][1].
+# errors[0][1]. parseNetworkError reports "Could not connect to Reddit" through d.
 .class public Ly8/e;
 .super Lx8/a;
 .source "OAuthCommentRequest.java"
@@ -128,4 +128,15 @@
     invoke-static {v0, v0}, Lcom/android/volley/Response;->success(Ljava/lang/Object;Lcom/android/volley/Cache$Entry;)Lcom/android/volley/Response;
     move-result-object v0
     return-object v0
+.end method
+
+.method public parseNetworkError(Lcom/android/volley/VolleyError;)Lcom/android/volley/VolleyError;
+    .registers 4
+    invoke-super {p0, p1}, Lx8/a;->parseNetworkError(Lcom/android/volley/VolleyError;)Lcom/android/volley/VolleyError;
+    const-string v0, "Could not connect to Reddit"
+    const/4 v1, 0x1
+    invoke-virtual {p0, v0, v1}, Ly8/e;->d(Ljava/lang/String;Z)V
+    invoke-super {p0, p1}, Lx8/a;->parseNetworkError(Lcom/android/volley/VolleyError;)Lcom/android/volley/VolleyError;
+    move-result-object p1
+    return-object p1
 .end method
