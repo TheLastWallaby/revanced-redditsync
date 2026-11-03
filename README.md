@@ -59,15 +59,18 @@ maintainers yet; the tested route is ReVanced CLI (see
 
 The rest of this page is version history and technical detail.
 
-## v0.7.4-rc.1 candidate: YouTube links open in the YouTube app (issue #60)
+## v0.7.4 YouTube links open in the YouTube app (issue #60)
 
-The [v0.7.4-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.4-rc.1)
-is for phone testing. Apply it to **stock** Sync and check all patch results (26
-with Use /user/ endpoint). Stable remains v0.7.3 until the candidate passes and
-stable publication is authorized. It has not been tested on a phone yet.
+The [v0.7.4 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.4)
+rebuilds the runtime code from the
+[v0.7.4-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.4-rc.1).
+Apply it to **stock** Sync and check all patch results (26 with Use /user/ endpoint).
+
+The owner asked for stable promotion of rc.1 without reporting results for its
+seven numbered phone checks, so none are recorded. See `validation-phone-tests.json`.
 
 It adds one selectable patch, on by default, described under
-[Included patches](#included-patches--cumulative-v073):
+[Included patches](#included-patches--cumulative-v074):
 
 - **Sync: open YouTube in the YouTube app**
   ([issue #60](https://github.com/TheLastWallaby/revanced-redditsync/issues/60)):
@@ -98,7 +101,7 @@ is sent with an empty `text` next to `richtext_json`, as Infinity for Reddit doe
 (rc.1 left `text` out).
 
 It adds one selectable patch, described under
-[Included patches](#included-patches--cumulative-v073):
+[Included patches](#included-patches--cumulative-v074):
 
 - **Sync: upload images to Reddit**
   ([issue #53](https://github.com/TheLastWallaby/revanced-redditsync/issues/53)):
@@ -126,7 +129,7 @@ no install can turn it on any more. Since rc.2 the entry is shown for every
 `[deleted]` or `[removed]` comment.
 
 It adds two selectable patches, described under
-[Included patches](#included-patches--cumulative-v073):
+[Included patches](#included-patches--cumulative-v074):
 
 - **Sync: restore comments from Arctic Shift**
   ([issue #52](https://github.com/TheLastWallaby/revanced-redditsync/issues/52)):
@@ -152,7 +155,7 @@ publication; only an overall result was given for the five numbered checks
 regressions). See `validation-phone-tests.json`.
 
 It adds three selectable patches, described under
-[Included patches](#included-patches--cumulative-v073):
+[Included patches](#included-patches--cumulative-v074):
 
 - **Sync: skip retired media hosts**
   ([issue #57](https://github.com/TheLastWallaby/revanced-redditsync/issues/57)):
@@ -1018,11 +1021,13 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Stable v0.7.3 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.3/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.3/sync-gallery-comments-compat-v0.7.3-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.3/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.3/build-info.json)
+- [Stable v0.7.4 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.4)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.4/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.4/sync-gallery-comments-compat-v0.7.4-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.4/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.4/build-info.json)
+- [Archived v0.7.4-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.4-rc.1)
+- [Previous stable v0.7.3](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3)
 - [Archived v0.7.3-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3-rc.2)
   and [v0.7.3-rc.1](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3-rc.1)
 - [Previous stable v0.7.2](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2)
@@ -1071,7 +1076,7 @@ Releases up to v0.6.14 instead needed two passes: the official ReVanced Sync
 patches first, then this bundle on that output
 ([issue #70](https://github.com/TheLastWallaby/revanced-redditsync/issues/70)).
 
-## Included patches — cumulative v0.7.3
+## Included patches — cumulative v0.7.4
 
 Official ReVanced Sync patches, ported for build 23033 (see
 [v0.7.0](#v070-one-pass-patching-from-stock-sync-issue-70)): **Spoof client**,
@@ -1375,7 +1380,7 @@ New in [v0.7.3](#v073-image-uploads-to-reddit-issue-53):
   reported image posts and comment images working on rc.2 (image posts already
   on rc.1).
 
-New in the [v0.7.4-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.4-rc.1):
+New in [v0.7.4](#v074-youtube-links-open-in-the-youtube-app-issue-60):
 
 - **Sync: open YouTube in the YouTube app**
   ([issue #60](https://github.com/TheLastWallaby/revanced-redditsync/issues/60)),
@@ -1454,7 +1459,8 @@ New in the [v0.7.4-rc.1 candidate](https://github.com/TheLastWallaby/revanced-re
   where each one goes: on hand-written models in CI, and on Sync's real router,
   handler and classifier locally. `PatchInteractionTest` checks the router in
   either order with the comment-video link hook (fixtures in CI; every patch in
-  both orders on the stock APK locally).
+  both orders on the stock APK locally). No phone results were reported for
+  rc.1; the owner asked for stable promotion.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
@@ -1474,7 +1480,7 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
    with the official ReVanced Sync patches.)
 2. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
    and apply the default patches: the eight ported official patches except Use
-   /user/ endpoint, plus this bundle's seventeen. Set Spoof client's
+   /user/ endpoint, plus this bundle's eighteen. Set Spoof client's
    `OAuth client ID` (and `Redirect URI`/`User-Agent` if needed). Check that
    each patch reports success.
 3. Sign the result with your own keystore. Matching the key used by your current
@@ -1496,7 +1502,7 @@ java -jar revanced-cli-6.0.0-all.jar patch \
   -p output/patches.rvp -b \
   -O "OAuth client ID=your-reddit-client-id" -e "Spoof client" \
   --keystore your-signing-key.keystore \
-  -o Sync-v23.06.30-compat-v0.7.3.apk \
+  -o Sync-v23.06.30-compat-v0.7.4.apk \
   Sync-v23.06.30-stock.apk
 ```
 
@@ -1648,6 +1654,8 @@ Stable v0.7.3 rebuilds the v0.7.3-rc.2 runtime code after the tester reported
 post and comment images working and authorized promotion; no individual results
 were given for the other checks. On rc.1 a comment with an image failed silently;
 rc.2 shows such failures and sends comments as Infinity for Reddit does.
+Stable v0.7.4 rebuilds the v0.7.4-rc.1 runtime code after the owner asked for
+promotion; no phone results were reported for rc.1's checks.
 These are checks of the supplied cases, not exhaustive Android/live Reddit tests.
 This standalone bundle does not represent a full upstream Gradle build.
 

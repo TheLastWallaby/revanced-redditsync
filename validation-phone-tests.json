@@ -2,6 +2,21 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.7.4",
+      "tested_release": "v0.7.4-rc.1",
+      "results": {
+        "overall": "not reported: the owner replied \"Promote\" to the v0.7.4-rc.1 handoff; no result was given for any of the seven numbered checks (normal video, Shorts, timestamp, youtu.be and comment link, browser fallback with YouTube disabled, link-card thumbnails, general regressions)"
+      },
+      "promotion": "Stable v0.7.4 rebuilds the same runtime patch and extension source as the v0.7.4-rc.1 candidate, built from stock Sync 23033 by the private builder with all 26 patches reported as succeeded. The owner replied \"Promote\", authorizing stable publication; candidate assets remain immutable.",
+      "unverified": [
+        "every numbered phone check for v0.7.4-rc.1",
+        "which app Android chooses for YouTube links on the device, and that the YouTube app starts at the timestamp",
+        "the browser fallback with the YouTube app disabled or uninstalled",
+        "ReVanced Manager import and one-pass patching",
+        "separate device installation of the stable rebuild"
+      ]
+    },
+    {
       "stable": "v0.7.3",
       "tested_release": "v0.7.3-rc.2",
       "results": {
