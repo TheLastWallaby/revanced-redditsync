@@ -151,6 +151,13 @@ class InfrastructureTests(unittest.TestCase):
         self.assertIn("app.revanced.extension.synccompat.YouTubeLinksTest", tests)
         self.assertIn("YouTubeAppPatchTest", tests)
 
+    def test_poll_suites_are_discovered(self):
+        tests = discover_java_tests(ROOT / "tests")
+        self.assertIn("app.revanced.extension.synccompat.PollCompatTest", tests)
+        self.assertIn("PollPatchTest", tests)
+        # The android.content.ContentValues stand-in is not a suite.
+        self.assertNotIn("android.content.ContentValues", tests)
+
     def test_comment_request_suites_are_discovered(self):
         tests = discover_java_tests(ROOT / "tests")
         self.assertIn("BatchCommentsTest", tests)

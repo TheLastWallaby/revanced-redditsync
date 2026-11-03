@@ -1462,6 +1462,75 @@ New in [v0.7.4](#v074-youtube-links-open-in-the-youtube-app-issue-60):
   both orders on the stock APK locally). No phone results were reported for
   rc.1; the owner asked for stable promotion.
 
+New since v0.7.4 (not in a release yet):
+
+- **Sync: show poll options**
+  ([issue #9](https://github.com/TheLastWallaby/revanced-redditsync/issues/9)),
+  on by default. Sync 23033 never reads a post's `poll_data`, so a poll post
+  showed only its text. With the patch, the poll is added below the post's text
+  in the post view:
+
+  | Part | Shown |
+  |---|---|
+  | **Poll** line | "Voting closes" and the closing date and time (your phone's time zone and format), or "Poll closed"; then the total, such as "1,234 votes", if Reddit sends it |
+  | Options | Each option in Reddit's order; "· 12 votes" only where Reddit sends that option's count; "· **your vote**" on your choice if Reddit reports one |
+  | No counts | "Reddit hasn't shared the results." when Reddit sent no option counts. Nothing is estimated |
+  | **Open poll on Reddit** | `https://www.reddit.com/poll/<post id>`, Reddit's own poll address, which Reddit redirects to the post (checked without an account on 2026-11-03). Sync's link router already opens `reddit.com/poll/` links in its browser tab (`LinkHandler.W`, a Custom Tab with your browser's Reddit sign-in), where you can vote. The post's permalink would only reopen the post in Sync |
+
+  - **No voting in Sync.** PRAW, the reference API client, can create polls
+    but has no vote call, and this bundle doesn't use Reddit's private web
+    endpoints. Vote with **Open poll on Reddit**, then refresh the post.
+  - **Display only.** Option text is shown as plain text: it can't add links,
+    formatting or HTML. Reddit's escaped `&amp;`, `&lt;`, `&gt;` are decoded as
+    Sync decodes post text; control and text-direction characters are removed.
+  - **Unchanged:** posts without a poll; a poll whose data is malformed or
+    larger than the limits (more than 12 options, an option over 300
+    characters, counts over a billion, a closing time after the year 3000); the
+    feed preview; the post's Markdown, which Sync uses when you edit your post
+    (the poll block is never sent back to Reddit); comments.
+  - Sync's **Translate** rebuilds the post's text from its Markdown, so a
+    translated poll post shows no poll block until it is reloaded. A post
+    already in Sync's cache shows the poll after a refresh.
+
+  **How.** The hook is one call in Sync's listing item parser
+  (`PostParserHelper.a`, `c9.c.a`), just before it adds the item's values to
+  its result: `PollCompat.apply` appends the block to `selftext_processed`, the
+  HTML Sync draws, using only tags Sync's own HTML converter draws (`p`,
+  `strong`, `br`, `ul`/`li`, `a`). The patch checks that the parser copies the
+  item's JSON and makes its values once, never reassigns them before the add,
+  and that no later code branches back to it.
+
+  **Reddit's data.** Poll posts are text posts (`is_self`) whose `poll_data`
+  has `options` (`id`, `text`, optional `vote_count`), `voting_end_timestamp`
+  (milliseconds), `total_vote_count` and `user_selection` (the option ID you
+  voted for), in the same form Sync's OAuth requests receive. Sources:
+  PRAW's poll model and its recorded `oauth.reddit.com/comments/<id>` responses
+  for closed, voted and new polls
+  ([praw-dev/praw@b04c9fb](https://github.com/praw-dev/praw/tree/b04c9fbc872f03846b117e4a3b055cdf4e12c457):
+  `praw/models/reddit/poll.py`, `tests/integration/cassettes/TestPollData.*`,
+  `TestSubreddit.test_submit_poll.json`); Arctic Shift's 2026 post schema, where
+  `vote_count` is optional and `poll_data` can also be `true`, `false` or null
+  ([ArthurHeitmann/arctic_shift@7752f2d](https://github.com/ArthurHeitmann/arctic_shift/tree/7752f2d2c4e450a0c333e165a70d270e75b6cfa4):
+  `schemas/RS/2026.ts`); Redlib's poll parser, which also treats `vote_count`
+  as optional
+  ([redlib-org/redlib@ba116c1](https://github.com/redlib-org/redlib/tree/ba116c1186f6b0f9d45f0ae50c827e13eb2f5ea2):
+  `src/utils.rs`). GitHub code search finds no `poll_data` handling in
+  RedReader or Infinity for Reddit (2026-11-03). **Needs
+  a phone check:** exactly when Reddit leaves out the counts (before you vote
+  on an open poll is expected, but no public source states it).
+
+  `PollCompatTest` covers the block: open polls with hidden counts, closed
+  polls with counts, voted polls, missing optional fields, zero, one and twelve
+  options, hostile option text (tags, Markdown, links, quotes, entities,
+  direction overrides), malformed and oversized data, unchanged values without
+  a poll, and the poll link. `PollPatchTest` runs Sync's parser before and after
+  the patch on poll posts, plain and malformed posts, a comment and a filtered
+  post: on a hand-written model in CI, and on Sync's real parser locally (the
+  suite answers Markdown rendering, which is native code, and app settings).
+  `PatchInteractionTest` applied all 27 patches to the stock APK in both name
+  orders with identical results (the parser is also changed by the inline
+  media, comment video and award patches). Not yet checked on a phone.
+
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
 comment listings. A more marker, unrelated comment, wrong post, unknown shape,
