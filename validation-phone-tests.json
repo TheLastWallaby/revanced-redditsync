@@ -2,6 +2,20 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.7.2",
+      "tested_release": "v0.7.2-rc.2",
+      "results": {
+        "overall": "passed: the tester replied \"Looks good, promote to stable\"; no individual results were given for the seven numbered checks (restore an archived deleted comment via More > Restore comment; the not-archived message for a recent deletion; download a video with sound; download a silent/GIF-style video; Reddit video playback in feed, post and comments; the v0.7.1 dead-host and random-subreddit checks; Imgur, RedGifs, galleries, share links and comment media)"
+      },
+      "promotion": "Stable v0.7.2 rebuilds the same runtime patch and extension source as the tested v0.7.2-rc.2 candidate, built from stock Sync 23033 by the private builder with all 24 patches reported as succeeded. The tester replied \"Looks good, promote to stable\", authorizing stable publication; candidate assets remain immutable.",
+      "unverified": [
+        "individual results for the seven numbered checks",
+        "which comments and videos were tried on the phone",
+        "ReVanced Manager import and one-pass patching",
+        "separate device installation of the stable rebuild"
+      ]
+    },
+    {
       "tested_release": "v0.7.2-rc.1",
       "results": {
         "1": "failed: long-pressing a deleted comment opens its action bar, but neither the bar nor its More (⋯) sheet shows Restore comment. Cause: the entry required Sync Ultra, which Sync records only when its retired server sends a purchase message; fixed in v0.7.2-rc.2 by dropping that check for this entry (owner's decision)",
