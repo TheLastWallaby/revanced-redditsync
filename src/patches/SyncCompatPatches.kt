@@ -2100,3 +2100,134 @@ val hideSyncRandomSubreddit = bytecodePatch(
         """.trimIndent())
     }
 }
+
+private const val ARCHIVE_RESTORE = "Lapp/revanced/extension/synccompat/ArcticShiftRestore;"
+private const val ARCHIVE_MESSAGE = "This comment isn't in the Arctic Shift archive."
+private const val RESTORE_REQUEST = "Lr8/h;"
+private const val COMMENT_SHEET = "Lt9/s;"
+private const val SYNC_POST = "Lxa/d;"
+private const val SHEET_ITEM = "Lcom/laurencedawson/reddit_sync/ui/fragment_dialogs/bottom/material_dialogs/base/AbstractSelectionDialogBottomSheet\$h;"
+private const val QUEUE_REQUEST = "Lm8/a;->a(Lcom/android/volley/Request;)V"
+private const val RESTORE_SWITCH = "Lt7/d0;->e()Z"
+
+/** OkHttp and Volley members ArcticShiftRestore calls; each must exist in the base. */
+private val ARCHIVE_MEMBERS = mapOf(
+    OKHTTP_BUILDER to listOf("<init>()V", "followRedirects(Z)$OKHTTP_BUILDER", "followSslRedirects(Z)$OKHTTP_BUILDER",
+        "connectTimeout(JLjava/util/concurrent/TimeUnit;)$OKHTTP_BUILDER", "readTimeout(JLjava/util/concurrent/TimeUnit;)$OKHTTP_BUILDER",
+        "writeTimeout(JLjava/util/concurrent/TimeUnit;)$OKHTTP_BUILDER", "callTimeout(JLjava/util/concurrent/TimeUnit;)$OKHTTP_BUILDER",
+        "build()$OKHTTP_CLIENT"),
+    OKHTTP_CLIENT to listOf("newCall(Lokhttp3/Request;)Lokhttp3/Call;"),
+    "Lokhttp3/Call;" to listOf("execute()Lokhttp3/Response;"),
+    "Lokhttp3/Request;" to listOf("url()Lokhttp3/HttpUrl;"),
+    "Lokhttp3/Request\$Builder;" to listOf("<init>()V", "url(Ljava/lang/String;)Lokhttp3/Request\$Builder;",
+        "header(Ljava/lang/String;Ljava/lang/String;)Lokhttp3/Request\$Builder;", "get()Lokhttp3/Request\$Builder;",
+        "build()Lokhttp3/Request;"),
+    "Lokhttp3/HttpUrl;" to listOf("isHttps()Z", "host()Ljava/lang/String;", "encodedPath()Ljava/lang/String;"),
+    "Lokhttp3/Response;" to listOf("code()I", "body()Lokhttp3/ResponseBody;", "request()Lokhttp3/Request;", "close()V"),
+    "Lokhttp3/ResponseBody;" to listOf("contentLength()J", "byteStream()Ljava/io/InputStream;"),
+    NETWORK to listOf("<init>([B)V"),
+    "Lcom/android/volley/Response;" to listOf("isSuccess()Z"),
+)
+
+val restoreSyncCommentsFromArcticShift = bytecodePatch(
+    name = "Sync: restore comments from Arctic Shift",
+    description = "Send Sync's \"Restore comment\" lookup (a Sync Ultra action) to the Arctic Shift archive instead of the " +
+        "retired Pushshift API, show the action without Sync's retired server switch, and show \"$ARCHIVE_MESSAGE\" " +
+        "when the archive has no copy. Only the comment ID is sent, over HTTPS, without Reddit authorization or cookies; " +
+        "the restored text comes from that third-party archive.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        fun mutable(type: String, source: String): MutableClassDef =
+            proxy(classes.singleOrNull { it.type == type && it.sourceFile == source } ?: throw PatchException(
+                "Expected Sync $source was not found. This patch targets build 23033 only.")).mutableClass
+        fun MutableClassDef.method(name: String, parameters: List<String>, returns: String): MutableMethod =
+            methods.singleOrNull { it.name == name && it.parameterTypes == parameters && it.returnType == returns }
+                ?: throw PatchException("Unsupported Sync method $type->$name.")
+        fun MutableMethod.code() = implementation!!.instructions
+        fun MutableMethod.calls(ref: String) = code().any { it.methodRef()?.toString() == ref }
+        fun MutableMethod.hasStrings(vararg values: String) = values.all { v -> code().any { it.stringValue() == v } }
+        fun MutableMethod.targeted(index: Int): Boolean {
+            val target = code()[index]
+            return code().any { it is BuilderOffsetInstruction && it.target.location.instruction === target }
+        }
+        fun Instruction.fieldRef() = ((this as? ReferenceInstruction)?.reference as? FieldReference)?.toString()
+        fun Instruction.registers() = (this as? FiveRegisterInstruction)?.let {
+            listOf(it.registerC, it.registerD, it.registerE, it.registerF, it.registerG).take(it.registerCount)
+        }
+
+        // RestoreCommentRequest (r8.h): builds the Pushshift URL from Post.U() and parses
+        // {"data":[{"id","author","body"}]}, the shape Arctic Shift answers in.
+        val postId = "$SYNC_POST->U()Ljava/lang/String;"
+        val request = mutable(RESTORE_REQUEST, "RestoreCommentRequest.java")
+        val url = request.method("a", listOf(SYNC_POST), "Ljava/lang/String;")
+        val parse = request.method("parseNetworkResponse", listOf(NETWORK), "Lcom/android/volley/Response;")
+        request.method("<init>", listOf(SYNC_POST), "V")
+        layout(request.superclass == "Lcom/android/volley/Request;" && AccessFlags.PUBLIC.isSet(parse.accessFlags) &&
+            url.hasStrings("https://api.pushshift.io/reddit/comment/search/", "?ids=") && url.calls(postId) &&
+            parse.hasStrings("data", "id", "author", "body") && parse.calls(postId) &&
+            parse.calls("Lorg/json/JSONObject;->getJSONArray(Ljava/lang/String;)Lorg/json/JSONArray;"),
+            "Sync RestoreCommentRequest")
+
+        for ((type, members) in ARCHIVE_MEMBERS) {
+            val clazz = classes.singleOrNull { it.type == type }
+                ?: throw PatchException("Sync lacks $type. This patch targets Sync build 23033 only.")
+            val present = clazz.methods.map { "${it.name}(${it.parameterTypes.joinToString("")})${it.returnType}" }.toSet()
+            for (member in members) if (member !in present) {
+                throw PatchException("Sync lacks $type->$member. This patch targets Sync build 23033 only.")
+            }
+        }
+
+        // CommentMoreDialogBottomSheet (t9.s): r0 handles the tapped item; for "Restore comment" it
+        // builds RestoreCommentRequest for Q0 (the comment) and queues it.
+        val sheet = mutable(COMMENT_SHEET, "CommentMoreDialogBottomSheet.java")
+        val click = sheet.method("r0", listOf(SHEET_ITEM), "V")
+        val clickCode = click.code()
+        if (clickCode.any { it.methodRef()?.definingClass == ARCHIVE_RESTORE })
+            throw PatchException("Comments are already restored from Arctic Shift.")
+        val queued = clickCode.singleIndex("RestoreCommentRequest queue call") {
+            clickCode[it].methodRef()?.toString() == QUEUE_REQUEST &&
+                clickCode.getOrNull(it - 1)?.methodRef()?.toString() == "$RESTORE_REQUEST-><init>($SYNC_POST)V"
+        }
+        val made = clickCode.getOrNull(queued - 3)
+        val requestRegister = made?.registerA()
+        val post = clickCode.getOrNull(queued - 2)
+        val postRegister = post?.registerA()
+        val leave = clickCode.getOrNull(queued + 1) as? BuilderOffsetInstruction
+        val after = leave?.target?.location?.index
+        layout(made?.opcode == Opcode.NEW_INSTANCE && (made as ReferenceInstruction).reference.toString() == RESTORE_REQUEST &&
+            post?.opcode == Opcode.IGET_OBJECT && post?.fieldRef() == "$COMMENT_SHEET->Q0:$SYNC_POST" &&
+            (post as TwoRegisterInstruction).registerB == click.implementation!!.registerCount - 2 &&
+            requestRegister != null && postRegister != null && requestRegister != postRegister && requestRegister < 16 && postRegister < 16 &&
+            clickCode[queued - 1].registers() == listOf(requestRegister, postRegister) && clickCode[queued].registers() == listOf(requestRegister) &&
+            clickCode.subList(maxOf(0, queued - 9), queued - 3).any { it.fieldRef() == "$COMMENT_SHEET->e1:$SHEET_ITEM" } &&
+            (leave?.opcode == Opcode.GOTO || leave?.opcode == Opcode.GOTO_16) && after != null &&
+            clickCode.getOrNull(after)?.methodRef()?.name == "x3" && clickCode.getOrNull(after + 1)?.opcode == Opcode.RETURN_VOID &&
+            !click.targeted(queued - 2) && !click.targeted(queued - 1) && !click.targeted(queued),
+            "Sync restore comment action")
+
+        // A4 builds the sheet: "Restore comment" needs Sync Ultra (uc.b.j) and the remote-config switch
+        // ultra_restore (t7.d0.e), which only governed Sync's own Pushshift lookup. Keep the Ultra check.
+        val menu = sheet.method("A4", emptyList(), "V")
+        val menuCode = menu.code()
+        val gate = menuCode.singleIndex("Restore comment server switch") { menuCode[it].methodRef()?.toString() == RESTORE_SWITCH }
+        val switch = menuCode.getOrNull(gate + 1)?.takeIf { it.opcode == Opcode.MOVE_RESULT }?.registerA()
+        val ultra = menuCode.indices.lastOrNull { it < gate && menuCode[it].methodRef()?.toString() == "Luc/b;->j()Z" }
+        val label = menuCode.indices.firstOrNull { it > gate && menuCode[it].stringValue() == "Restore comment" }
+        val stored = menuCode.indices.firstOrNull { it > gate && menuCode[it].fieldRef() == "$COMMENT_SHEET->e1:$SHEET_ITEM" }
+        layout(switch != null && switch < 16 && menuCode.getOrNull(gate + 2)?.let {
+                it.opcode == Opcode.IF_EQZ && it.registerA() == switch } == true &&
+            ultra != null && gate - ultra < 24 && label != null && label - gate < 6 && stored != null && stored - gate < 12 &&
+            menu.hasStrings("[removed]", "[deleted]") && !menu.targeted(gate + 2),
+            "Sync restore comment menu")
+
+        // All layouts verified; edit.
+        menu.addInstructions(gate + 2, "const/4 v$switch, 0x1")
+        click.replaceInstruction(queued, "invoke-virtual {v$postRegister}, $postId")
+        click.addInstructions(queued + 1, """
+            move-result-object v$postRegister
+            invoke-static {v$requestRegister, v$postRegister}, $ARCHIVE_RESTORE->restore(Ljava/lang/Object;Ljava/lang/String;)V
+        """.trimIndent())
+    }
+}

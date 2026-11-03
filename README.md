@@ -1106,6 +1106,47 @@ New in the [v0.7.1-rc.1 candidate](https://github.com/TheLastWallaby/revanced-re
   show the message or are hidden, and nothing is queued. It runs on hand-written
   models in CI, and passed on Sync's real methods locally. Not tested on a phone.
 
+On main, not in a release yet (it arrives with the next candidate):
+
+- **Sync: restore comments from Arctic Shift**
+  ([issue #52](https://github.com/TheLastWallaby/revanced-redditsync/issues/52)).
+  Sync's **Restore comment** action, in the options sheet of a `[deleted]` or
+  `[removed]` comment, asked Pushshift
+  (`https://api.pushshift.io/reddit/comment/search/?ids=<id>`), which now serves
+  moderators only, so nothing happened. With the patch it asks the
+  [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) archive instead.
+
+  **The restored author and text come from Arctic Shift, a third-party archive
+  of Reddit, not from Reddit.** Arctic Shift only has comments it saved before
+  they were deleted; a recent or never-archived comment shows "This comment
+  isn't in the Arctic Shift archive." What is sent: one HTTPS `GET` to
+  `https://arctic-shift.photon-reddit.com/api/comments/ids?ids=<id>&fields=id,author,body`,
+  where `<id>` is the comment's base-36 ID (checked to be 1 to 13 characters
+  `0-9a-z`; a `t1_` prefix is removed; anything else is never sent), with
+  `Accept: application/json` and `User-Agent: sync_for_reddit`. The request uses
+  a client of its own, not Sync's: no Reddit authorization, cookies, tokens or
+  other Sync headers, and no redirects are followed. Your IP address is visible
+  to Arctic Shift, as to any website.
+
+  | | Sync 23033 | With the patch |
+  |---|---|---|
+  | Shown when | Sync Ultra (`UltraHelper`, `uc.b.j`) and Sync's remote-config switch `ultra_restore` (`RemoteConfigHelper.e`, `t7.d0.e`, off unless Sync's server turned it on) | Sync Ultra only; the switch governed Sync's retired Pushshift lookup |
+  | Tap (`CommentMoreDialogBottomSheet.r0`, `t9.s`) | Queues `RestoreCommentRequest` (`r8.h`) to Pushshift; it has no error listener, so a failure showed nothing | Builds the same request (Sync's "Restoring comment" message stays), then `ArcticShiftRestore` asks the archive in the background |
+  | Archive has the comment | — | The answer is reduced to one `{"data":[{"id","author","body"}]}` entry, the shape Pushshift used, and handed to `RestoreCommentRequest`'s own parser, which stores the author and text and refreshes the thread |
+  | Not archived: empty `data`, HTTP 404, malformed or over 256 KiB, or only `[deleted]`/`[removed]` text | — | "This comment isn't in the Arctic Shift archive." |
+  | Other HTTP status, redirect, no connection, slower than 10 s per read or 20 s in all | — | "Couldn't reach the Arctic Shift archive. Try again later." |
+
+  Not changed: who sees the action (Sync Ultra only), Sync's parser and comment
+  storage, and the Ultra settings screen. `ArcticShiftRestoreTest` covers the
+  helper against a loopback archive: found, missing, empty, malformed,
+  oversized, slow and trickling answers, redirects and other statuses, ID
+  validation, and that the archive receives no Authorization or Cookie header.
+  `ArcticShiftRestorePatchTest` builds and taps the sheet before and after the
+  patch, with the tap going to a loopback archive and through Sync's own parser:
+  on hand-written models in CI, and passed on Sync's real methods locally. Not
+  tested on a phone or against live Arctic Shift from the app; the live
+  endpoint answered in this shape on 2026-11-03.
+
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
 comment listings. A more marker, unrelated comment, wrong post, unknown shape,
