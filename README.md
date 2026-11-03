@@ -59,21 +59,26 @@ maintainers yet; the tested route is ReVanced CLI (see
 
 The rest of this page is version history and technical detail.
 
-## v0.7.2-rc.2 candidate: comment restore from Arctic Shift and video download manifests
+## v0.7.2 comment restore from Arctic Shift and video download manifests
 
-The [v0.7.2-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.2)
-is for phone testing. Apply it to **stock** Sync and check all patch results (24
-with Use /user/ endpoint). Stable remains v0.7.1 until the candidate passes and
-stable publication is authorized. It has not been tested on a phone yet.
+The [v0.7.2 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2)
+rebuilds the runtime code from the phone-tested
+[v0.7.2-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.2).
+Apply it to **stock** Sync and check all patch results (24 with Use /user/ endpoint).
 
-It replaces the [v0.7.2-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.1).
-On rc.1 the tester found no **Restore comment** entry, not even under ⋯ More: it
-required Sync Ultra, which Sync records only when its retired server confirms a
-purchase, so no install can turn it on any more. In rc.2 the entry is shown for
-every `[deleted]` or `[removed]` comment.
+On rc.2 the tester reported that it looks good and authorized stable
+publication; only an overall result was given for the seven numbered checks
+(restore an archived comment, a missing one, downloads with and without sound,
+playback, the v0.7.1 checks, general regressions). See `validation-phone-tests.json`.
+
+The earlier [v0.7.2-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.1)
+showed no **Restore comment** entry, not even under ⋯ More: it required Sync
+Ultra, which Sync records only when its retired server confirms a purchase, so
+no install can turn it on any more. Since rc.2 the entry is shown for every
+`[deleted]` or `[removed]` comment.
 
 It adds two selectable patches, described under
-[Included patches](#included-patches--cumulative-v071):
+[Included patches](#included-patches--cumulative-v072):
 
 - **Sync: restore comments from Arctic Shift**
   ([issue #52](https://github.com/TheLastWallaby/revanced-redditsync/issues/52)):
@@ -99,7 +104,7 @@ publication; only an overall result was given for the five numbered checks
 regressions). See `validation-phone-tests.json`.
 
 It adds three selectable patches, described under
-[Included patches](#included-patches--cumulative-v071):
+[Included patches](#included-patches--cumulative-v072):
 
 - **Sync: skip retired media hosts**
   ([issue #57](https://github.com/TheLastWallaby/revanced-redditsync/issues/57)):
@@ -965,17 +970,16 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Stable v0.7.1 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.1)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.1/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.1/sync-gallery-comments-compat-v0.7.1-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.1/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.1/build-info.json)
-- [v0.7.2-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.2)
-  for phone testing (not stable)
-- [Archived v0.7.2-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.1)
+- [Stable v0.7.2 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.2/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.2/sync-gallery-comments-compat-v0.7.2-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.2/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.2/build-info.json)
+- [Archived v0.7.2-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.2)
+  and [v0.7.2-rc.1](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.1)
+- [Previous stable v0.7.1](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.1)
 - [Archived v0.7.1-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.1-rc.1)
 - [Previous stable v0.7.0](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.0)
-- [Archived v0.7.0-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.0-rc.1)
 - [Previous stable v0.6.14](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.14)
   (needs an APK already patched with the official ReVanced Sync patches)
 
@@ -1017,7 +1021,7 @@ Releases up to v0.6.14 instead needed two passes: the official ReVanced Sync
 patches first, then this bundle on that output
 ([issue #70](https://github.com/TheLastWallaby/revanced-redditsync/issues/70)).
 
-## Included patches — cumulative v0.7.1
+## Included patches — cumulative v0.7.2
 
 Official ReVanced Sync patches, ported for build 23033 (see
 [v0.7.0](#v070-one-pass-patching-from-stock-sync-issue-70)): **Spoof client**,
@@ -1142,8 +1146,7 @@ New in [v0.7.1](#v071-retired-media-hosts-random-subreddit-and-redgifs-link-ids)
   models in CI, and passed on Sync's real methods locally. The tester reported
   the rc.1 phone checks as an overall pass.
 
-New in the [v0.7.2-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.2)
-(not stable yet; see [above](#v072-rc2-candidate-comment-restore-from-arctic-shift-and-video-download-manifests)):
+New in [v0.7.2](#v072-comment-restore-from-arctic-shift-and-video-download-manifests):
 
 - **Sync: restore comments from Arctic Shift**
   ([issue #52](https://github.com/TheLastWallaby/revanced-redditsync/issues/52)).
@@ -1180,9 +1183,9 @@ New in the [v0.7.2-rc.2 candidate](https://github.com/TheLastWallaby/revanced-re
   validation, and that the archive receives no Authorization or Cookie header.
   `ArcticShiftRestorePatchTest` builds and taps the sheet before and after the
   patch, with the tap going to a loopback archive and through Sync's own parser:
-  on hand-written models in CI, and passed on Sync's real methods locally. Not
-  tested on a phone or against live Arctic Shift from the app; the live
-  endpoint answered in this shape on 2026-11-03.
+  on hand-written models in CI, and passed on Sync's real methods locally. The
+  tester reported the rc.2 phone checks, including restoring a comment and the
+  missing-comment message, as an overall pass.
 - **Sync: fix video download manifests**
   ([issue #7](https://github.com/TheLastWallaby/revanced-redditsync/issues/7)).
   Applies only to **downloading** a Reddit video (`DownloadRedditVideoJob`);
@@ -1238,8 +1241,9 @@ New in the [v0.7.2-rc.2 candidate](https://github.com/TheLastWallaby/revanced-re
   `VideoDownloadPatchTest` applies the port and then the patch and runs Sync's
   parser and the job's playlist listener (`DownloadRedditVideoJob$b`) on these
   manifests: on hand-written models in CI, and passed on Sync's real methods
-  locally, where the "Before" column is what Sync and the port produced. Not
-  tested on a phone or with live Reddit manifests.
+  locally, where the "Before" column is what Sync and the port produced. The
+  tester reported the rc.2 phone checks, including downloads with and without
+  sound, as an overall pass.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
@@ -1259,7 +1263,7 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
    with the official ReVanced Sync patches.)
 2. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
    and apply the default patches: the eight ported official patches except Use
-   /user/ endpoint, plus this bundle's fourteen. Set Spoof client's
+   /user/ endpoint, plus this bundle's sixteen. Set Spoof client's
    `OAuth client ID` (and `Redirect URI`/`User-Agent` if needed). Check that
    each patch reports success.
 3. Sign the result with your own keystore. Matching the key used by your current
@@ -1281,7 +1285,7 @@ java -jar revanced-cli-6.0.0-all.jar patch \
   -p output/patches.rvp -b \
   -O "OAuth client ID=your-reddit-client-id" -e "Spoof client" \
   --keystore your-signing-key.keystore \
-  -o Sync-v23.06.30-compat-v0.7.1.apk \
+  -o Sync-v23.06.30-compat-v0.7.2.apk \
   Sync-v23.06.30-stock.apk
 ```
 
@@ -1425,6 +1429,10 @@ result was given.
 Stable v0.7.1 rebuilds the v0.7.1-rc.1 runtime code after the tester reported
 the five retired-host, random-subreddit and regression checks as all good and
 authorized promotion; only an overall result was given.
+Stable v0.7.2 rebuilds the v0.7.2-rc.2 runtime code after the tester reported
+the seven comment-restore, video-download and regression checks as looking good
+and authorized promotion; only an overall result was given. On rc.1 the restore
+entry was missing (it required Sync Ultra); rc.2 removed that requirement.
 These are checks of the supplied cases, not exhaustive Android/live Reddit tests.
 This standalone bundle does not represent a full upstream Gradle build.
 
