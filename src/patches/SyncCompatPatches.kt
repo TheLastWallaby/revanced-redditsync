@@ -2231,3 +2231,99 @@ val restoreSyncCommentsFromArcticShift = bytecodePatch(
         """.trimIndent())
     }
 }
+
+private const val DOWNLOAD_MANIFEST = "Lapp/revanced/extension/synccompat/VideoDownloadManifest;"
+private const val DOWNLOAD_PORT = "Lapp/revanced/extension/syncforreddit/FixRedditVideoDownloadPatch;"
+private const val VIDEO_REQUEST = "Lr8/g;"
+private const val VIDEO_DESCRIPTION = "Lo8/h;"
+private const val VIDEO_JOB = "Lcom/laurencedawson/reddit_sync/jobs/media/DownloadRedditVideoJob"
+private const val CACHE_ENTRY = "Lcom/android/volley/Cache\$Entry;"
+private const val VOLLEY_RESPONSE = "Lcom/android/volley/Response;"
+
+val fixSyncVideoDownloadManifests = bytecodePatch(
+    name = "Sync: fix video download manifests",
+    description = "Choose the video and audio files Sync's Reddit video download saves from DASH manifests with " +
+        "namespace prefixes, mimeType or contentType on the AdaptationSet or Representation, and missing or invalid " +
+        "bandwidths, before Sync's own manifest parser can fail. A silent video saves the video alone; a manifest " +
+        "without a single-file video track shows Sync's \"No valid video files found\" instead of saving audio or a " +
+        "broken file. Playback is not changed.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(fixVideoDownloadsPatch)
+    apply {
+        fun mutable(type: String, source: String): MutableClassDef =
+            proxy(classes.singleOrNull { it.type == type && it.sourceFile == source } ?: throw PatchException(
+                "Expected Sync $source was not found. This patch targets build 23033 only.")).mutableClass
+        fun MutableClassDef.method(name: String, parameters: List<String>, returns: String): MutableMethod =
+            methods.singleOrNull { it.name == name && it.parameterTypes == parameters && it.returnType == returns }
+                ?: throw PatchException("Unsupported Sync method $type->$name.")
+        fun MutableMethod.code() = implementation!!.instructions
+        fun MutableMethod.calls(ref: String) = code().any { it.methodRef()?.toString() == ref }
+        fun MutableMethod.hasStrings(vararg values: String) = values.all { v -> code().any { it.stringValue() == v } }
+
+        // RedditVideoRequest (r8.g): Sync's own MPD loop, then the bundled port's getLinks, then
+        // RedditVideoDescription (o8.h) built from Sync's video ID (field c) and cached for an hour.
+        val request = mutable(VIDEO_REQUEST, "RedditVideoRequest.java")
+        val parse = request.method("parseNetworkResponse", listOf(NETWORK), VOLLEY_RESPONSE)
+        val code = parse.code()
+        if (code.any { it.methodRef()?.definingClass == DOWNLOAD_MANIFEST })
+            throw PatchException("Video download manifests are already fixed.")
+        layout(code.any { it.methodRef()?.toString() == "$DOWNLOAD_PORT->getLinks([B)[Ljava/lang/String;" },
+            "Fix video downloads hook")
+        layout(request.superclass == "Lcom/android/volley/Request;" && parse.implementation!!.registerCount == 10 &&
+            request.fields.any { it.name == "c" && it.type == "Ljava/lang/String;" } &&
+            code.first().let { it.opcode == Opcode.CONST_STRING && it.stringValue() == "RVD" } &&
+            parse.hasStrings("AdaptationSet", "DASH_audio") &&
+            parse.calls("$VIDEO_DESCRIPTION-><init>(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V") &&
+            parse.calls("Ld9/a;->a(${NETWORK}J)$CACHE_ENTRY") &&
+            parse.calls("$VOLLEY_RESPONSE->success(Ljava/lang/Object;$CACHE_ENTRY)$VOLLEY_RESPONSE") &&
+            parse.calls("$VOLLEY_RESPONSE->error($VOLLEY_ERROR)$VOLLEY_RESPONSE"), "Sync video download parser")
+
+        // The description keeps an http(s) URL as given and treats an empty audio as none; the job's
+        // listener (DownloadRedditVideoJob$b) shows "No valid video files found" when it has no video.
+        val description = mutable(VIDEO_DESCRIPTION, "RedditVideoDescription.java")
+        description.method("<init>", listOf("Ljava/lang/String;", "Ljava/lang/String;", "Ljava/lang/String;"), "V").let {
+            layout(it.hasStrings("http", "https://v.redd.it/") && description.fields.any { f -> f.name == "a" && f.type == "Ljava/lang/String;" },
+                "Sync RedditVideoDescription")
+        }
+        val listener = mutable("$VIDEO_JOB\$b;", "DownloadRedditVideoJob.java").method("a", listOf(VIDEO_DESCRIPTION), "V")
+        layout(listener.hasStrings("No valid video files found") && listener.calls("$VIDEO_DESCRIPTION->a()Z"),
+            "Sync video download listener")
+        val parseError = classes.singleOrNull { it.type == "Lcom/android/volley/ParseError;" }
+        layout(parseError?.methods?.any { it.name == "<init>" && it.parameterTypes.isEmpty() } == true, "Volley ParseError")
+
+        // All layouts verified; answer from the helper before Sync's own loop runs. Its result returns
+        // directly, so Sync's loop and the port's hook after it are no longer reached.
+        parse.addInstructionsWithLabels(0, """
+            iget-object v0, p1, $NETWORK->data:[B
+            invoke-virtual {p0}, Lcom/android/volley/Request;->getUrl()Ljava/lang/String;
+            move-result-object v1
+            invoke-static {v0, v1}, $DOWNLOAD_MANIFEST->links([BLjava/lang/String;)[Ljava/lang/String;
+            move-result-object v0
+            if-nez v0, :links
+            new-instance v0, Lcom/android/volley/ParseError;
+            invoke-direct {v0}, Lcom/android/volley/ParseError;-><init>()V
+            invoke-static {v0}, $VOLLEY_RESPONSE->error($VOLLEY_ERROR)$VOLLEY_RESPONSE
+            move-result-object v0
+            return-object v0
+            :links
+            const/4 v1, 0x0
+            aget-object v2, v0, v1
+            const/4 v1, 0x1
+            aget-object v3, v0, v1
+            new-instance v0, $VIDEO_DESCRIPTION
+            iget-object v1, p0, $VIDEO_REQUEST->c:Ljava/lang/String;
+            invoke-direct {v0, v1, v2, v3}, $VIDEO_DESCRIPTION-><init>(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+            if-nez v2, :cache
+            const/4 v1, 0x0
+            iput-object v1, v0, $VIDEO_DESCRIPTION->a:Ljava/lang/String;
+            :cache
+            const-wide/32 v1, 0x36ee80
+            invoke-static {p1, v1, v2}, Ld9/a;->a(${NETWORK}J)$CACHE_ENTRY
+            move-result-object v1
+            invoke-static {v0, v1}, $VOLLEY_RESPONSE->success(Ljava/lang/Object;$CACHE_ENTRY)$VOLLEY_RESPONSE
+            move-result-object v0
+            return-object v0
+        """.trimIndent())
+    }
+}

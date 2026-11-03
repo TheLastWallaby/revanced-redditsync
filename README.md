@@ -59,6 +59,27 @@ maintainers yet; the tested route is ReVanced CLI (see
 
 The rest of this page is version history and technical detail.
 
+## v0.7.2-rc.1 candidate: comment restore from Arctic Shift and video download manifests
+
+The [v0.7.2-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.1)
+is for phone testing. Apply it to **stock** Sync and check all patch results (24
+with Use /user/ endpoint). Stable remains v0.7.1 until the candidate passes and
+stable publication is authorized. It has not been tested on a phone yet.
+
+It adds two selectable patches, described under
+[Included patches](#included-patches--cumulative-v071):
+
+- **Sync: restore comments from Arctic Shift**
+  ([issue #52](https://github.com/TheLastWallaby/revanced-redditsync/issues/52)):
+  Sync Ultra's **Restore comment** asks the Arctic Shift archive instead of the
+  retired Pushshift API. **The restored text comes from that third-party
+  archive**; only the comment ID is sent.
+- **Sync: fix video download manifests**
+  ([issue #7](https://github.com/TheLastWallaby/revanced-redditsync/issues/7)):
+  downloading a Reddit video picks the right video and audio files from more
+  manifest forms, saves silent videos as video only, and says "No valid video
+  files found" instead of saving a broken file. Playback is not changed.
+
 ## v0.7.1 retired media hosts, random subreddit and RedGifs link IDs
 
 The [v0.7.1 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.1)
@@ -943,6 +964,8 @@ must also show success for every selected patch.
 - [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.1/sync-gallery-comments-compat-v0.7.1-source.zip)
 - [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.1/SHA256SUMS)
 - [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.1/build-info.json)
+- [v0.7.2-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.1)
+  for phone testing (not stable)
 - [Archived v0.7.1-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.1-rc.1)
 - [Previous stable v0.7.0](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.0)
 - [Archived v0.7.0-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.0-rc.1)
@@ -1112,7 +1135,8 @@ New in [v0.7.1](#v071-retired-media-hosts-random-subreddit-and-redgifs-link-ids)
   models in CI, and passed on Sync's real methods locally. The tester reported
   the rc.1 phone checks as an overall pass.
 
-On main, not in a release yet (it arrives with the next candidate):
+New in the [v0.7.2-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.1)
+(not stable yet; see [above](#v072-rc1-candidate-comment-restore-from-arctic-shift-and-video-download-manifests)):
 
 - **Sync: restore comments from Arctic Shift**
   ([issue #52](https://github.com/TheLastWallaby/revanced-redditsync/issues/52)).
@@ -1152,6 +1176,63 @@ On main, not in a release yet (it arrives with the next candidate):
   on hand-written models in CI, and passed on Sync's real methods locally. Not
   tested on a phone or against live Arctic Shift from the app; the live
   endpoint answered in this shape on 2026-11-03.
+- **Sync: fix video download manifests**
+  ([issue #7](https://github.com/TheLastWallaby/revanced-redditsync/issues/7)).
+  Applies only to **downloading** a Reddit video (`DownloadRedditVideoJob`);
+  playback, including v0.6.14's DASH player, is not changed. Sync asks for
+  `https://v.redd.it/<id>/DASHPlaylist.mpd` (`RedditVideoRequest`, `r8.g`) and
+  hands two files to the job, which saves the video and, if there is one, the
+  audio, then joins them.
+
+  **Why it failed.** `r8.g.parseNetworkResponse` first runs Sync's own manifest
+  loop: a namespace-unaware DOM, any AdaptationSet whose text mentions `audio`
+  taken as audio, and `Integer.parseInt` on every other Representation's
+  `bandwidth`. The bundled official port **Fix video downloads** only replaces
+  the two links after that loop. So a missing or invalid `bandwidth`, a missing
+  BaseURL or an empty AdaptationSet threw first ("Error grabbing the video
+  playlist"). Where the loop survived, the port read only unprefixed
+  AdaptationSets with a `contentType`: for `mimeType`-only or namespace-prefixed
+  manifests it found nothing, and Sync's `RedditVideoDescription` (`o8.h`) turned
+  the missing video into `https://v.redd.it/<id>/null`, a broken file.
+
+  **What the patch changes.** It depends on the port (kept unchanged as the
+  upstream copy) and adds code at the start of `r8.g.parseNetworkResponse`, so
+  Sync's loop and the port's hook after it are no longer reached.
+  `VideoDownloadManifest` chooses the files:
+
+  - The manifest must be well-formed XML with an `MPD` root, at most 1 MiB,
+    without a DOCTYPE. Otherwise: "Error grabbing the video playlist", as before.
+  - Representations are read by `DashManifest`, the reader now shared with
+    comment video posters (`CommentVideo`): any namespace prefix, comments
+    skipped, XML references decoded. Video or audio comes from `mimeType` or
+    `contentType` on the Representation, else its AdaptationSet; with neither,
+    Sync's own rule (a file name with `audio`) and a picture size for video.
+    Subtitles and other types are ignored.
+  - Each track takes the highest valid `bandwidth`. A missing, zero or invalid
+    one ranks below every valid one; video then takes the largest picture.
+  - Only single files count. A Representation under a `SegmentTemplate` or
+    `SegmentList` (at Period, AdaptationSet or Representation level) cannot be
+    saved as one file and is skipped; `SegmentBase` is a single file.
+  - BaseURLs are resolved against the manifest URL. Their own query, such as a
+    signature, is kept; only HTTPS results are used.
+
+  | Manifest | Before | With the patch |
+  |---|---|---|
+  | Video and audio | Video and audio (port) | Video and audio |
+  | Silent video, such as a GIF-style clip | Video alone | Video alone |
+  | `mimeType` instead of `contentType`, or namespace prefixes | `…/null` (broken file) | Video and audio |
+  | A missing or invalid `bandwidth` | "Error grabbing the video playlist" | Best valid representation |
+  | No video track | A broken `…/null` video plus the audio | "No valid video files found" |
+  | `SegmentTemplate` only | "Error grabbing the video playlist" | "No valid video files found" |
+  | Malformed XML | "Error grabbing the video playlist" | Same |
+
+  The two messages are Sync's own. `VideoDownloadManifestTest` covers the
+  choice, including the real Reddit manifest used by `CommentVideoTest`.
+  `VideoDownloadPatchTest` applies the port and then the patch and runs Sync's
+  parser and the job's playlist listener (`DownloadRedditVideoJob$b`) on these
+  manifests: on hand-written models in CI, and passed on Sync's real methods
+  locally, where the "Before" column is what Sync and the port produced. Not
+  tested on a phone or with live Reddit manifests.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
