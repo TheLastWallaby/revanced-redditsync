@@ -59,19 +59,25 @@ maintainers yet; the tested route is ReVanced CLI (see
 
 The rest of this page is version history and technical detail.
 
-## v0.7.2-rc.1 candidate: comment restore from Arctic Shift and video download manifests
+## v0.7.2-rc.2 candidate: comment restore from Arctic Shift and video download manifests
 
-The [v0.7.2-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.1)
+The [v0.7.2-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.2)
 is for phone testing. Apply it to **stock** Sync and check all patch results (24
 with Use /user/ endpoint). Stable remains v0.7.1 until the candidate passes and
 stable publication is authorized. It has not been tested on a phone yet.
+
+It replaces the [v0.7.2-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.1).
+On rc.1 the tester found no **Restore comment** entry, not even under ⋯ More: it
+required Sync Ultra, which Sync records only when its retired server confirms a
+purchase, so no install can turn it on any more. In rc.2 the entry is shown for
+every `[deleted]` or `[removed]` comment.
 
 It adds two selectable patches, described under
 [Included patches](#included-patches--cumulative-v071):
 
 - **Sync: restore comments from Arctic Shift**
   ([issue #52](https://github.com/TheLastWallaby/revanced-redditsync/issues/52)):
-  Sync Ultra's **Restore comment** asks the Arctic Shift archive instead of the
+  **Restore comment** (no longer needs Sync Ultra) asks the Arctic Shift archive instead of the
   retired Pushshift API. **The restored text comes from that third-party
   archive**; only the comment ID is sent.
 - **Sync: fix video download manifests**
@@ -964,8 +970,9 @@ must also show success for every selected patch.
 - [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.1/sync-gallery-comments-compat-v0.7.1-source.zip)
 - [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.1/SHA256SUMS)
 - [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.1/build-info.json)
-- [v0.7.2-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.1)
+- [v0.7.2-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.2)
   for phone testing (not stable)
+- [Archived v0.7.2-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.1)
 - [Archived v0.7.1-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.1-rc.1)
 - [Previous stable v0.7.0](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.0)
 - [Archived v0.7.0-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.0-rc.1)
@@ -1135,13 +1142,13 @@ New in [v0.7.1](#v071-retired-media-hosts-random-subreddit-and-redgifs-link-ids)
   models in CI, and passed on Sync's real methods locally. The tester reported
   the rc.1 phone checks as an overall pass.
 
-New in the [v0.7.2-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.1)
-(not stable yet; see [above](#v072-rc1-candidate-comment-restore-from-arctic-shift-and-video-download-manifests)):
+New in the [v0.7.2-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.2)
+(not stable yet; see [above](#v072-rc2-candidate-comment-restore-from-arctic-shift-and-video-download-manifests)):
 
 - **Sync: restore comments from Arctic Shift**
   ([issue #52](https://github.com/TheLastWallaby/revanced-redditsync/issues/52)).
-  Sync's **Restore comment** action, in the options sheet of a `[deleted]` or
-  `[removed]` comment, asked Pushshift
+  Sync's **Restore comment** action, in the ⋯ More sheet of a `[deleted]` or
+  `[removed]` comment (`CommentHolder.onMoreClicked`), asked Pushshift
   (`https://api.pushshift.io/reddit/comment/search/?ids=<id>`), which now serves
   moderators only, so nothing happened. With the patch it asks the
   [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) archive instead.
@@ -1160,14 +1167,14 @@ New in the [v0.7.2-rc.1 candidate](https://github.com/TheLastWallaby/revanced-re
 
   | | Sync 23033 | With the patch |
   |---|---|---|
-  | Shown when | Sync Ultra (`UltraHelper`, `uc.b.j`) and Sync's remote-config switch `ultra_restore` (`RemoteConfigHelper.e`, `t7.d0.e`, off unless Sync's server turned it on) | Sync Ultra only; the switch governed Sync's retired Pushshift lookup |
+  | Shown when | Sync Ultra (`UltraHelper`, `uc.b.j`) and Sync's remote-config switch `ultra_restore` (`RemoteConfigHelper.e`, `t7.d0.e`, off unless Sync's server turned it on) | Every `[deleted]` or `[removed]` comment. Sync records Ultra only when its retired server sends a purchase message (`MyFirebaseMessagingService` → `UltraHelper.o`), so Ultra can no longer be turned on; the switch governed Sync's retired Pushshift lookup. Both results are overridden for this entry only |
   | Tap (`CommentMoreDialogBottomSheet.r0`, `t9.s`) | Queues `RestoreCommentRequest` (`r8.h`) to Pushshift; it has no error listener, so a failure showed nothing | Builds the same request (Sync's "Restoring comment" message stays), then `ArcticShiftRestore` asks the archive in the background |
   | Archive has the comment | — | The answer is reduced to one `{"data":[{"id","author","body"}]}` entry, the shape Pushshift used, and handed to `RestoreCommentRequest`'s own parser, which stores the author and text and refreshes the thread |
   | Not archived: empty `data`, HTTP 404, malformed or over 256 KiB, or only `[deleted]`/`[removed]` text | — | "This comment isn't in the Arctic Shift archive." |
   | Other HTTP status, redirect, no connection, slower than 10 s per read or 20 s in all | — | "Couldn't reach the Arctic Shift archive. Try again later." |
 
-  Not changed: who sees the action (Sync Ultra only), Sync's parser and comment
-  storage, and the Ultra settings screen. `ArcticShiftRestoreTest` covers the
+  Not changed: Sync's parser and comment storage, its other Ultra features, and
+  the Ultra settings screen. `ArcticShiftRestoreTest` covers the
   helper against a loopback archive: found, missing, empty, malformed,
   oversized, slow and trickling answers, redirects and other statuses, ID
   validation, and that the archive receives no Authorization or Cookie header.

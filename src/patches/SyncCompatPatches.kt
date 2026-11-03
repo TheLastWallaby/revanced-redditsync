@@ -2131,8 +2131,9 @@ private val ARCHIVE_MEMBERS = mapOf(
 
 val restoreSyncCommentsFromArcticShift = bytecodePatch(
     name = "Sync: restore comments from Arctic Shift",
-    description = "Send Sync's \"Restore comment\" lookup (a Sync Ultra action) to the Arctic Shift archive instead of the " +
-        "retired Pushshift API, show the action without Sync's retired server switch, and show \"$ARCHIVE_MESSAGE\" " +
+    description = "Send Sync's \"Restore comment\" lookup to the Arctic Shift archive instead of the retired Pushshift API, " +
+        "show the action for every [deleted] or [removed] comment (without Sync Ultra, which can no longer be activated, " +
+        "or Sync's retired server switch), and show \"$ARCHIVE_MESSAGE\" " +
         "when the archive has no copy. Only the comment ID is sent, over HTTPS, without Reddit authorization or cookies; " +
         "the restored text comes from that third-party archive.",
 ) {
@@ -2208,22 +2209,31 @@ val restoreSyncCommentsFromArcticShift = bytecodePatch(
             "Sync restore comment action")
 
         // A4 builds the sheet: "Restore comment" needs Sync Ultra (uc.b.j) and the remote-config switch
-        // ultra_restore (t7.d0.e), which only governed Sync's own Pushshift lookup. Keep the Ultra check.
+        // ultra_restore (t7.d0.e), which only governed Sync's own Pushshift lookup. Sync records Ultra only
+        // when its retired server sends a purchase message, so neither can be turned on any more: both
+        // results are overridden for this item only. The [deleted]/[removed] check between them stays.
         val menu = sheet.method("A4", emptyList(), "V")
         val menuCode = menu.code()
         val gate = menuCode.singleIndex("Restore comment server switch") { menuCode[it].methodRef()?.toString() == RESTORE_SWITCH }
         val switch = menuCode.getOrNull(gate + 1)?.takeIf { it.opcode == Opcode.MOVE_RESULT }?.registerA()
         val ultra = menuCode.indices.lastOrNull { it < gate && menuCode[it].methodRef()?.toString() == "Luc/b;->j()Z" }
+        val ultraResult = ultra?.let { menuCode.getOrNull(it + 1) }?.takeIf { it.opcode == Opcode.MOVE_RESULT }?.registerA()
+        fun Instruction.branch() = (this as? BuilderOffsetInstruction)?.target?.location?.instruction
         val label = menuCode.indices.firstOrNull { it > gate && menuCode[it].stringValue() == "Restore comment" }
         val stored = menuCode.indices.firstOrNull { it > gate && menuCode[it].fieldRef() == "$COMMENT_SHEET->e1:$SHEET_ITEM" }
         layout(switch != null && switch < 16 && menuCode.getOrNull(gate + 2)?.let {
                 it.opcode == Opcode.IF_EQZ && it.registerA() == switch } == true &&
             ultra != null && gate - ultra < 24 && label != null && label - gate < 6 && stored != null && stored - gate < 12 &&
-            menu.hasStrings("[removed]", "[deleted]") && !menu.targeted(gate + 2),
+            ultraResult != null && ultraResult < 16 && menuCode.getOrNull(ultra + 2)?.let {
+                it.opcode == Opcode.IF_EQZ && it.registerA() == ultraResult && it.branch() != null &&
+                    it.branch() === menuCode[gate + 2].branch() } == true &&
+            menuCode.subList(ultra + 3, gate).any { it.stringValue() == "[deleted]" } &&
+            menu.hasStrings("[removed]", "[deleted]") && !menu.targeted(gate + 2) && !menu.targeted(ultra + 2),
             "Sync restore comment menu")
 
         // All layouts verified; edit.
         menu.addInstructions(gate + 2, "const/4 v$switch, 0x1")
+        menu.addInstructions(ultra!! + 2, "const/4 v$ultraResult, 0x1")
         click.replaceInstruction(queued, "invoke-virtual {v$postRegister}, $postId")
         click.addInstructions(queued + 1, """
             move-result-object v$postRegister

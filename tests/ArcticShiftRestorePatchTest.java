@@ -31,7 +31,8 @@ import okhttp3.OkHttpClient;
  * "Restore comment" is shown; tapping it (r0) builds RestoreCommentRequest (r8.h).
  *
  * Before: the entry needs Sync Ultra and Sync's ultra_restore server switch, and the tap queues the
- * Pushshift request. After: the entry needs Sync Ultra only, and the tap sends the comment ID to a
+ * Pushshift request. After: the entry is shown for every [deleted] or [removed] comment, with or
+ * without Sync Ultra (which can no longer be activated), and the tap sends the comment ID to a
  * loopback Arctic Shift archive (no Authorization or Cookie header) and hands the answer to
  * RestoreCommentRequest's own parser, which stores the author and text; a comment the archive
  * lacks shows the message. Android and app services are stand-ins that record what Sync asked for.
@@ -124,9 +125,18 @@ public final class ArcticShiftRestorePatchTest {
         check(!patched.items("an ordinary comment").contains("Restore comment"), "only for removed or deleted comments");
 
         for (Sync sync : List.of(stock, patched)) sync.ultra = false;
-        check(!patched.items("[deleted]").contains("Restore comment"), "patched still needs Sync Ultra");
-        equal(stock.items("[deleted]"), patched.items("[deleted]"), "without Ultra, as before");
-        for (Sync sync : List.of(stock, patched)) sync.ultra = true;
+        for (boolean on : new boolean[] {false, true}) {
+            for (Sync sync : List.of(stock, patched)) sync.serverSwitch = on;
+            stockItems = stock.items("[deleted]");
+            patchedItems = patched.items("[deleted]");
+            check(!stockItems.contains("Restore comment"), "stock hides Restore without Ultra, switch " + on);
+            check(patchedItems.contains("Restore comment"), "patched shows Restore without Ultra, switch " + on + ": " + patchedItems);
+            others = new ArrayList<>(patchedItems);
+            others.remove("Restore comment");
+            equal(stockItems, others, "other items keep Sync's own Ultra checks, switch " + on);
+        }
+        check(!patched.items("an ordinary comment").contains("Restore comment"), "without Ultra, still only for removed or deleted comments");
+        for (Sync sync : List.of(stock, patched)) { sync.ultra = true; sync.serverSwitch = false; }
     }
 
     private static void tap(Sync stock, Sync patched) {
@@ -331,8 +341,11 @@ public final class ArcticShiftRestorePatchTest {
         List<String> menu = new ArrayList<>(before.get("A4"));
         int gate = menu.indexOf("INVOKE_STATIC:Lt7/d0;->e()Z");
         check(gate > 0 && menu.indexOf("INVOKE_STATIC:Lt7/d0;->e()Z") == menu.lastIndexOf("INVOKE_STATIC:Lt7/d0;->e()Z"), "one server switch");
+        int ultra = menu.subList(0, gate).lastIndexOf("INVOKE_STATIC:Luc/b;->j()Z");
+        check(ultra > 0 && gate - ultra < 25, "Ultra check before the switch");
         menu.add(gate + 2, "CONST_4:");
-        equal(menu, after.get("A4"), "menu: only the server switch result is overridden");
+        menu.add(ultra + 2, "CONST_4:");
+        equal(menu, after.get("A4"), "menu: only the Ultra and server switch results for Restore are overridden");
 
         List<String> click = new ArrayList<>(before.get("r0"));
         int queued = click.indexOf("INVOKE_STATIC:Lm8/a;->a(Lcom/android/volley/Request;)V");

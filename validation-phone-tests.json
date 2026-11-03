@@ -2,6 +2,16 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "tested_release": "v0.7.2-rc.1",
+      "results": {
+        "1": "failed: long-pressing a deleted comment opens its action bar, but neither the bar nor its More (⋯) sheet shows Restore comment. Cause: the entry required Sync Ultra, which Sync records only when its retired server sends a purchase message; fixed in v0.7.2-rc.2 by dropping that check for this entry (owner's decision)",
+        "2-7": "not reported"
+      },
+      "unverified": [
+        "checks 2 to 7 of the v0.7.2-rc.1 checklist (missing archive message, downloads with and without sound, playback, v0.7.1 checks, general regressions)"
+      ]
+    },
+    {
       "stable": "v0.7.1",
       "tested_release": "v0.7.1-rc.1",
       "results": {
