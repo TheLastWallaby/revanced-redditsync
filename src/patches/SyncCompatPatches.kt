@@ -2661,3 +2661,77 @@ val openSyncYouTubeInApp = bytecodePatch(
         """.trimIndent(), ExternalLabel("youtube", branch!!))
     }
 }
+
+private const val POLL = "Lapp/revanced/extension/synccompat/PollCompat;"
+private const val CONTENT_VALUES = "Landroid/content/ContentValues;"
+private val POST_PARSE = listOf("Landroid/content/Context;", "I", JSON_OBJECT, "Ljava/util/ArrayList;", "I", "Z", "Z",
+    "Ljava/lang/String;")
+
+val showSyncPollOptions = bytecodePatch(
+    name = "Sync: show poll options",
+    description = "Show a poll post's options, closing time and the vote counts Reddit provides below the post's text, " +
+        "with an \"Open poll on Reddit\" link for voting. Native voting is not added.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        // PostParserHelper.a (c9.c.a) parses one listing item (posts and comments) into a ContentValues,
+        // then adds it to the result list. Sync never reads poll_data. Before that add, PollCompat.apply
+        // gives a post with poll_data a poll block at the end of selftext_processed (the HTML Sync draws);
+        // selftext_raw (the Markdown used for editing) and the feed preview are not touched.
+        val parser = proxy(classes.singleOrNull { it.type == "Lc9/c;" && it.sourceFile == "PostParserHelper.java" }
+            ?: throw PatchException("Expected Sync PostParserHelper was not found. This patch targets build 23033 only.")).mutableClass
+        val parse = parser.methods.singleOrNull {
+            it.name == "a" && it.returnType == "V" && AccessFlags.STATIC.isSet(it.accessFlags) &&
+                it.parameterTypes.map { p -> p.toString() } == POST_PARSE
+        } ?: throw PatchException("Unsupported Sync post parser. This patch targets build 23033 only.")
+        val implementation = parse.implementation!!
+        val code = implementation.instructions
+        if (code.any { it.methodRef()?.definingClass == POLL }) throw PatchException("Poll options patch is already installed.")
+        // Static method with eight single-register parameters: p2 is the item's JSON, p3 the result list.
+        val first = implementation.registerCount - POST_PARSE.size
+        val dataParameter = first + 2
+        val listParameter = first + 3
+        val moves = setOf(Opcode.MOVE_OBJECT, Opcode.MOVE_OBJECT_FROM16, Opcode.MOVE_OBJECT_16)
+        val copy = code.singleIndex("post JSON copy") {
+            code[it].opcode in moves && (code[it] as TwoRegisterInstruction).registerB == dataParameter
+        }
+        val made = code.singleIndex("post values") {
+            code[it].opcode == Opcode.NEW_INSTANCE && (code[it] as ReferenceInstruction).reference.toString() == CONTENT_VALUES
+        }
+        val data = code[copy].registerA()!!
+        val values = code[made].registerA()!!
+        val add = code.singleIndex("post values add") { i ->
+            code[i].methodRef()?.toString() == "Ljava/util/ArrayList;->add(Ljava/lang/Object;)Z" &&
+                (code[i] as FiveRegisterInstruction).let { it.registerCount == 2 && it.registerD == values }
+        }
+        val list = (code[add] as FiveRegisterInstruction).registerC
+        fun writes(i: Int, register: Int): Boolean {
+            val instruction = code[i]
+            val target = instruction.registerA() ?: return false
+            return (instruction.opcode.setsRegister() && target == register) ||
+                (instruction.opcode.setsWideRegister() && (target == register || target + 1 == register))
+        }
+        val branchesBack = code.indices.any { i ->
+            i > add && (code[i] as? BuilderOffsetInstruction)?.let { branch ->
+                branch.target.location.index <= add ||
+                    (branch.target.location.instruction as? com.android.tools.smali.dexlib2.builder.BuilderSwitchPayload)
+                        ?.switchElements?.any { it.target.location.index <= add } == true
+            } == true
+        } || implementation.tryBlocks.any { block ->
+            block.end.location.index > add + 1 && block.exceptionHandlers.any { it.handler.location.index <= add }
+        }
+        val targeted = code.any { it is BuilderOffsetInstruction && it.target.location.instruction === code[add] } ||
+            implementation.tryBlocks.any { block -> block.exceptionHandlers.any { it.handler.location.index == add } }
+        // The JSON copy and the values are made once at the start, never reassigned before the add, and
+        // no code after the add (where Sync reuses those registers) branches back to it.
+        layout(copy < made && made < add && copy < 8 && made < 24 &&data < 16 && values < 16 && data != values &&
+            add > 0 && code[add - 1].opcode in moves && (code[add - 1] as TwoRegisterInstruction).let {
+                it.registerA == list && it.registerB == listParameter
+            } && (0 until add).none { it != copy && writes(it, data) } && (0 until add).none { it != made && writes(it, values) } &&
+            !branchesBack && !targeted &&
+            listOf("selftext", "selftext_raw", "selftext_processed").all { s -> code.any { it.stringValue() == s } },
+            "Sync post parser")
+        parse.addInstructions(add, "invoke-static {v$values, v$data}, $POLL->apply($CONTENT_VALUES$JSON_OBJECT)V")
+    }
+}

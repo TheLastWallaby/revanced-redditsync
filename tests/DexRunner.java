@@ -50,7 +50,7 @@ final class DexRunner {
             "Ljava/util/regex/", "Ljava/util/List;", "Ljava/util/ArrayList;", "Lorg/json/", "Landroid/webkit/",
             "Landroid/text/TextUtils;", "Landroid/net/Uri;", "Landroid/view/Menu;", "Landroid/view/MenuItem;",
             "Landroid/view/SubMenu;", "Ljavax/xml/", "Lorg/w3c/dom/", "Ljava/io/ByteArrayInputStream;", "Ljava/util/Map;",
-            "Ljava/util/HashMap;", "Ljava/util/Set;", "Ljava/util/Iterator;");
+            "Ljava/util/HashMap;", "Ljava/util/Set;", "Ljava/util/Iterator;", "Landroid/content/ContentValues;");
 
     private final BytecodePatchContext context;
     private final Interceptor interceptor;
@@ -108,6 +108,44 @@ final class DexRunner {
                     case MOVE: case MOVE_FROM16: case MOVE_16: case MOVE_OBJECT: case MOVE_OBJECT_FROM16: case MOVE_OBJECT_16:
                         r[a(i)] = r[((TwoRegisterInstruction) i).getRegisterB()]; break;
                     case MOVE_RESULT: case MOVE_RESULT_OBJECT: r[a(i)] = result; break;
+                    case ADD_INT: case SUB_INT: case MUL_INT: case AND_INT: case OR_INT: {
+                        ThreeRegisterInstruction t = (ThreeRegisterInstruction) i;
+                        int x = (Integer) r[t.getRegisterB()], y = (Integer) r[t.getRegisterC()];
+                        switch (i.getOpcode()) {
+                            case ADD_INT: r[t.getRegisterA()] = x + y; break;
+                            case SUB_INT: r[t.getRegisterA()] = x - y; break;
+                            case MUL_INT: r[t.getRegisterA()] = x * y; break;
+                            case AND_INT: r[t.getRegisterA()] = x & y; break;
+                            default: r[t.getRegisterA()] = x | y;
+                        }
+                        break;
+                    }
+                    case MOVE_RESULT_WIDE:
+                        // A long or double in the low register; its pair register is unused.
+                        r[a(i)] = result;
+                        r[a(i) + 1] = null;
+                        break;
+                    case MUL_DOUBLE: case ADD_DOUBLE: case SUB_DOUBLE: case DIV_DOUBLE: {
+                        ThreeRegisterInstruction t = (ThreeRegisterInstruction) i;
+                        double x = asDouble(r[t.getRegisterB()]), y = asDouble(r[t.getRegisterC()]);
+                        double v = i.getOpcode() == Opcode.MUL_DOUBLE ? x * y : i.getOpcode() == Opcode.ADD_DOUBLE ? x + y
+                                : i.getOpcode() == Opcode.SUB_DOUBLE ? x - y : x / y;
+                        r[t.getRegisterA()] = v;
+                        r[t.getRegisterA() + 1] = null;
+                        break;
+                    }
+                    case DOUBLE_TO_INT: {
+                        TwoRegisterInstruction t = (TwoRegisterInstruction) i;
+                        r[t.getRegisterA()] = (int) asDouble(r[t.getRegisterB()]);
+                        break;
+                    }
+                    case CMPL_DOUBLE: case CMPG_DOUBLE: {
+                        ThreeRegisterInstruction t = (ThreeRegisterInstruction) i;
+                        double x = asDouble(r[t.getRegisterB()]), y = asDouble(r[t.getRegisterC()]);
+                        r[t.getRegisterA()] = Double.isNaN(x) || Double.isNaN(y) ? (i.getOpcode() == Opcode.CMPL_DOUBLE ? -1 : 1)
+                                : x < y ? -1 : x == y ? 0 : 1;
+                        break;
+                    }
                     case MOVE_EXCEPTION: r[a(i)] = caught; break;
                     case ADD_INT_LIT8: case ADD_INT_LIT16: case XOR_INT_LIT8: case XOR_INT_LIT16: {
                         TwoRegisterInstruction t = (TwoRegisterInstruction) i;
@@ -344,9 +382,13 @@ final class DexRunner {
             // As on Android, a call on null throws NullPointerException into the method's handlers.
             if (!isStatic && !call.getName().equals("<init>") && values[0] == null)
                 throw new Thrown(new NullPointerException("Call to " + ref + " on null"));
-            int offset = isStatic ? 0 : 1;
+            // A long or double argument takes two registers; its value is in the first.
+            int at = isStatic ? 0 : 1;
             Object[] arguments = new Object[types.length];
-            for (int n = 0; n < types.length; n++) arguments[n] = toJvm(values[n + offset], types[n]);
+            for (int n = 0; n < types.length; n++) {
+                arguments[n] = toJvm(values[at], types[n]);
+                at += types[n] == long.class || types[n] == double.class ? 2 : 1;
+            }
             if (call.getName().equals("<init>")) {
                 Object made = type.getConstructor(types).newInstance(arguments);
                 Object placeholder = values[0];
@@ -387,7 +429,14 @@ final class DexRunner {
         catch (ReflectiveOperationException missing) { throw new AssertionError("Cannot read " + field, missing); }
     }
 
+    /** A double register: a Double, or the raw bits a const-wide instruction loaded. */
+    private static double asDouble(Object value) {
+        if (value instanceof Double) return (Double) value;
+        if (value instanceof Long) return Double.longBitsToDouble((Long) value);
+        throw new AssertionError("Not a double register: " + value);
+    }
     private static Object toJvm(Object value, Class<?> type) {
+        if (type == double.class) return asDouble(value);
         if (type == boolean.class) return !Integer.valueOf(0).equals(value);
         if (type == char.class) return (char) (int) (Integer) value;
         // Dex writes null as the constant 0.
@@ -418,6 +467,7 @@ final class DexRunner {
             case "Z": return boolean.class;
             case "C": return char.class;
             case "J": return long.class;
+            case "D": return double.class;
             case "V": return void.class;
             default:
                 if (descriptor.startsWith("[")) return Class.forName(descriptor.replace('/', '.'));
