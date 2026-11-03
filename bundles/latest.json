@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-03T02:29:44",
-  "description": "## What's Changed\n* Show Restore comment without Sync Ultra (#52); prepare v0.7.2-rc.2 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/89\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.7.2-rc.1...v0.7.2-rc.2",
-  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.2-rc.2/patches.rvp",
+  "created_at": "2026-11-03T02:54:09",
+  "description": "## What's Changed\n* Restore deleted comments from Arctic Shift instead of Pushshift (#52) by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/87\n* Fix video download manifests (#7); prepare v0.7.2-rc.1 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/88\n* Show Restore comment without Sync Ultra (#52); prepare v0.7.2-rc.2 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/89\n* Promote phone-tested v0.7.2-rc.2 to stable v0.7.2 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/90\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.7.1...v0.7.2",
+  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.2/patches.rvp",
   "signature_download_url": "N/A",
-  "version": "v0.7.2-rc.2"
+  "version": "v0.7.2"
 }
