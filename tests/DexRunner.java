@@ -49,7 +49,8 @@ final class DexRunner {
     private static final List<String> JVM = List.of("Ljava/lang/", "Ljava/net/URI;", "Ljava/util/Locale;",
             "Ljava/util/regex/", "Ljava/util/List;", "Ljava/util/ArrayList;", "Lorg/json/", "Landroid/webkit/",
             "Landroid/text/TextUtils;", "Landroid/net/Uri;", "Landroid/view/Menu;", "Landroid/view/MenuItem;",
-            "Landroid/view/SubMenu;", "Ljavax/xml/", "Lorg/w3c/dom/", "Ljava/io/ByteArrayInputStream;");
+            "Landroid/view/SubMenu;", "Ljavax/xml/", "Lorg/w3c/dom/", "Ljava/io/ByteArrayInputStream;", "Ljava/util/Map;",
+            "Ljava/util/HashMap;", "Ljava/util/Set;", "Ljava/util/Iterator;");
 
     private final BytecodePatchContext context;
     private final Interceptor interceptor;
@@ -161,6 +162,13 @@ final class DexRunner {
                         TwoRegisterInstruction t = (TwoRegisterInstruction) i;
                         FieldReference f = (FieldReference) ((ReferenceInstruction) i).getReference();
                         Object holder = r[t.getRegisterB()];
+                        if (holder != null && !(holder instanceof SyncObject) && !(holder instanceof Uninitialized)
+                                && !(holder instanceof Integer)) {
+                            // A JVM object a helper returned, such as Volley's NetworkResponse: its public field.
+                            try { r[t.getRegisterA()] = fromJvm(holder.getClass().getField(f.getName()).get(holder)); }
+                            catch (ReflectiveOperationException missing) { throw new AssertionError("Cannot read " + f, missing); }
+                            break;
+                        }
                         if (!(holder instanceof SyncObject)) throw new AssertionError("Field " + f + " read from " + holder);
                         r[t.getRegisterA()] = ((SyncObject) holder).fields.getOrDefault(f.getName(),
                                 f.getType().startsWith("L") || f.getType().startsWith("[") ? null : 0);
