@@ -49,7 +49,7 @@ final class DexRunner {
     private static final List<String> JVM = List.of("Ljava/lang/", "Ljava/net/URI;", "Ljava/util/Locale;",
             "Ljava/util/regex/", "Ljava/util/List;", "Ljava/util/ArrayList;", "Lorg/json/", "Landroid/webkit/",
             "Landroid/text/TextUtils;", "Landroid/net/Uri;", "Landroid/view/Menu;", "Landroid/view/MenuItem;",
-            "Landroid/view/SubMenu;");
+            "Landroid/view/SubMenu;", "Ljavax/xml/", "Lorg/w3c/dom/", "Ljava/io/ByteArrayInputStream;");
 
     private final BytecodePatchContext context;
     private final Interceptor interceptor;
@@ -120,6 +120,11 @@ final class DexRunner {
                         r[t.getRegisterA()] = i.getOpcode() == Opcode.ADD_INT_2ADDR ? x + y : i.getOpcode() == Opcode.SUB_INT_2ADDR ? x - y : x ^ y;
                         break;
                     }
+                    case CONST_WIDE_16: case CONST_WIDE_32: case CONST_WIDE: case CONST_WIDE_HIGH16:
+                        // A long in the low register; its pair register is unused.
+                        r[a(i)] = ((WideLiteralInstruction) i).getWideLiteral();
+                        r[a(i) + 1] = null;
+                        break;
                     case INT_TO_LONG: {
                         TwoRegisterInstruction t = (TwoRegisterInstruction) i;
                         r[t.getRegisterA()] = (long) (int) (Integer) r[t.getRegisterB()];
@@ -328,6 +333,9 @@ final class DexRunner {
             List<? extends CharSequence> params = call.getParameterTypes();
             Class<?>[] types = new Class<?>[params.size()];
             for (int n = 0; n < types.length; n++) types[n] = type(params.get(n).toString());
+            // As on Android, a call on null throws NullPointerException into the method's handlers.
+            if (!isStatic && !call.getName().equals("<init>") && values[0] == null)
+                throw new Thrown(new NullPointerException("Call to " + ref + " on null"));
             int offset = isStatic ? 0 : 1;
             Object[] arguments = new Object[types.length];
             for (int n = 0; n < types.length; n++) arguments[n] = toJvm(values[n + offset], types[n]);

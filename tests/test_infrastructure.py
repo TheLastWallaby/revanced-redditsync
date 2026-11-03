@@ -130,6 +130,13 @@ class InfrastructureTests(unittest.TestCase):
         self.assertIn("app.revanced.extension.synccompat.ArcticShiftRestoreTest", tests)
         self.assertIn("ArcticShiftRestorePatchTest", tests)
 
+    def test_video_download_suites_are_discovered(self):
+        tests = discover_java_tests(ROOT / "tests")
+        self.assertIn("app.revanced.extension.synccompat.VideoDownloadManifestTest", tests)
+        self.assertIn("VideoDownloadPatchTest", tests)
+        # The android.util.Pair stand-in is not a suite.
+        self.assertNotIn("android.util.Pair", tests)
+
     def test_comment_request_suites_are_discovered(self):
         tests = discover_java_tests(ROOT / "tests")
         self.assertIn("BatchCommentsTest", tests)

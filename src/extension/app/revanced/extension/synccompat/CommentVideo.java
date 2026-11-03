@@ -942,57 +942,17 @@ public final class CommentVideo {
         }
     }
 
-    private static final Pattern TAG = Pattern.compile(
-            "<(/?)(?:[A-Za-z_][\\w.-]*:)?(AdaptationSet|Representation|BaseURL)\\b([^>]*?)(/?)>");
-    private static final Pattern ATTRIBUTE = Pattern.compile("([A-Za-z_][\\w.:-]*)\\s*=\\s*(\"([^\"]*)\"|'([^']*)')");
     private static final Pattern FILE_NAME = Pattern.compile("[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}");
-
-    private static Map<String, String> attributes(String text) {
-        Map<String, String> values = new LinkedHashMap<>();
-        Matcher matcher = ATTRIBUTE.matcher(text);
-        while (matcher.find()) {
-            String name = matcher.group(1);
-            int colon = name.lastIndexOf(':');
-            if (colon >= 0) name = name.substring(colon + 1);
-            values.put(name, matcher.group(3) != null ? matcher.group(3) : matcher.group(4));
-        }
-        return values;
-    }
 
     /**
      * Video renditions with a plain relative MP4 file name from a DASH manifest. Accepts
-     * namespace-prefixed elements and MIME types on either the AdaptationSet or Representation.
+     * namespace-prefixed elements and MIME types on either the AdaptationSet or Representation
+     * (read by {@link DashManifest}, which video downloads share).
      */
     static List<Rendition> renditions(String manifest) {
         List<Rendition> result = new ArrayList<>();
-        Map<String, String> set = null;
-        Map<String, String> representation = null;
-        String base = null;
-        Matcher matcher = TAG.matcher(manifest);
-        while (matcher.find()) {
-            boolean closing = !matcher.group(1).isEmpty();
-            boolean empty = !matcher.group(4).isEmpty();
-            String name = matcher.group(2);
-            if (name.equals("AdaptationSet")) {
-                set = closing ? null : attributes(matcher.group(3));
-                if (empty) set = null;
-            } else if (name.equals("Representation")) {
-                if (closing) {
-                    add(result, set, representation, base);
-                    representation = null;
-                    base = null;
-                } else {
-                    representation = attributes(matcher.group(3));
-                    base = null;
-                    if (empty) {
-                        representation = null;
-                    }
-                }
-            } else if (!closing && !empty && representation != null) {
-                int end = manifest.indexOf('<', matcher.end());
-                if (end > matcher.end()) base = manifest.substring(matcher.end(), end).trim();
-            }
-        }
+        for (DashManifest.Representation representation : DashManifest.representations(manifest))
+            add(result, representation.set, representation.attributes, representation.base);
         return result;
     }
 
