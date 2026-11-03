@@ -2,6 +2,23 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.7.3",
+      "tested_release": "v0.7.3-rc.2",
+      "results": {
+        "1": "passed: image post (\"Post and comment images work\")",
+        "2": "passed: comment with an uploaded image (\"Post and comment images work\")",
+        "overall": "passed: the tester replied \"Looks good, promote. Post and comment images work\"; no individual results were given for checks 3 to 5 (subreddit without comment media, airplane mode, sign-in prompt) or the regression check"
+      },
+      "promotion": "Stable v0.7.3 rebuilds the same runtime patch and extension source as the tested v0.7.3-rc.2 candidate, built from stock Sync 23033 by the private builder with all 25 patches reported as succeeded. The tester replied \"Looks good, promote\", authorizing stable publication; candidate assets remain immutable.",
+      "unverified": [
+        "individual results for checks 3 to 5 and the regression check",
+        "the comment-media-not-allowed message on a live subreddit",
+        "which subreddits, images and image types were tried on the phone",
+        "ReVanced Manager import and one-pass patching",
+        "separate device installation of the stable rebuild"
+      ]
+    },
+    {
       "tested_release": "v0.7.3-rc.1",
       "results": {
         "1": "passed: creating an image post works (reported \"Image posts work\")",
