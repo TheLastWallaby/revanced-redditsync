@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-03T17:42:18",
-  "description": "## What's Changed\n* Upload images to Reddit instead of Imgur (#53); prepare v0.7.3-rc.1 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/91\n* Show why a comment with an image fails; send it as Infinity does (#53); prepare v0.7.3-rc.2 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/92\n* Promote phone-tested v0.7.3-rc.2 to stable v0.7.3 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/93\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.7.2...v0.7.3",
-  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.3/patches.rvp",
+  "created_at": "2026-11-03T18:24:33",
+  "description": "## What's Changed\n* Open YouTube links in the YouTube app (#60); prepare v0.7.4-rc.1 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/94\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.7.3...v0.7.4-rc.1",
+  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.4-rc.1/patches.rvp",
   "signature_download_url": "N/A",
-  "version": "v0.7.3"
+  "version": "v0.7.4-rc.1"
 }
