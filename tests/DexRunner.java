@@ -47,7 +47,7 @@ final class DexRunner {
 
     private static final Set<String> LOGS = Set.of("Lwc/i;", "Lt7/k;");
     private static final List<String> JVM = List.of("Ljava/lang/", "Ljava/net/URI;", "Ljava/util/Locale;",
-            "Ljava/util/regex/", "Ljava/util/List;", "Ljava/util/ArrayList;", "Lorg/json/JSONObject;", "Landroid/webkit/",
+            "Ljava/util/regex/", "Ljava/util/List;", "Ljava/util/ArrayList;", "Lorg/json/", "Landroid/webkit/",
             "Landroid/text/TextUtils;", "Landroid/net/Uri;", "Landroid/view/Menu;", "Landroid/view/MenuItem;",
             "Landroid/view/SubMenu;");
 
@@ -55,6 +55,7 @@ final class DexRunner {
     private final Interceptor interceptor;
     private final Set<String> helpers;
     private final Map<String, Object> statics = new HashMap<>();
+    private final Map<String, Object> presets = new HashMap<>();
     private final Set<String> initialized = new HashSet<>();
 
     /** helpers: production extension classes (descriptors) that run on the JVM. */
@@ -62,6 +63,14 @@ final class DexRunner {
         this.context = context;
         this.interceptor = interceptor;
         this.helpers = Set.of(helpers);
+    }
+
+    /**
+     * Supplies a Sync static field (for example "Lowner;->name:Ltype;") without running its class
+     * initializer, for app state the suite stands in for.
+     */
+    void preset(String field, Object value) {
+        presets.put(field, value);
     }
 
     /** Runs a static Sync method by owner and name. */
@@ -346,6 +355,7 @@ final class DexRunner {
     }
 
     private Object staticField(FieldReference field) {
+        if (presets.containsKey(field.toString())) return presets.get(field.toString());
         String owner = field.getDefiningClass();
         ClassDef dexClass = context.getClassDefs().get(owner);
         if (dexClass != null) {

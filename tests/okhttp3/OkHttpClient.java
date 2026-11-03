@@ -219,7 +219,17 @@ public class OkHttpClient {
                     InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
                     ByteArrayOutputStream data = new ByteArrayOutputStream();
                     if (stream != null) {
-                        try (InputStream in = stream) { in.transferTo(data); }
+                        // As OkHttp's call timeout does, give up mid-body once the deadline passes.
+                        try (InputStream in = stream) {
+                            byte[] buffer = new byte[8192];
+                            for (int n; (n = in.read(buffer)) != -1; ) {
+                                data.write(buffer, 0, n);
+                                if (call.deadline != 0 && System.nanoTime() - call.deadline > 0) {
+                                    timedOut.set(true);
+                                    throw new InterruptedIOException("timeout");
+                                }
+                            }
+                        }
                     }
                     if (timedOut.get()) throw new InterruptedIOException("timeout");
                     Response.Builder builder = new Response.Builder().request(request).code(code)

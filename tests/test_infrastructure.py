@@ -125,6 +125,11 @@ class InfrastructureTests(unittest.TestCase):
         # The shared instruction runner has no main method; it is not a suite.
         self.assertNotIn("DexRunner", tests)
 
+    def test_arctic_shift_restore_suites_are_discovered(self):
+        tests = discover_java_tests(ROOT / "tests")
+        self.assertIn("app.revanced.extension.synccompat.ArcticShiftRestoreTest", tests)
+        self.assertIn("ArcticShiftRestorePatchTest", tests)
+
     def test_comment_request_suites_are_discovered(self):
         tests = discover_java_tests(ROOT / "tests")
         self.assertIn("BatchCommentsTest", tests)
