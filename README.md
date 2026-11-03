@@ -59,6 +59,25 @@ maintainers yet; the tested route is ReVanced CLI (see
 
 The rest of this page is version history and technical detail.
 
+## v0.7.4-rc.1 candidate: YouTube links open in the YouTube app (issue #60)
+
+The [v0.7.4-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.4-rc.1)
+is for phone testing. Apply it to **stock** Sync and check all patch results (26
+with Use /user/ endpoint). Stable remains v0.7.3 until the candidate passes and
+stable publication is authorized. It has not been tested on a phone yet.
+
+It adds one selectable patch, on by default, described under
+[Included patches](#included-patches--cumulative-v073):
+
+- **Sync: open YouTube in the YouTube app**
+  ([issue #60](https://github.com/TheLastWallaby/revanced-redditsync/issues/60)):
+  tapping a YouTube video, Shorts or live link opens it in the YouTube app (or
+  the browser if the app isn't installed or is disabled), at its timestamp,
+  instead of Sync's built-in player. That player can't be repaired: it is
+  Google's retired YouTube Android Player API, which current YouTube apps no
+  longer support, so it only showed "Get YouTube App" and then "An error
+  occurred while initializing the YouTube player".
+
 ## v0.7.3 image uploads to Reddit (issue #53)
 
 The [v0.7.3 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3)
@@ -1355,6 +1374,87 @@ New in [v0.7.3](#v073-image-uploads-to-reddit-issue-53):
   hand-written models in CI, and on Sync's real methods locally. The tester
   reported image posts and comment images working on rc.2 (image posts already
   on rc.1).
+
+New in the [v0.7.4-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.4-rc.1):
+
+- **Sync: open YouTube in the YouTube app**
+  ([issue #60](https://github.com/TheLastWallaby/revanced-redditsync/issues/60)),
+  on by default.
+
+  **Why Sync's player fails.** Sync 23033 plays YouTube links in
+  `CustomYouTubeVideoActivity`, built on Google's YouTube Android Player API
+  (`YouTubeBaseActivity`, `YouTubePlayerView`) with a key built into Sync. That
+  library doesn't fetch the video itself: it binds to a service
+  (`com.google.android.youtube.api.service.START`) inside the YouTube app.
+  Google retired the API and current YouTube apps no longer provide that
+  service, so the library reports `SERVICE_MISSING`: Sync shows **Get YouTube
+  App**, then **An error occurred while initializing the YouTube player**, even
+  with YouTube installed (reported with YouTube v21.43). Sync switches itself to
+  external links only for `SERVICE_DISABLED` or `SERVICE_INVALID`, so it stays
+  stuck. Sync sends no request to YouTube for playback (no InnerTube
+  `youtubei` call; that string was in ReVanced's shared YouTube code merged into
+  pre-v0.7.0 bases and is unused by Sync). Sync's own workaround is to untick
+  **Settings → Link handling → YouTube videos**.
+
+  **What the patch changes.** Sync's link router (`LinkHelper.c`, `y7.b.c`)
+  sends links its YouTube classifier (`LinkTypeHelper.K`, `y7.c.K`) accepts to
+  `LinkHandler.a0` (`y7.a.a0`), which starts the player when that setting is on
+  (the default) and otherwise calls `LinkHandler.X`, a plain `ACTION_VIEW`. With
+  the patch, `a0` always calls `LinkHandler.X` for a link on a YouTube host, so
+  Android opens it in the YouTube app if it is installed and enabled, else in
+  the browser (or asks, if you set it up that way). Sync's manifest claims no
+  YouTube host, so the link never comes back to Sync. The classifier rejects
+  Shorts, `youtube-nocookie.com` and any link containing "playlist", which Sync
+  then opened in its browser; the router now also sends single-video links of
+  those kinds to `a0`.
+
+  | Link | Sync 23033 | With the patch |
+  |---|---|---|
+  | `youtube.com/watch?v=…`, `youtu.be/…`, `/live/…`, `m.`, `music.` | Built-in player | YouTube app (`music.youtube.com`: YouTube Music if installed), else browser |
+  | `/shorts/…` | Sync's browser setting | YouTube app, else browser |
+  | `/embed/…`, `/v/…`, `/e/…`, `youtube-nocookie.com/embed/…` | Player (nocookie: browser setting) | Same, as `https://www.youtube.com/watch?v=…` |
+  | Watch link with `list=` (also with "playlist" in it) | Player (with "playlist": browser setting) | YouTube app, playlist kept |
+  | Channel, `/c/`, `/user/`, `/clip/`, `/playlist?list=` pages | Sync's browser setting | Unchanged |
+  | Other YouTube pages the classifier accepts (`/@name`, search) | Player (failing) | YouTube app, else browser |
+  | Look-alikes such as `notyoutube.com` or `user@youtube.com` | Sync's handling | Unchanged |
+
+  The link is handed over as it was, except where the YouTube app could not
+  take it: a missing scheme gets `https://`; scheme and host become lower case
+  (Android matches link hosts case-sensitively); `m.youtube.com` becomes
+  `www.youtube.com`; Reddit's escaped `&amp;` becomes `&`. Embed and nocookie
+  links become a standard watch link (or a playlist page for
+  `/embed/videoseries?list=`), keeping the video ID, the timestamp (`t=90`,
+  `t=90s`, `t=1h2m3s`, or `start=90` as `t=90`), `list` and `index`. Timestamps
+  in other links stay as written, which the YouTube app reads.
+
+  - **Settings:** with **YouTube videos** unticked, Sync already opened these
+    links externally; that stays so, now with the fixes above. Your browser
+    choice no longer applies to Shorts and the other video links above; to use
+    the browser for YouTube, disable the YouTube app or set Android's
+    **Open by default** for it.
+  - **Not changed:** link-card and post thumbnails (`i.ytimg.com`), post types,
+    the long-press link sheet (its small YouTube preview uses the same retired
+    library and hides itself when it fails; its open action goes through the
+    router), Reddit video, RedGifs, Imgur, galleries, link normalization and
+    every non-YouTube link. No manifest or resource change. Nothing is logged.
+  - **Why not repair the player?** Sync's player has no video stream of its
+    own to fix: the retired library delegated playback to the YouTube app. A
+    replacement would mean writing a new player screen without resources or
+    manifest changes, either reverse-engineering YouTube's stream extraction
+    (which breaks repeatedly) or embedding YouTube's iframe player in a WebView
+    (refused by videos that disable embedding, age-restricted videos and
+    YouTube's embed checks). The YouTube app is the dependable player.
+
+  `YouTubeLinksTest` runs a table of 79 links (normal videos, Shorts, live,
+  `youtu.be`, `m.`/`music.`/nocookie/embed forms, `t=` in seconds and `1h2m3s`
+  form, `start=`, `list=`, odd casing, missing schemes, escaped `&amp;`, other
+  YouTube pages, malformed IDs and look-alike hosts) through the helper.
+  `YouTubeAppPatchTest` applies the patch and taps 37 links through Sync's
+  router and `a0` before and after it, with the setting on and off, and checks
+  where each one goes: on hand-written models in CI, and on Sync's real router,
+  handler and classifier locally. `PatchInteractionTest` checks the router in
+  either order with the comment-video link hook (fixtures in CI; every patch in
+  both orders on the stock APK locally).
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty

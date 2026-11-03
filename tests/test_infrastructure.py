@@ -146,6 +146,11 @@ class InfrastructureTests(unittest.TestCase):
         # The android.util.Pair stand-in is not a suite.
         self.assertNotIn("android.util.Pair", tests)
 
+    def test_youtube_suites_are_discovered(self):
+        tests = discover_java_tests(ROOT / "tests")
+        self.assertIn("app.revanced.extension.synccompat.YouTubeLinksTest", tests)
+        self.assertIn("YouTubeAppPatchTest", tests)
+
     def test_comment_request_suites_are_discovered(self):
         tests = discover_java_tests(ROOT / "tests")
         self.assertIn("BatchCommentsTest", tests)

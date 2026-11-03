@@ -22,7 +22,8 @@ import java.util.*;
  *
  * Without arguments: applies "normalize Reddit links" and the comment-video link hook, the two
  * patches that both rewrite the link at the start of LinkHelper (y7.b.c), to the link fixtures in
- * both orders and checks each succeeds with the same result.
+ * both orders and checks each succeeds with the same result; then the same for the comment-video
+ * hook and "open YouTube in the YouTube app", which adds a check inside LinkHelper's YouTube branch.
  *
  * With a local stock Sync 23033 APK argument: applies every named patch in this bundle, including
  * the bundled official ones, to the real APK in name order (the CLI's order) and in reverse, each
@@ -35,6 +36,7 @@ public final class PatchInteractionTest {
     private static final String VIDEO = "Lapp/revanced/extension/synccompat/CommentVideo;";
     private static final String LINKS = "Lapp/revanced/extension/synccompat/LinkNormalizer;";
     private static final String SLINK = "Lapp/revanced/extension/syncforreddit/FixSLinksPatch;";
+    private static final String YOUTUBE = "Lapp/revanced/extension/synccompat/YouTubeLinks;";
     private static int checks;
 
     private static void check(boolean condition, String message) {
@@ -115,7 +117,46 @@ public final class PatchInteractionTest {
         catch (PatchException expected) { check(expected.getMessage().contains("LinkHelper"), "unknown entry rewrite rejected"); }
         equal(before, keys(router(helper)), "rejection makes no LinkHelper edit");
 
+        youTubeHook(scratch);
+
         System.out.println("PASS: " + checks + " patch interaction checks (LinkHelper hooks in both orders, fixtures)");
+    }
+
+    /**
+     * "Sync: open YouTube in the YouTube app" adds a check inside LinkHelper's YouTube branch; the
+     * comment-video hook rewrites the link at its start. Both orders must give the same router.
+     */
+    private static void youTubeHook(Path scratch) throws Throwable {
+        Path dex = scratch.resolve("youtube.dex");
+        SmaliOptions options = new SmaliOptions();
+        options.apiLevel = 23;
+        options.outputDexFile = dex.toString();
+        check(Smali.assemble(options, "tests/fixtures/youtube"), "assemble YouTube fixtures");
+        Patch youTube = SyncCompatPatchesKt.getOpenSyncYouTubeInApp();
+        Map<String, List<String>> results = new LinkedHashMap<>();
+        for (boolean videoFirst : new boolean[] {true, false}) {
+            String order = videoFirst ? "video then YouTube" : "YouTube then video";
+            BytecodePatchContext context = new BytecodePatchContext(dex.toFile(), scratch.resolve(order.replace(' ', '-')).toFile());
+            context.getClassDefs().initializeCache$patcher();
+            MutableClassDef helper = context.proxy(context.getClassDefs().get(HELPER)).getMutableClass();
+            if (videoFirst) {
+                SyncCompatPatchesKt.installSyncCommentVideoLinkHook(helper);
+                apply(context, youTube);
+            } else {
+                apply(context, youTube);
+                SyncCompatPatchesKt.installSyncCommentVideoLinkHook(helper);
+            }
+            List<Instruction> code = new ArrayList<>();
+            router(helper).getImplementation().getInstructions().forEach(code::add);
+            equal(VIDEO + "->tapUrl(Ljava/lang/String;)Ljava/lang/String;", reference(code.get(0)), order + ": video link mapping first");
+            check(code.stream().anyMatch(i -> reference(i).equals(YOUTUBE + "->isVideoLink(Ljava/lang/String;)Z")),
+                    order + ": YouTube check installed");
+            results.put(order, keys(router(helper)));
+            try { apply(context, youTube); throw new AssertionError("duplicate YouTube handoff accepted"); }
+            catch (PatchException expected) { check(expected.getMessage().contains("already installed"), order + ": duplicate YouTube handoff rejected"); }
+        }
+        Iterator<List<String>> both = results.values().iterator();
+        equal(both.next(), both.next(), "LinkHelper is identical in either order (YouTube handoff)");
     }
 
     private static Method router(ClassDef helper) {

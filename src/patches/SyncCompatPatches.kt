@@ -2583,3 +2583,81 @@ val uploadSyncImagesToReddit = bytecodePatch(
         """.trimIndent())
     }
 }
+
+private const val YOUTUBE = "Lapp/revanced/extension/synccompat/YouTubeLinks;"
+private const val YOUTUBE_PLAYER = "Lcom/laurencedawson/reddit_sync/ui/activities/CustomYouTubeVideoActivity;"
+private const val OPEN_EXTERNALLY = "Ly7/a;->X(Landroid/content/Context;Ljava/lang/String;)V"
+
+val openSyncYouTubeInApp = bytecodePatch(
+    name = "Sync: open YouTube in the YouTube app",
+    description = "Open YouTube videos, Shorts and live links with Android's link handling (the YouTube app, or the " +
+        "browser without it) instead of Sync's embedded player, whose retired YouTube Android Player API the YouTube " +
+        "app no longer supports (\"Get YouTube App\").",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        fun mutable(type: String, source: String): MutableClassDef =
+            proxy(classes.singleOrNull { it.type == type && it.sourceFile == source } ?: throw PatchException(
+                "Expected Sync $source was not found. This patch targets build 23033 only.")).mutableClass
+        fun MutableMethod.code() = implementation!!.instructions
+        fun MutableMethod.hasStrings(vararg values: String) = values.all { v -> code().any { it.stringValue() == v } }
+        fun MutableMethod.targeted(index: Int): Boolean {
+            val target = code()[index]
+            return code().any { it is BuilderOffsetInstruction && it.target.location.instruction === target }
+        }
+        val strings = List(5) { "Ljava/lang/String;" }
+
+        // LinkHandler.a0 (y7.a.a0): with Sync's "YouTube videos" link setting on (the default) it starts
+        // CustomYouTubeVideoActivity, the embedded player; otherwise it calls LinkHandler.X, a plain
+        // ACTION_VIEW. p1 (the shared-element pairs) is overwritten by its first instruction.
+        val video = mutable(LINK_HANDLER, "LinkHandler.java").methods.singleOrNull {
+            it.name == "a0" && it.returnType == "V" && AccessFlags.STATIC.isSet(it.accessFlags) &&
+                it.parameterTypes == listOf("Landroid/content/Context;", "[Lr0/d;", "Ljava/lang/String;", "Ljava/lang/String;")
+        } ?: throw PatchException("Unsupported Sync YouTube link handler.")
+        val videoCode = video.code()
+        if (videoCode.any { it.methodRef()?.definingClass == YOUTUBE }) throw PatchException("YouTube app handoff is already installed.")
+        layout(video.implementation!!.registerCount == 4 && videoCode[0].opcode == Opcode.NEW_INSTANCE &&
+            videoCode[0].registerA() == 1 && !video.targeted(0) && video.hasStrings("Opening video link: ", "shared", "url") &&
+            videoCode.any { it.opcode == Opcode.CONST_CLASS && (it as ReferenceInstruction).reference.toString() == YOUTUBE_PLAYER } &&
+            videoCode.any {
+                it.opcode == Opcode.IGET_BOOLEAN && ((it as ReferenceInstruction).reference as FieldReference)
+                    .let { f -> f.definingClass == SETTINGS_VALUES && f.name == "embedYouTube" }
+            } &&
+            videoCode.any { it.methodRef()?.toString() == OPEN_EXTERNALLY }, "Sync YouTube link handler")
+
+        // LinkHelper.c (y7.b.c) sends a link to a0 only if LinkTypeHelper.K accepts it. K rejects Shorts,
+        // youtube-nocookie.com and any link containing "playlist", which then open in Sync's browser.
+        val helper = mutable(LINK_HELPER, "LinkHelper.java").methods.singleOrNull {
+            it.name == "c" && it.returnType == "Z" && it.parameterTypes == listOf("Landroid/content/Context;", "[Lr0/d;") +
+                strings + listOf("Z", "Z", "Z")
+        } ?: throw PatchException("Unsupported Sync LinkHelper entry. This patch targets build 23033 only.")
+        val route = helper.code()
+        if (route.any { it.methodRef()?.definingClass == YOUTUBE }) throw PatchException("YouTube app handoff is already installed.")
+        val check = route.singleIndex("YouTube link check") { route[it].methodRef()?.toString() == "$LINK_TYPES->K(Ljava/lang/String;)Z" }
+        val call = route[check] as FiveRegisterInstruction
+        val link = call.registerC
+        val result = route.getOrNull(check + 1)?.registerA()
+        val branch = route.getOrNull(check + 2)
+        val handoff = route.drop(check).firstOrNull { it.methodRef()?.let { m -> m.definingClass == LINK_HANDLER && m.name == "a0" } == true }
+        layout(call.registerCount == 1 && link <= 15 && route[check + 1].opcode == Opcode.MOVE_RESULT && result != null &&
+            branch?.opcode == Opcode.IF_EQZ && branch.registerA() == result && route.getOrNull(check + 3)?.stringValue() == "Was YouTube" &&
+            !helper.targeted(check + 1) && !helper.targeted(check + 2) &&
+            (handoff as? FiveRegisterInstruction)?.let { it.registerCount == 4 && it.registerE == link } == true, "Sync LinkHelper YouTube branch")
+
+        // All layouts verified; edit. A link on a YouTube host goes to Sync's external opener; any other
+        // link that reaches a0 (K also accepts look-alike hosts such as notyoutube.com) keeps Sync's handling.
+        video.addInstructionsWithLabels(0, """
+            invoke-static {p2}, $YOUTUBE->appUrl(Ljava/lang/String;)Ljava/lang/String;
+            move-result-object p1
+            if-eqz p1, :original
+            invoke-static {p0, p1}, $OPEN_EXTERNALLY
+            return-void
+        """.trimIndent(), ExternalLabel("original", videoCode[0]))
+        helper.addInstructionsWithLabels(check + 2, """
+            if-nez v$result, :youtube
+            invoke-static {v$link}, $YOUTUBE->isVideoLink(Ljava/lang/String;)Z
+            move-result v$result
+        """.trimIndent(), ExternalLabel("youtube", branch!!))
+    }
+}
