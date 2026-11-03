@@ -122,6 +122,7 @@ public final class RedditImageUploadPatchTest {
                     else resender.run.call("Lm8/a;", "b", resendContext, a[2], a[1]);
                     return null;
                 case "fail": HELPER_EVENTS.add("fail " + a[1]); return null;
+                case "toast": HELPER_EVENTS.add("toast " + a[0]); return null;
                 case "hashCode": return System.identityHashCode(self);
                 case "equals": return self == a[0];
                 default: throw new AssertionError("Unexpected platform call " + method.getName());
@@ -211,8 +212,8 @@ public final class RedditImageUploadPatchTest {
         equal(List.of("queued https://oauth.reddit.com/api/convert_rte_body_format?raw_json=1", "resend null direct"), HELPER_EVENTS,
                 "Sync's request sent on through m8.a.b");
         Map<String, String> sent = params(comment);
-        check(!sent.containsKey("text") && document.equals(sent.get("richtext_json")) && "t1_c1".equals(sent.get("thing_id")),
-                "sent with richtext_json instead of text: " + sent);
+        check("".equals(sent.get("text")) && document.equals(sent.get("richtext_json")) && "t1_c1".equals(sent.get("thing_id")),
+                "sent with richtext_json and an empty text: " + sent);
         equal(List.of("fetch token for " + sent, "queued Lb9/d;"), patched.events, "then Sync's own token handling sends it");
 
         // A comment without a Reddit image is untouched.
@@ -237,7 +238,7 @@ public final class RedditImageUploadPatchTest {
         equal("resend refresh-of-other-account exchange", HELPER_EVENTS.get(HELPER_EVENTS.size() - 1), "sent on through m8.a.g");
         equal(List.of("exchange refresh-of-other-account for " + params(reply), "queued Lb9/c;"), patched.events,
                 "then Sync exchanges the token and sends it");
-        check(params(reply).containsKey("richtext_json") && !params(reply).containsKey("text"), "exchange: richtext_json sent");
+        check(params(reply).containsKey("richtext_json") && "".equals(params(reply).get("text")), "exchange: richtext_json sent");
 
         // An edit with a new image is stopped with a message; Sync sends nothing.
         DexRunner.SyncObject edit = comment("t1_c3", "edited " + text);
@@ -367,6 +368,27 @@ public final class RedditImageUploadPatchTest {
         patched.events.clear();
         patched.result(patched.run.run(parse, new Object[] {comment("t1_c9", "x"), reply(refused)}));
         equal(stock.events, patched.events, "other comments' errors unchanged");
+        equal(List.of("toast This subreddit doesn't allow images in comments. Remove the image and try again."),
+                HELPER_EVENTS.subList(HELPER_EVENTS.size() - 1, HELPER_EVENTS.size()), "and as a toast");
+
+        // A network-level failure: Sync's notification as before, and for this comment Reddit's reason as a toast.
+        MutableMethod error = method(patched.context, "Ly8/e;", "parseNetworkError", List.of("Lcom/android/volley/VolleyError;"));
+        MutableMethod stockError = method(stock.context, "Ly8/e;", "parseNetworkError", List.of("Lcom/android/volley/VolleyError;"));
+        com.android.volley.VolleyError badRequest = new com.android.volley.ClientError(new NetworkResponse(400,
+                "{\"message\": \"Bad Request\", \"error\": 400}".getBytes(StandardCharsets.UTF_8), false, 0, Collections.emptyList()));
+        stock.events.clear();
+        check(stock.run.run(stockError, new Object[] {comment("t1_c9", "x"), badRequest}) == badRequest, "stock passes the error on");
+        equal(List.of("comment error Could not connect to Reddit"), stock.events, "stock reports only that it couldn't connect");
+        patched.events.clear();
+        HELPER_EVENTS.clear();
+        check(patched.run.run(error, new Object[] {comment, badRequest}) == badRequest, "patched passes the error on");
+        equal(stock.events, patched.events, "Sync's own report unchanged");
+        equal(List.of("toast Reddit refused the text with the image (HTTP 400). Reddit said: Bad Request"), HELPER_EVENTS,
+                "the reason for this comment as a toast");
+        HELPER_EVENTS.clear();
+        patched.run.run(error, new Object[] {comment("t1_c11", "x"), badRequest});
+        check(HELPER_EVENTS.isEmpty(), "other comments: Sync's report only");
+
         String wrapped = "{\"json\": {\"errors\": [], \"data\": {\"things\": [{\"kind\": \"t1\", \"data\": {\"body\": \"plain\", \"name\": \"t1_c10\"}}]}}}";
         try {
             patched.run.run(parse, new Object[] {comment("t1_c10", "plain"), reply(wrapped)});
@@ -441,6 +463,7 @@ public final class RedditImageUploadPatchTest {
                     return a[0];
                 case "Lcom/android/volley/Request;->getUrl()Ljava/lang/String;": return ((DexRunner.SyncObject) a[0]).fields.get("test.url");
                 case "Lx8/b;-><init>()V": return null;
+                case "Lx8/a;->parseNetworkError(Lcom/android/volley/VolleyError;)Lcom/android/volley/VolleyError;": return a[1];
                 case "Ljava/lang/Object;->getClass()Ljava/lang/Class;": return Object.class;
                 case "Lcom/laurencedawson/reddit_sync/singleton/a;->d()Lcom/laurencedawson/reddit_sync/singleton/a;":
                     return new DexRunner.SyncObject("Lcom/laurencedawson/reddit_sync/singleton/a;");
@@ -514,6 +537,7 @@ public final class RedditImageUploadPatchTest {
             {"Ly8/x0;", "<init>", String.join(",", SUBMIT_INIT)},
             {"Ly8/x0;", "parseNetworkResponse", NETWORK},
             {"Ly8/e;", "parseNetworkResponse", NETWORK},
+            {"Ly8/e;", "parseNetworkError", "Lcom/android/volley/VolleyError;"},
     };
 
     private static Map<String, List<String>> snapshot(BytecodePatchContext context) {
@@ -554,6 +578,8 @@ public final class RedditImageUploadPatchTest {
                 + NETWORK, "MOVE_RESULT_OBJECT:"), after.get("Ly8/x0;parseNetworkResponse"), "submit parser: the reply is passed first");
         equal(with(before.get("Ly8/e;parseNetworkResponse"), 1, "INVOKE_STATIC_RANGE:" + HELPER + "->commentResponse(Ljava/lang/Object;" + NETWORK + ")"
                 + NETWORK, "MOVE_RESULT_OBJECT:"), after.get("Ly8/e;parseNetworkResponse"), "comment parser: the reply is passed first");
+        equal(with(before.get("Ly8/e;parseNetworkError"), 1, "INVOKE_STATIC:" + HELPER + "->commentError(Ljava/lang/Object;"
+                + "Lcom/android/volley/VolleyError;)V"), after.get("Ly8/e;parseNetworkError"), "comment error: reported first, Sync's report unchanged");
     }
 
     private static void rejections(File source, Path scratch) throws PatchException {

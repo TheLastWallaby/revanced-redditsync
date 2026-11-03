@@ -2,6 +2,18 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "tested_release": "v0.7.3-rc.1",
+      "results": {
+        "1": "passed: creating an image post works (reported \"Image posts work\")",
+        "2": "failed: uploading an image into a comment inserted the expected ![img](<id>) placeholder in the reply box; after Send, Sync showed \"Submitting\" but no comment was posted (none in the thread after refreshing, none on reddit.com) and no error notification appeared. Cause not identified on the phone: Sync reports comment errors only as a notification, which was not shown. v0.7.3-rc.2 shows every failure of a converted comment as an on-screen message with Reddit's reason, and sends text=\"\" with richtext_json as Infinity for Reddit does",
+        "3-6": "not reported"
+      },
+      "unverified": [
+        "why the rc.1 comment with an image was not posted (Reddit's reply was not seen)",
+        "checks 3 to 6 of the v0.7.3-rc.1 checklist (subreddit without comment media, airplane mode, sign-in prompt, regressions)"
+      ]
+    },
+    {
       "stable": "v0.7.2",
       "tested_release": "v0.7.2-rc.2",
       "results": {
