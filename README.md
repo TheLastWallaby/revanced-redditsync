@@ -59,23 +59,27 @@ maintainers yet; the tested route is ReVanced CLI (see
 
 The rest of this page is version history and technical detail.
 
-## v0.7.3-rc.2 candidate: image uploads to Reddit (issue #53)
+## v0.7.3 image uploads to Reddit (issue #53)
 
-The [v0.7.3-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3-rc.2)
-is for phone testing. Apply it to **stock** Sync and check all patch results (25
-with Use /user/ endpoint). Stable remains v0.7.2 until the candidate passes and
-stable publication is authorized.
+The [v0.7.3 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3)
+rebuilds the runtime code from the phone-tested
+[v0.7.3-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3-rc.2).
+Apply it to **stock** Sync and check all patch results (25 with Use /user/ endpoint).
+
+On rc.2 the tester reported that post and comment images work, said it looks
+good and authorized stable publication; no individual results were given for
+the other numbered checks. See `validation-phone-tests.json`.
 
 On the earlier [v0.7.3-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3-rc.1)
-image posts worked on the phone. A comment with an image showed "Submitting" but
-was never posted, and no error appeared: Sync reports comment errors only as a
-notification, which Android may not show. rc.2 shows every failure of a comment
-or text post with an image as a message on screen too, including Reddit's own
-reason, and sends the comment with an empty `text` next to `richtext_json`, as
-Infinity for Reddit does (rc.1 left `text` out). See `validation-phone-tests.json`.
+image posts worked, but a comment with an image showed "Submitting" and was never
+posted, with no error shown: Sync reports comment errors only as a notification,
+which Android may not show. Since rc.2 every failure of a comment or text post
+with an image is also shown on screen, with Reddit's own reason, and the comment
+is sent with an empty `text` next to `richtext_json`, as Infinity for Reddit does
+(rc.1 left `text` out).
 
 It adds one selectable patch, described under
-[Included patches](#included-patches--cumulative-v072):
+[Included patches](#included-patches--cumulative-v073):
 
 - **Sync: upload images to Reddit**
   ([issue #53](https://github.com/TheLastWallaby/revanced-redditsync/issues/53)):
@@ -103,7 +107,7 @@ no install can turn it on any more. Since rc.2 the entry is shown for every
 `[deleted]` or `[removed]` comment.
 
 It adds two selectable patches, described under
-[Included patches](#included-patches--cumulative-v072):
+[Included patches](#included-patches--cumulative-v073):
 
 - **Sync: restore comments from Arctic Shift**
   ([issue #52](https://github.com/TheLastWallaby/revanced-redditsync/issues/52)):
@@ -129,7 +133,7 @@ publication; only an overall result was given for the five numbered checks
 regressions). See `validation-phone-tests.json`.
 
 It adds three selectable patches, described under
-[Included patches](#included-patches--cumulative-v072):
+[Included patches](#included-patches--cumulative-v073):
 
 - **Sync: skip retired media hosts**
   ([issue #57](https://github.com/TheLastWallaby/revanced-redditsync/issues/57)):
@@ -995,15 +999,17 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Stable v0.7.2 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.2/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.2/sync-gallery-comments-compat-v0.7.2-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.2/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.2/build-info.json)
+- [Stable v0.7.3 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.3/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.3/sync-gallery-comments-compat-v0.7.3-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.3/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.3/build-info.json)
+- [Archived v0.7.3-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3-rc.2)
+  and [v0.7.3-rc.1](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3-rc.1)
+- [Previous stable v0.7.2](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2)
 - [Archived v0.7.2-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.2)
   and [v0.7.2-rc.1](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2-rc.1)
 - [Previous stable v0.7.1](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.1)
-- [Archived v0.7.1-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.1-rc.1)
 - [Previous stable v0.7.0](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.0)
 - [Previous stable v0.6.14](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.14)
   (needs an APK already patched with the official ReVanced Sync patches)
@@ -1046,7 +1052,7 @@ Releases up to v0.6.14 instead needed two passes: the official ReVanced Sync
 patches first, then this bundle on that output
 ([issue #70](https://github.com/TheLastWallaby/revanced-redditsync/issues/70)).
 
-## Included patches — cumulative v0.7.2
+## Included patches — cumulative v0.7.3
 
 Official ReVanced Sync patches, ported for build 23033 (see
 [v0.7.0](#v070-one-pass-patching-from-stock-sync-issue-70)): **Spoof client**,
@@ -1270,7 +1276,7 @@ New in [v0.7.2](#v072-comment-restore-from-arctic-shift-and-video-download-manif
   tester reported the rc.2 phone checks, including downloads with and without
   sound, as an overall pass.
 
-New in the [v0.7.3-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3-rc.2):
+New in [v0.7.3](#v073-image-uploads-to-reddit-issue-53):
 
 - **Sync: upload images to Reddit**
   ([issue #53](https://github.com/TheLastWallaby/revanced-redditsync/issues/53)).
@@ -1346,7 +1352,9 @@ New in the [v0.7.3-rc.2 candidate](https://github.com/TheLastWallaby/revanced-re
   comment reply; and image posts identified through a scripted websocket.
   `RedditImageUploadPatchTest` runs Sync's upload manager, editor, request
   manager, submit and comment requests before and after the patch: on
-  hand-written models in CI, and on Sync's real methods locally.
+  hand-written models in CI, and on Sync's real methods locally. The tester
+  reported image posts and comment images working on rc.2 (image posts already
+  on rc.1).
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
@@ -1366,7 +1374,7 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
    with the official ReVanced Sync patches.)
 2. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
    and apply the default patches: the eight ported official patches except Use
-   /user/ endpoint, plus this bundle's sixteen. Set Spoof client's
+   /user/ endpoint, plus this bundle's seventeen. Set Spoof client's
    `OAuth client ID` (and `Redirect URI`/`User-Agent` if needed). Check that
    each patch reports success.
 3. Sign the result with your own keystore. Matching the key used by your current
@@ -1388,7 +1396,7 @@ java -jar revanced-cli-6.0.0-all.jar patch \
   -p output/patches.rvp -b \
   -O "OAuth client ID=your-reddit-client-id" -e "Spoof client" \
   --keystore your-signing-key.keystore \
-  -o Sync-v23.06.30-compat-v0.7.2.apk \
+  -o Sync-v23.06.30-compat-v0.7.3.apk \
   Sync-v23.06.30-stock.apk
 ```
 
@@ -1536,6 +1544,10 @@ Stable v0.7.2 rebuilds the v0.7.2-rc.2 runtime code after the tester reported
 the seven comment-restore, video-download and regression checks as looking good
 and authorized promotion; only an overall result was given. On rc.1 the restore
 entry was missing (it required Sync Ultra); rc.2 removed that requirement.
+Stable v0.7.3 rebuilds the v0.7.3-rc.2 runtime code after the tester reported
+post and comment images working and authorized promotion; no individual results
+were given for the other checks. On rc.1 a comment with an image failed silently;
+rc.2 shows such failures and sends comments as Infinity for Reddit does.
 These are checks of the supplied cases, not exhaustive Android/live Reddit tests.
 This standalone bundle does not represent a full upstream Gradle build.
 
