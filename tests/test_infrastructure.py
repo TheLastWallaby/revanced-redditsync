@@ -130,6 +130,15 @@ class InfrastructureTests(unittest.TestCase):
         self.assertIn("app.revanced.extension.synccompat.ArcticShiftRestoreTest", tests)
         self.assertIn("ArcticShiftRestorePatchTest", tests)
 
+    def test_reddit_image_upload_suites_are_discovered(self):
+        tests = discover_java_tests(ROOT / "tests")
+        self.assertIn("app.revanced.extension.synccompat.RedditImageUploadTest", tests)
+        self.assertIn("RedditImageUploadPatchTest", tests)
+        # RedditRequest, ImgurUploadError and the OkHttp multipart/websocket stand-ins are not suites.
+        for stand_in in ["x8.a", "u8.b", "okhttp3.MultipartBody", "okhttp3.WebSocketListener",
+                         "com.android.volley.errors.OAuthError"]:
+            self.assertNotIn(stand_in, tests)
+
     def test_video_download_suites_are_discovered(self):
         tests = discover_java_tests(ROOT / "tests")
         self.assertIn("app.revanced.extension.synccompat.VideoDownloadManifestTest", tests)

@@ -59,6 +59,24 @@ maintainers yet; the tested route is ReVanced CLI (see
 
 The rest of this page is version history and technical detail.
 
+## v0.7.3-rc.1 candidate: image uploads to Reddit (issue #53)
+
+The [v0.7.3-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3-rc.1)
+is for phone testing. Apply it to **stock** Sync and check all patch results (25
+with Use /user/ endpoint). Stable remains v0.7.2 until the candidate passes and
+stable publication is authorized. It has not been tested on a phone or with live
+Reddit yet.
+
+It adds one selectable patch, described under
+[Included patches](#included-patches--cumulative-v072):
+
+- **Sync: upload images to Reddit**
+  ([issue #53](https://github.com/TheLastWallaby/revanced-redditsync/issues/53)):
+  images for an image post, or inserted in a comment, reply or text post, go to
+  Reddit's own image hosting (`i.redd.it`) instead of Imgur. **You don't need to
+  sign in again**: Sync's sign-in already asks Reddit for the permissions this
+  uses. Imgur is no longer used for uploads, not even as a fallback.
+
 ## v0.7.2 comment restore from Arctic Shift and video download manifests
 
 The [v0.7.2 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.2)
@@ -1244,6 +1262,82 @@ New in [v0.7.2](#v072-comment-restore-from-arctic-shift-and-video-download-manif
   locally, where the "Before" column is what Sync and the port produced. The
   tester reported the rc.2 phone checks, including downloads with and without
   sound, as an overall pass.
+
+New in the [v0.7.3-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3-rc.1):
+
+- **Sync: upload images to Reddit**
+  ([issue #53](https://github.com/TheLastWallaby/revanced-redditsync/issues/53)).
+  Sync 23033 sent every picked image to Imgur with its own built-in Imgur key
+  (`UploadManager.a`, `u8.d.a`, behind an on/off switch it fetched from Sync's
+  GitHub). Users see "Failed to upload image"; Imgur answered HTTP 429. With the
+  patch, Sync uses Reddit's media-asset upload, as PRAW and Infinity for Reddit do.
+  Both of Sync's upload buttons use it: the image post screen (`SubmitFragment`,
+  `ma.n`) and the editor's image button (`UploadImageDialogFragment`).
+
+  | Step | Sent to | What is sent |
+  |---|---|---|
+  | Lease | `https://oauth.reddit.com/api/media/asset.json` | The image's type (`mimetype`, read from the file's own header) and `api_type=json`, as one of Sync's own signed-in requests: Sync attaches its bearer token and User-Agent and refreshes the token as for any Reddit call |
+  | Upload | `https://reddit-uploaded-media.s3-accelerate.amazonaws.com/`, Reddit's upload host | Reddit's upload fields, unchanged and in order, then the image. No Reddit token, no cookies, no redirects. Any other address in Reddit's reply (another host, plain HTTP, a port, user-info, a path) is refused before anything is sent |
+  | Image post | Sync's own `oauth.reddit.com/api/submit` | `kind=image` with the uploaded image's address instead of a link post. Reddit answers with a websocket on `*.wss.redditmedia.com` that reports the new post; Sync then opens it as before |
+  | Image in a comment, reply or text post | `oauth.reddit.com/api/convert_rte_body_format`, then Sync's own `api/comment` or `api/submit` | The editor inserts `![img](<id>)` (`![gif](<id>)` for a GIF) at the cursor instead of Sync's "Insert image" link dialog. When sending, Reddit's own converter turns the whole text into Reddit's rich-text form with the image, and Sync sends that (`richtext_json`) in place of the Markdown |
+
+  - **Types and size:** JPEG, PNG, GIF and WebP, at most 20 MB. Reddit allows
+    larger GIFs; the patch reads the image into memory once and keeps one limit.
+  - **Time:** 20 s for the lease, 15 s to connect and 30 s per read for the
+    upload, 3 minutes for the whole upload, 30 s waiting for Reddit to confirm
+    an image post.
+  - **Errors keep the draft and say what happened:** not signed in, an unreadable
+    file, too large, an unsupported type, a rejected sign-in (HTTP 401), a
+    missing permission (HTTP 403 `insufficient_scope`), another refusal, rate
+    limiting (HTTP 429), Reddit unavailable (HTTP 5xx), no connection, a
+    timeout, an unexpected reply or upload address. Upload errors appear where
+    Sync showed "Failed to upload image", and the image stays selected. A
+    comment that can't be sent shows Sync's "Error submitting comment"
+    notification, whose **Retry** keeps the text.
+  - **Comment images need a subreddit that allows them.** Otherwise Reddit
+    refuses the comment (`META_MEDIA_TYPE_NOT_ALLOWED`) and the notification
+    says "This subreddit doesn't allow images in comments. Remove the image and
+    try again." Right after posting, Reddit may show "Processing img …" until
+    the image is ready.
+  - **Image posts:** if Reddit can't process the image: "Reddit couldn't process
+    this image, so the post wasn't created."; if it doesn't confirm the post
+    within 30 seconds: "Reddit accepted the image post but didn't confirm it.
+    Check your profile before posting again." The submit screen stays open.
+  - **Not supported:** images in message replies, private messages and edits.
+    A newly uploaded image there stops the send with "Reddit images can only be
+    added to new comments, replies and text posts. Remove the image to send
+    this." Existing text is never changed.
+  - **Unchanged:** link posts, text posts and comments without an uploaded
+    image, other submit options (flair, spoiler, NSFW, notifications),
+    galleries, how comment media are shown, and the v0.7.1/v0.7.2 patches.
+  - **Permissions:** Sync's sign-in already asks for `submit`, `edit`, `read`
+    and `identity`, which cover these requests, so **no new sign-in is
+    needed**. If Reddit refuses with a permission error anyway, the message
+    says "Reddit needs a new permission for image uploads. Sign in to your
+    account again, then retry."
+  - **No Imgur fallback.** Sync's built-in Imgur key is shared by every install
+    and is the one failing; a fallback would also put the image on another
+    host without asking. Without this patch Sync keeps its Imgur upload.
+  - **Nothing is logged:** no token, upload field, signature, websocket address
+    or image data.
+
+  Sources (no live upload was made): PRAW's recorded `submit_image` and
+  inline-media exchanges (lease, Reddit upload host reply, websocket, converter);
+  Infinity for Reddit's `UploadImageUtils`, `SubmitPost`, `SendComment` and
+  `RichTextJSONConverter` (its image lease sends only `mimetype` since
+  2026-11-01); [karmakameleon issue #111](https://github.com/dandroid126/karmakameleon/issues/111)
+  (comment images through the converter, the bare comment reply,
+  `META_MEDIA_TYPE_NOT_ALLOWED`). RedReader 1.24's comment pictures still go to
+  Imgur.
+
+  `RedditImageUploadTest` runs the helper against loopback Reddit and upload
+  hosts with a test-only token: the exact lease and multipart upload; lease
+  errors, upload errors and redirects; refused upload addresses; the token at
+  Reddit only; size, type and time limits; the conversion and the adapted
+  comment reply; and image posts identified through a scripted websocket.
+  `RedditImageUploadPatchTest` runs Sync's upload manager, editor, request
+  manager, submit and comment requests before and after the patch: on
+  hand-written models in CI, and on Sync's real methods locally.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty

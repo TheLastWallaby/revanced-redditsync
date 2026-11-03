@@ -2337,3 +2337,240 @@ val fixSyncVideoDownloadManifests = bytecodePatch(
         """.trimIndent())
     }
 }
+
+private const val IMAGE_UPLOAD = "Lapp/revanced/extension/synccompat/RedditImageUpload;"
+private const val UPLOAD_MANAGER = "Lu8/d;"
+private const val IMGUR_REQUEST = "Lu8/c;"
+private const val IMGUR_CHECK = "Lu8/a;"
+private const val IMGUR_ERROR = "Lu8/b;"
+private const val SYNC_REQUEST = "Lx8/a;"
+private const val REQUEST_MANAGER = "Lm8/a;"
+private const val COMMENT_REQUEST = "Ly8/e;"
+private const val SUBMIT_REQUEST = "Ly8/x0;"
+private const val ACCOUNT_SINGLETON = "Lcom/laurencedawson/reddit_sync/singleton/a;"
+private const val EDITOR_VIEW = "Lcom/laurencedawson/reddit_sync/ui/views/editor/EditorView;"
+private const val INSERT_IMAGE_DIALOG = "Lcom/laurencedawson/reddit_sync/ui/fragment_dialogs/InsertImageDialogFragment;"
+private const val VOLLEY_LISTENER = "Lcom/android/volley/Response\$Listener;"
+private const val VOLLEY_ERROR_LISTENER = "Lcom/android/volley/Response\$ErrorListener;"
+private const val UPLOAD_ARGS = "Landroid/content/Context;Landroid/net/Uri;$VOLLEY_LISTENER$VOLLEY_ERROR_LISTENER"
+
+/** OkHttp and Volley members RedditImageUpload calls; each must exist in the base. */
+private val IMAGE_UPLOAD_MEMBERS = mapOf(
+    OKHTTP_BUILDER to listOf("<init>()V", "followRedirects(Z)$OKHTTP_BUILDER", "followSslRedirects(Z)$OKHTTP_BUILDER",
+        "connectTimeout(JLjava/util/concurrent/TimeUnit;)$OKHTTP_BUILDER", "readTimeout(JLjava/util/concurrent/TimeUnit;)$OKHTTP_BUILDER",
+        "writeTimeout(JLjava/util/concurrent/TimeUnit;)$OKHTTP_BUILDER", "callTimeout(JLjava/util/concurrent/TimeUnit;)$OKHTTP_BUILDER",
+        "build()$OKHTTP_CLIENT"),
+    OKHTTP_CLIENT to listOf("newCall(Lokhttp3/Request;)Lokhttp3/Call;",
+        "newWebSocket(Lokhttp3/Request;Lokhttp3/WebSocketListener;)Lokhttp3/WebSocket;"),
+    "Lokhttp3/Call;" to listOf("execute()Lokhttp3/Response;", "cancel()V"),
+    "Lokhttp3/Request\$Builder;" to listOf("<init>()V", "url(Ljava/lang/String;)Lokhttp3/Request\$Builder;",
+        "post(Lokhttp3/RequestBody;)Lokhttp3/Request\$Builder;", "build()Lokhttp3/Request;"),
+    "Lokhttp3/Request;" to listOf("url()Lokhttp3/HttpUrl;"),
+    "Lokhttp3/HttpUrl;" to listOf("isHttps()Z", "host()Ljava/lang/String;"),
+    "Lokhttp3/Response;" to listOf("code()I", "body()Lokhttp3/ResponseBody;", "request()Lokhttp3/Request;", "close()V"),
+    "Lokhttp3/ResponseBody;" to listOf("byteStream()Ljava/io/InputStream;"),
+    "Lokhttp3/RequestBody;" to listOf("create([BLokhttp3/MediaType;)Lokhttp3/RequestBody;"),
+    "Lokhttp3/MediaType;" to listOf("get(Ljava/lang/String;)Lokhttp3/MediaType;"),
+    "Lokhttp3/MultipartBody\$Builder;" to listOf("<init>()V", "setType(Lokhttp3/MediaType;)Lokhttp3/MultipartBody\$Builder;",
+        "addFormDataPart(Ljava/lang/String;Ljava/lang/String;)Lokhttp3/MultipartBody\$Builder;",
+        "addFormDataPart(Ljava/lang/String;Ljava/lang/String;Lokhttp3/RequestBody;)Lokhttp3/MultipartBody\$Builder;",
+        "build()Lokhttp3/MultipartBody;"),
+    "Lokhttp3/WebSocket;" to listOf("cancel()V"),
+    "Lokhttp3/WebSocketListener;" to listOf("<init>()V", "onMessage(Lokhttp3/WebSocket;Ljava/lang/String;)V",
+        "onFailure(Lokhttp3/WebSocket;Ljava/lang/Throwable;Lokhttp3/Response;)V", "onClosed(Lokhttp3/WebSocket;ILjava/lang/String;)V"),
+    "Lcom/android/volley/DefaultRetryPolicy;" to listOf("<init>(IIF)V"),
+    NETWORK to listOf("<init>(I[BZJLjava/util/List;)V"),
+    "Lcom/android/volley/ParseError;" to listOf("<init>()V"),
+    VOLLEY_REQUEST to listOf("cancel()V", "deliverError($VOLLEY_ERROR)V", "getUrl()Ljava/lang/String;",
+        "setShouldCache(Z)$VOLLEY_REQUEST", "setRetryPolicy(Lcom/android/volley/RetryPolicy;)$VOLLEY_REQUEST"),
+)
+
+val uploadSyncImagesToReddit = bytecodePatch(
+    name = "Sync: upload images to Reddit",
+    description = "Upload images picked for an image post or inserted in a comment, reply or text post to Reddit's own " +
+        "image hosting (i.redd.it) instead of Imgur. The upload lease goes to oauth.reddit.com as one of Sync's own " +
+        "signed-in requests; the image goes only to Reddit's HTTPS upload host, without Reddit authorization or cookies. " +
+        "Image posts are submitted as Reddit image posts; inserted images are sent as Reddit media where the subreddit " +
+        "allows them. On any failure the draft is kept and a specific error is shown.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        fun mutable(type: String, source: String): MutableClassDef =
+            proxy(classes.singleOrNull { it.type == type && it.sourceFile == source } ?: throw PatchException(
+                "Expected Sync $source was not found. This patch targets build 23033 only.")).mutableClass
+        fun MutableClassDef.method(name: String, parameters: List<String>, returns: String): MutableMethod =
+            methods.singleOrNull { it.name == name && it.parameterTypes == parameters && it.returnType == returns }
+                ?: throw PatchException("Unsupported Sync method $type->$name.")
+        fun MutableMethod.code() = implementation!!.instructions
+        fun MutableMethod.calls(ref: String) = code().any { it.methodRef()?.toString() == ref }
+        fun MutableMethod.hasStrings(vararg values: String) = values.all { v -> code().any { it.stringValue() == v } }
+        fun MutableMethod.targeted(index: Int): Boolean {
+            val target = code()[index]
+            return code().any { it is BuilderOffsetInstruction && it.target.location.instruction === target }
+        }
+        fun MutableMethod.usesHelper() = code().any { it.methodRef()?.definingClass == IMAGE_UPLOAD }
+        fun Instruction.fieldRef() = ((this as? ReferenceInstruction)?.reference as? FieldReference)?.toString()
+        val public = AccessFlags.PUBLIC
+        val static = AccessFlags.STATIC
+
+        // UploadManager (u8.d): a(context, uri, listener, errorListener) wraps UploadImgurRequest (u8.c) in
+        // CheckUploadStatusRequest (u8.a, Sync's remote on/off switch for Imgur) and queues it. Its two callers
+        // are UploadImageDialogFragment.R3 (the editor's image button) and SubmitFragment.F3 (image posts).
+        val manager = mutable(UPLOAD_MANAGER, "UploadManager.java")
+        val upload = manager.method("a", listOf("Landroid/content/Context;", "Landroid/net/Uri;", VOLLEY_LISTENER, VOLLEY_ERROR_LISTENER), "V")
+        if (upload.usesHelper()) throw PatchException("Images are already uploaded to Reddit.")
+        layout(static.isSet(upload.accessFlags) && public.isSet(upload.accessFlags) && upload.code().size <= 12 &&
+            upload.calls("$IMGUR_REQUEST-><init>($UPLOAD_ARGS)V") &&
+            upload.calls("$IMGUR_CHECK-><init>($VOLLEY_REQUEST)V") &&
+            upload.calls("Lcom/android/volley/RequestQueue;->add($VOLLEY_REQUEST)$VOLLEY_REQUEST") &&
+            upload.code().last().opcode == Opcode.RETURN_VOID, "Sync UploadManager")
+
+        // ImgurUploadError (u8.b): the callers show its message and "Failed to upload image" otherwise.
+        val imgurError = classes.singleOrNull { it.type == IMGUR_ERROR && it.sourceFile == "ImgurUploadError.java" }
+        layout(imgurError != null && imgurError.superclass == VOLLEY_ERROR && public.isSet(imgurError.accessFlags) &&
+            !AccessFlags.FINAL.isSet(imgurError.accessFlags) &&
+            imgurError.methods.any { it.name == "<init>" && it.parameterTypes.isEmpty() && public.isSet(it.accessFlags) },
+            "Sync ImgurUploadError")
+
+        // RedditRequest (x8.a): Sync's OAuth requests. m8.a hands the token to a(String); getHeaders adds it.
+        val base = classes.singleOrNull { it.type == SYNC_REQUEST && it.sourceFile == "RedditRequest.java" }
+        layout(base != null && base.superclass == VOLLEY_REQUEST && AccessFlags.ABSTRACT.isSet(base.accessFlags) &&
+            base.fields.any { it.name == "s" && it.type == "Ljava/util/Map;" && AccessFlags.PROTECTED.isSet(it.accessFlags) } &&
+            base.methods.any { it.name == "<init>" && public.isSet(it.accessFlags) && it.parameterTypes ==
+                listOf("Landroid/content/Context;", "I", "Ljava/lang/String;", VOLLEY_LISTENER, VOLLEY_ERROR_LISTENER) } &&
+            base.methods.any { it.name == "a" && it.parameterTypes == listOf("Ljava/lang/String;") && it.returnType == "V" } &&
+            base.methods.any { it.name == "getHeaders" && it.parameterTypes.isEmpty() &&
+                it.implementation?.instructions?.any { i -> i.methodRef()?.toString() ==
+                    "$ACCOUNT_SINGLETON->e(Ljava/lang/String;)Ljava/util/HashMap;" } == true } &&
+            base.methods.any { it.name == "deliverResponse" && it.parameterTypes == listOf("Ljava/lang/Object;") },
+            "Sync RedditRequest")
+        val account = classes.singleOrNull { it.type == ACCOUNT_SINGLETON && it.sourceFile == "AccountSingleton.java" }
+        layout(account != null && account.methods.any { it.name == "d" && it.parameterTypes.isEmpty() &&
+                it.returnType == ACCOUNT_SINGLETON && static.isSet(it.accessFlags) } &&
+            account.methods.any { it.name == "i" && it.parameterTypes.isEmpty() && it.returnType == "Z" && public.isSet(it.accessFlags) },
+            "Sync AccountSingleton")
+
+        // OAuthRequestManager (m8.a): b(context, token, request) sets a known token or fetches the account's
+        // (b9.d, which refreshes it, or b9.b signed out); g(context, request, refreshToken) exchanges another
+        // account's refresh token (b9.c) or calls b. c(context, request) is b without a token.
+        val requests = mutable(REQUEST_MANAGER, "OAuthRequestManager.java")
+        val direct = requests.method("b", listOf("Landroid/content/Context;", "Ljava/lang/String;", SYNC_REQUEST), "V")
+        val exchange = requests.method("g", listOf("Landroid/content/Context;", SYNC_REQUEST, "Ljava/lang/String;"), "V")
+        val queue = requests.method("c", listOf("Landroid/content/Context;", SYNC_REQUEST), "V")
+        if (direct.usesHelper() || exchange.usesHelper()) throw PatchException("Images are already uploaded to Reddit.")
+        layout(listOf(direct, exchange, queue).all { static.isSet(it.accessFlags) && public.isSet(it.accessFlags) } &&
+            direct.calls("$SYNC_REQUEST->a(Ljava/lang/String;)V") && direct.calls("Lb9/d;-><init>(Landroid/content/Context;$SYNC_REQUEST)V") &&
+            direct.calls("Lcom/android/volley/RequestQueue;->add($VOLLEY_REQUEST)$VOLLEY_REQUEST") &&
+            direct.implementation!!.registerCount == 5 && exchange.implementation!!.registerCount == 5 &&
+            exchange.calls("$REQUEST_MANAGER->b(Landroid/content/Context;Ljava/lang/String;$SYNC_REQUEST)V") &&
+            exchange.calls("Lb9/c;-><init>(Landroid/content/Context;${SYNC_REQUEST}Ljava/lang/String;)V") &&
+            queue.calls("$REQUEST_MANAGER->b(Landroid/content/Context;Ljava/lang/String;$SYNC_REQUEST)V"),
+            "Sync OAuthRequestManager")
+
+        // OAuthSubmitRequest (y8.x0): kind link with url, or self with text, built in the constructor; the
+        // parser reads json.errors, then json.data.id.
+        val submit = mutable(SUBMIT_REQUEST, "OAuthSubmitRequest.java")
+        val submitInit = submit.methods.singleOrNull { it.name == "<init>" }
+            ?: throw PatchException("Unsupported Sync method $SUBMIT_REQUEST-><init>.")
+        val submitParse = submit.method("parseNetworkResponse", listOf(NETWORK), VOLLEY_RESPONSE)
+        if (submitInit.usesHelper() || submitParse.usesHelper()) throw PatchException("Images are already uploaded to Reddit.")
+        val submitEnd = submitInit.code().lastIndex
+        layout(submit.superclass == SYNC_REQUEST && submitInit.hasStrings("api/submit?validate_on_submit=True", "kind", "link",
+                "url", "self", "text") &&
+            submitInit.code()[submitEnd].opcode == Opcode.RETURN_VOID && !submitInit.targeted(submitEnd) &&
+            submitInit.code()[submitEnd - 1].methodRef()?.name == "setRetryPolicy" &&
+            submitInit.code().any { it.fieldRef() == "$SYNC_REQUEST->s:Ljava/util/Map;" } &&
+            submitInit.implementation!!.registerCount - submitInit.parameterTypes.size - 1 in 1..15 &&
+            public.isSet(submitParse.accessFlags) && submitParse.hasStrings("errors", "data", "id") &&
+            submitParse.calls("Lorg/json/JSONObject;->getJSONObject(Ljava/lang/String;)Lorg/json/JSONObject;"),
+            "Sync OAuthSubmitRequest")
+
+        // OAuthCommentRequest (y8.e): api/comment (or api/editusertext) with thing_id and text; its parser checks
+        // for the literal "errors": [] and then reads json.data.things[0].data. d(message, retry) reports errors.
+        val comment = mutable(COMMENT_REQUEST, "OAuthCommentRequest.java")
+        val commentParse = comment.method("parseNetworkResponse", listOf(NETWORK), VOLLEY_RESPONSE)
+        if (commentParse.usesHelper()) throw PatchException("Images are already uploaded to Reddit.")
+        val commentInit = comment.methods.singleOrNull { it.name == "<init>" }
+        layout(comment.superclass == SYNC_REQUEST && public.isSet(commentParse.accessFlags) &&
+            commentParse.hasStrings("\"errors\": []", "things", "json", "data") &&
+            commentInit?.hasStrings("thing_id", "text", "api_type") == true &&
+            comment.methods.any { it.name == "d" && it.parameterTypes == listOf("Ljava/lang/String;", "Z") && public.isSet(it.accessFlags) } &&
+            comment.methods.any { it.name == "c" && it.hasStrings("api/comment", "api/editusertext") },
+            "Sync OAuthCommentRequest")
+
+        // EditorView.h(url): opens InsertImageDialogFragment for the uploaded link; i(text) inserts at the cursor.
+        val editor = mutable(EDITOR_VIEW, "EditorView.java")
+        val offer = editor.method("h", listOf("Ljava/lang/String;"), "V")
+        val insert = editor.method("i", listOf("Ljava/lang/String;"), "V")
+        if (offer.usesHelper()) throw PatchException("Images are already uploaded to Reddit.")
+        layout(public.isSet(offer.accessFlags) && public.isSet(insert.accessFlags) &&
+            offer.code().first().methodRef()?.toString() == "$INSERT_IMAGE_DIALOG->N3(Ljava/lang/String;)$INSERT_IMAGE_DIALOG" &&
+            offer.calls("$INSERT_IMAGE_DIALOG->O3($EDITOR_VIEW)V") && offer.implementation!!.registerCount == 4 &&
+            insert.calls("Landroid/text/Editable;->insert(ILjava/lang/CharSequence;)Landroid/text/Editable;"),
+            "Sync EditorView image insert")
+
+        for ((type, members) in IMAGE_UPLOAD_MEMBERS) {
+            val clazz = classes.singleOrNull { it.type == type }
+                ?: throw PatchException("Sync lacks $type. This patch targets Sync build 23033 only.")
+            val present = clazz.methods.map { "${it.name}(${it.parameterTypes.joinToString("")})${it.returnType}" }.toSet()
+            for (member in members) if (member !in present) {
+                throw PatchException("Sync lacks $type->$member. This patch targets Sync build 23033 only.")
+            }
+        }
+        val socketListener = classes.single { it.type == "Lokhttp3/WebSocketListener;" }
+        layout(!AccessFlags.FINAL.isSet(socketListener.accessFlags) &&
+            classes.singleOrNull { it.type == "Lokhttp3/MultipartBody;" }?.fields?.any {
+                it.name == "FORM" && it.type == "Lokhttp3/MediaType;" && static.isSet(it.accessFlags) } == true,
+            "Sync OkHttp multipart and websocket")
+
+        // All layouts verified; edit.
+        upload.resetBody(4, """
+            invoke-static {p0, p1, p2, p3}, $IMAGE_UPLOAD->upload($UPLOAD_ARGS)V
+            return-void
+        """.trimIndent())
+
+        offer.addInstructionsWithLabels(0, """
+            invoke-static {p1}, $IMAGE_UPLOAD->editorMarkdown(Ljava/lang/String;)Ljava/lang/String;
+            move-result-object v0
+            if-eqz v0, :original
+            invoke-virtual {p0, v0}, $EDITOR_VIEW->i(Ljava/lang/String;)V
+            return-void
+        """.trimIndent(), ExternalLabel("original", offer.code()[0]))
+
+        direct.addInstructionsWithLabels(0, """
+            if-eqz p2, :original
+            invoke-virtual {p2}, $VOLLEY_REQUEST->getUrl()Ljava/lang/String;
+            move-result-object v0
+            invoke-static {p0, p1, p2, v0}, $IMAGE_UPLOAD->sendDirect(Landroid/content/Context;Ljava/lang/String;Ljava/lang/Object;Ljava/lang/String;)Z
+            move-result v0
+            if-eqz v0, :original
+            return-void
+        """.trimIndent(), ExternalLabel("original", direct.code()[0]))
+
+        exchange.addInstructionsWithLabels(0, """
+            if-eqz p1, :original
+            invoke-virtual {p1}, $VOLLEY_REQUEST->getUrl()Ljava/lang/String;
+            move-result-object v0
+            invoke-static {p0, p1, p2, v0}, $IMAGE_UPLOAD->sendExchange(Landroid/content/Context;Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;)Z
+            move-result v0
+            if-eqz v0, :original
+            return-void
+        """.trimIndent(), ExternalLabel("original", exchange.code()[0]))
+
+        submitInit.addInstructions(submitEnd, """
+            iget-object v0, p0, $SYNC_REQUEST->s:Ljava/util/Map;
+            invoke-static {p0, v0}, $IMAGE_UPLOAD->submitParams(Ljava/lang/Object;Ljava/util/Map;)V
+        """.trimIndent())
+
+        submitParse.addInstructions(0, """
+            invoke-static/range {p0 .. p1}, $IMAGE_UPLOAD->submitResponse(Ljava/lang/Object;$NETWORK)$NETWORK
+            move-result-object p1
+        """.trimIndent())
+
+        commentParse.addInstructions(0, """
+            invoke-static/range {p0 .. p1}, $IMAGE_UPLOAD->commentResponse(Ljava/lang/Object;$NETWORK)$NETWORK
+            move-result-object p1
+        """.trimIndent())
+    }
+}

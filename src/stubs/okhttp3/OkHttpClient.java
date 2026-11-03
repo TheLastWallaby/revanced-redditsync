@@ -6,6 +6,7 @@ import java.util.concurrent.TimeUnit;
 public class OkHttpClient {
     public Builder newBuilder() { return null; }
     public Call newCall(Request request) { return null; }
+    public WebSocket newWebSocket(Request request, WebSocketListener listener) { return null; }
     public final List<Interceptor> interceptors() { return null; }
 
     public static final class Builder {

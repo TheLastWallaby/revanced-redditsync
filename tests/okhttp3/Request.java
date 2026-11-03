@@ -47,11 +47,19 @@ public final class Request {
             body = request.body;
         }
 
-        public Builder url(String url) { this.url = HttpUrl.get(url); return this; }
+        public Builder url(String url) {
+            // As OkHttp does, a websocket URL is requested over HTTP(S).
+            String lower = url.toLowerCase(java.util.Locale.ROOT);
+            if (lower.startsWith("wss:")) url = "https:" + url.substring(4);
+            else if (lower.startsWith("ws:")) url = "http:" + url.substring(3);
+            this.url = HttpUrl.get(url);
+            return this;
+        }
         public Builder header(String name, String value) { removeHeader(name); return addHeader(name, value); }
         public Builder addHeader(String name, String value) { headers.add(new String[]{name, value}); return this; }
         public Builder removeHeader(String name) { headers.removeIf(h -> h[0].equalsIgnoreCase(name)); return this; }
         public Builder get() { method = "GET"; body = null; return this; }
+        public Builder post(RequestBody body) { method = "POST"; this.body = body; return this; }
         public Builder method(String method, RequestBody body) { this.method = method; this.body = body; return this; }
 
         public Request build() {

@@ -36,6 +36,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class OkHttpClient {
     /** Request host to loopback origin, set by tests. */
     public static final Map<String, String> ROUTES = new ConcurrentHashMap<>();
+    /** Request host to a scripted websocket, set by tests; each runs on a thread of its own. */
+    public static final Map<String, java.util.function.BiConsumer<Request, WebSocketListener>> SOCKETS = new ConcurrentHashMap<>();
     private static final ScheduledExecutorService WATCHDOG = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread thread = new Thread(r, "okhttp-standin-timeout");
         thread.setDaemon(true);
@@ -62,6 +64,22 @@ public class OkHttpClient {
 
     public Builder newBuilder() { return new Builder(this); }
     public Call newCall(Request request) { return new RealCall(this, request); }
+
+    /** A websocket scripted by {@link #SOCKETS}; an unscripted host fails as unknown. */
+    public WebSocket newWebSocket(Request request, WebSocketListener listener) {
+        WebSocket socket = new WebSocket() {
+            @Override public boolean close(int code, String reason) { return true; }
+            @Override public void cancel() { }
+        };
+        java.util.function.BiConsumer<Request, WebSocketListener> script = SOCKETS.get(request.url().host());
+        Thread thread = new Thread(() -> {
+            if (script == null) listener.onFailure(socket, new UnknownHostException(request.url().host() + " is not routed in this test"), null);
+            else script.accept(request, listener);
+        }, "okhttp-standin-websocket");
+        thread.setDaemon(true);
+        thread.start();
+        return socket;
+    }
     public final List<Interceptor> interceptors() { return interceptors; }
     public final List<Interceptor> networkInterceptors() { return networkInterceptors; }
     public final boolean followRedirects() { return followRedirects; }
@@ -212,6 +230,8 @@ public class OkHttpClient {
                 try {
                     RequestBody body = request.body();
                     if (body != null) {
+                        if (body.contentType() != null && request.header("Content-Type") == null)
+                            connection.setRequestProperty("Content-Type", body.contentType());
                         connection.setDoOutput(true);
                         try (OutputStream out = connection.getOutputStream()) { out.write(body.bytes()); }
                     }

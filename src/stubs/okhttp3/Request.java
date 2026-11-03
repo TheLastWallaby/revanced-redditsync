@@ -14,6 +14,7 @@ public final class Request {
         public Builder header(String name, String value) { return this; }
         public Builder removeHeader(String name) { return this; }
         public Builder get() { return this; }
+        public Builder post(RequestBody body) { return this; }
         public Request build() { return null; }
     }
 }
