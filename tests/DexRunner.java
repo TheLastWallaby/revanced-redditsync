@@ -153,10 +153,21 @@ final class DexRunner {
                         r[t.getRegisterA()] = i.getOpcode().name().startsWith("ADD") ? x + y : x ^ y;
                         break;
                     }
-                    case ADD_INT_2ADDR: case SUB_INT_2ADDR: case XOR_INT_2ADDR: {
+                    case ADD_INT_2ADDR: case SUB_INT_2ADDR: case XOR_INT_2ADDR: case OR_INT_2ADDR: {
                         TwoRegisterInstruction t = (TwoRegisterInstruction) i;
                         int x = (Integer) r[t.getRegisterA()], y = (Integer) r[t.getRegisterB()];
-                        r[t.getRegisterA()] = i.getOpcode() == Opcode.ADD_INT_2ADDR ? x + y : i.getOpcode() == Opcode.SUB_INT_2ADDR ? x - y : x ^ y;
+                        r[t.getRegisterA()] = i.getOpcode() == Opcode.ADD_INT_2ADDR ? x + y : i.getOpcode() == Opcode.SUB_INT_2ADDR ? x - y
+                                : i.getOpcode() == Opcode.OR_INT_2ADDR ? x | y : x ^ y;
+                        break;
+                    }
+                    case OR_INT_LIT8: case OR_INT_LIT16: {
+                        TwoRegisterInstruction t = (TwoRegisterInstruction) i;
+                        r[t.getRegisterA()] = (Integer) r[t.getRegisterB()] | ((NarrowLiteralInstruction) i).getNarrowLiteral();
+                        break;
+                    }
+                    case LONG_TO_INT: {
+                        TwoRegisterInstruction t = (TwoRegisterInstruction) i;
+                        r[t.getRegisterA()] = (int) (long) (Long) r[t.getRegisterB()];
                         break;
                     }
                     case CONST_WIDE_16: case CONST_WIDE_32: case CONST_WIDE: case CONST_WIDE_HIGH16:

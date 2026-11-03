@@ -2735,3 +2735,189 @@ val showSyncPollOptions = bytecodePatch(
         parse.addInstructions(add, "invoke-static {v$values, v$data}, $POLL->apply($CONTENT_VALUES$JSON_OBJECT)V")
     }
 }
+
+private const val HANDOFF = "Lapp/revanced/extension/synccompat/MessagingHandoff;"
+private const val NOTIFICATION_BUILDER = "Landroidx/core/app/g\$e;"
+private const val EDIT_FRAGMENT = "Lcom/laurencedawson/reddit_sync/ui/fragment_dialogs/EditFragment;"
+private const val SEND_ERROR_LISTENER = "Lcom/laurencedawson/reddit_sync/ui/fragment_dialogs/EditFragment\$d;"
+
+/** True if the instruction reads the register (wide pairs and range calls included). */
+internal fun Instruction.readsRegister(register: Int): Boolean = when (this) {
+    is FiveRegisterInstruction -> listOf(registerC, registerD, registerE, registerF, registerG).take(registerCount).contains(register)
+    is com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction ->
+        register in startRegister until startRegister + registerCount
+    is com.android.tools.smali.dexlib2.iface.instruction.ThreeRegisterInstruction ->
+        registerB == register || registerC == register || (!opcode.setsRegister() && registerA == register)
+    is TwoRegisterInstruction -> registerB == register ||
+        ((!opcode.setsRegister() || opcode.name.endsWith("_2ADDR")) && registerA == register)
+    is OneRegisterInstruction -> !opcode.setsRegister() && registerA == register
+    else -> false
+}
+
+val handOffSyncRetiredMessaging = bytecodePatch(
+    name = "Sync: hand off retired messaging to Reddit Chat",
+    description = "When Reddit refuses a new private message or a reply to one because direct messages moved to " +
+        "Reddit Chat (RESTRICTED_TO_PM), keep the text and offer to open Reddit Chat or the read-only message " +
+        "archive. Other messages, replies, inbox listings and mark-read actions are unchanged. Native Chat is not added.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        fun mutable(type: String, source: String): MutableClassDef =
+            proxy(classes.singleOrNull { it.type == type && it.sourceFile == source } ?: throw PatchException(
+                "Expected Sync $source ($type) was not found. This patch targets build 23033 only.")).mutableClass
+        fun MutableMethod.code() = implementation!!.instructions
+        fun MutableMethod.hasStrings(vararg values: String) = values.all { v -> code().any { it.stringValue() == v } }
+        fun MutableMethod.calls(ref: String) = code().any { it.methodRef()?.toString() == ref }
+        fun MutableMethod.targeted(index: Int): Boolean {
+            val target = code()[index]
+            return code().any { it is BuilderOffsetInstruction && it.target.location.instruction === target } ||
+                implementation!!.tryBlocks.any { block -> block.exceptionHandlers.any { it.handler.location.instruction === target } }
+        }
+        fun MutableMethod.parameters() = parameterTypes.map { it.toString() }
+        fun MutableClassDef.method(name: String, parameters: List<String>, returns: String) = methods.singleOrNull {
+            it.name == name && it.parameters() == parameters && it.returnType == returns
+        } ?: throw PatchException("Unsupported Sync method $type->$name. This patch targets build 23033 only.")
+        fun MutableClassDef.hasField(name: String, type: String) = fields.any { it.name == name && it.type == type }
+
+        // New message: OAuthMessageRequest (y8.z) posts api/compose; its parser turns json.errors into a
+        // VolleyError with Reddit's text. v0 is set by its first instruction.
+        val compose = mutable("Ly8/z;", "OAuthMessageRequest.java")
+        val composeParse = compose.method("parseNetworkResponse", listOf(NETWORK), VOLLEY_RESPONSE)
+        val composeCode = composeParse.code()
+        if (composeCode.any { it.methodRef()?.definingClass == HANDOFF }) throw PatchException("Messaging handoff is already installed.")
+        layout(compose.methods.any { it.name == "<init>" && it.hasStrings("api/compose", "to", "subject", "text") } &&
+            composeParse.hasStrings("errors", "json") && composeParse.calls("$VOLLEY_ERROR-><init>(Ljava/lang/String;)V") &&
+            composeCode[0].opcode == Opcode.CONST_STRING && composeCode[0].registerA() == 0 && !composeParse.targeted(0) &&
+            composeParse.implementation!!.registerCount > 2, "Sync message send request")
+
+        // Its error listener (EditFragment$d): dismisses Sync's progress dialog, then toasts Reddit's text.
+        // The editor stays open. v0 is written before it is read again after the dismiss.
+        val listener = mutable(SEND_ERROR_LISTENER, "EditFragment.java")
+        val onError = listener.method("onErrorResponse", listOf(VOLLEY_ERROR), "V")
+        val errorCode = onError.code()
+        val dismiss = errorCode.singleIndex("send progress dismiss") { errorCode[it].methodRef()?.toString() == "Landroid/app/ProgressDialog;->dismiss()V" }
+        val errorParameter = onError.implementation!!.registerCount - 1
+        layout(listener.interfaces.contains("Lcom/android/volley/Response\$ErrorListener;") && listener.hasField("b", EDIT_FRAGMENT) &&
+            onError.implementation!!.registerCount == 4 && dismiss + 4 < errorCode.size && !onError.targeted(dismiss + 1) &&
+            errorCode[dismiss + 1].methodRef()?.toString() == "Ljava/lang/Exception;->getMessage()Ljava/lang/String;" &&
+            (errorCode[dismiss + 1] as FiveRegisterInstruction).registerC == errorParameter &&
+            errorCode[dismiss + 4].opcode == Opcode.MOVE_RESULT && errorCode[dismiss + 4].registerA() == 0 &&
+            (dismiss + 1 until dismiss + 4).none { errorCode[it].readsRegister(0) } &&
+            onError.calls("Landroidx/fragment/app/Fragment;->B0()Landroidx/fragment/app/FragmentActivity;") &&
+            onError.hasStrings("Bad captcha"), "Sync send-message error listener")
+
+        // Reply to a message: OAuthCommentRequest (y8.e), type 2 (thing_id t4_). Its parser reports
+        // json.errors with d(text, true); v1 holds the request and v3 the answer's text from the start,
+        // and the StringBuilder register is dead after its toString.
+        val comment = mutable(COMMENT_REQUEST, "OAuthCommentRequest.java")
+        val commentParse = comment.method("parseNetworkResponse", listOf(NETWORK), VOLLEY_RESPONSE)
+        val parseCode = commentParse.code()
+        val report = parseCode.singleIndex("comment error report") { i ->
+            i >= 2 && parseCode[i].methodRef()?.toString() == "$COMMENT_REQUEST->d(Ljava/lang/String;Z)V" &&
+                parseCode[i - 1].opcode == Opcode.MOVE_RESULT_OBJECT &&
+                parseCode[i - 2].methodRef()?.toString() == "Ljava/lang/StringBuilder;->toString()Ljava/lang/String;"
+        }
+        val reportCall = parseCode[report] as FiveRegisterInstruction
+        val self = reportCall.registerC
+        val builderTemp = (parseCode[report - 2] as FiveRegisterInstruction).registerC
+        val bodyMade = parseCode.indexOfFirst {
+            it.opcode == Opcode.NEW_INSTANCE && (it as ReferenceInstruction).reference.toString() == "Ljava/lang/String;"
+        }
+        val body = parseCode.getOrNull(bodyMade)?.registerA() ?: -1
+        val thisParameter = commentParse.implementation!!.registerCount - 2
+        val selfCopy = parseCode.indexOfFirst {
+            it.opcode in setOf(Opcode.MOVE_OBJECT, Opcode.MOVE_OBJECT_FROM16, Opcode.MOVE_OBJECT_16) &&
+                (it as TwoRegisterInstruction).registerB == thisParameter && it.registerA == self
+        }
+        fun writes(code: List<BuilderInstruction>, i: Int, register: Int): Boolean {
+            val target = code[i].registerA() ?: return false
+            return (code[i].opcode.setsRegister() && target == register) ||
+                (code[i].opcode.setsWideRegister() && (target == register || target + 1 == register))
+        }
+        layout(selfCopy in 0 until bodyMade && bodyMade < report && body in 0..15 && self in 0..15 && builderTemp in 0..15 &&
+            builderTemp != self && builderTemp != body && reportCall.registerD != builderTemp &&
+            parseCode.subList(bodyMade + 1, minOf(parseCode.size, bodyMade + 4)).any {
+                it.methodRef()?.toString() == "Ljava/lang/String;-><init>([B)V" && (it as FiveRegisterInstruction).registerC == body
+            } &&
+            (0 until report).none { it != selfCopy && writes(parseCode, it, self) } &&
+            (0 until report).none { it != bodyMade && writes(parseCode, it, body) } &&
+            parseCode.getOrNull(report + 2)?.let { it.opcode == Opcode.NEW_INSTANCE && it.registerA() == builderTemp } == true &&
+            !commentParse.targeted(report) && commentParse.hasStrings("No error returned", "\"errors\": []") &&
+            comment.hasField("u", "I") && comment.hasField("x", "Ljava/lang/String;"), "Sync comment request parser")
+
+        // Its network error (an error status): after Sync's base handler, before its own report.
+        val commentError = comment.method("parseNetworkError", listOf(VOLLEY_ERROR), VOLLEY_ERROR)
+        val networkCode = commentError.code()
+        val baseError = networkCode.indexOfFirst {
+            it.opcode == Opcode.INVOKE_SUPER && it.methodRef()?.toString() == "Lx8/a;->parseNetworkError($VOLLEY_ERROR)$VOLLEY_ERROR"
+        }
+        layout(baseError >= 0 && commentError.implementation!!.registerCount == 4 && baseError + 1 < networkCode.size &&
+            networkCode[baseError + 1].stringValue() == "Could not connect to Reddit" && networkCode[baseError + 1].registerA() == 0 &&
+            !commentError.targeted(baseError + 1), "Sync comment request network error")
+
+        // Its failure notification d(text, retry): v0 is written first; v4 is unused after the channel is set,
+        // and the Retry action is added only when p2 (retry) is true.
+        val notice = comment.method("d", listOf("Ljava/lang/String;", "Z"), "V")
+        val noticeCode = notice.code()
+        val channel = noticeCode.singleIndex("notification channel") {
+            noticeCode[it].methodRef()?.toString() == "$NOTIFICATION_BUILDER->i(Ljava/lang/String;)$NOTIFICATION_BUILDER"
+        }
+        val builder = (noticeCode[channel] as FiveRegisterInstruction).registerC
+        val retryParameter = notice.implementation!!.registerCount - 1
+        layout(notice.implementation!!.registerCount == 9 && noticeCode[0].opcode == Opcode.IGET && noticeCode[0].registerA() == 0 &&
+            !notice.targeted(0) && notice.hasStrings("Error submitting", " message", "Retry", "inputText") &&
+            noticeCode.getOrNull(channel + 1)?.let { it.opcode == Opcode.IF_EQZ && it.registerA() == retryParameter } == true &&
+            !notice.targeted(channel + 1) && builder in 0..15 && builder != 4 &&
+            (channel + 1 until noticeCode.size).none { noticeCode[it].readsRegister(4) } &&
+            notice.calls("$NOTIFICATION_BUILDER->a(ILjava/lang/CharSequence;Landroid/app/PendingIntent;)$NOTIFICATION_BUILDER") &&
+            classes.any { it.type == "Lx8/a;" && it.fields.any { f -> f.name == "c" && f.type == "Landroid/content/Context;" } },
+            "Sync comment failure notification")
+        val drafts = classes.singleOrNull { it.type == "Lf9/a;" && it.sourceFile == "DraftManager.java" }
+        layout(drafts?.methods?.any {
+            it.name == "e" && it.parameterTypes.map { p -> p.toString() } == listOf("Landroid/content/Context;", "Ljava/lang/String;")
+        } == true, "Sync DraftManager")
+
+        // All layouts verified; edit.
+        composeParse.addInstructionsWithLabels(0, """
+            invoke-static {p1}, $HANDOFF->composeResponse($NETWORK)$VOLLEY_RESPONSE
+            move-result-object v0
+            if-eqz v0, :original
+            return-object v0
+        """.trimIndent(), ExternalLabel("original", composeCode[0]))
+
+        onError.addInstructionsWithLabels(dismiss + 1, """
+            iget-object v0, p0, $SEND_ERROR_LISTENER->b:$EDIT_FRAGMENT
+            invoke-virtual {v0}, Landroidx/fragment/app/Fragment;->B0()Landroidx/fragment/app/FragmentActivity;
+            move-result-object v0
+            invoke-static {v0, p1}, $HANDOFF->composeFailed(Landroid/content/Context;$VOLLEY_ERROR)Z
+            move-result v0
+            if-eqz v0, :sync
+            return-void
+        """.trimIndent(), ExternalLabel("sync", errorCode[dismiss + 1]))
+
+        commentParse.addInstructions(report, """
+            iget v$builderTemp, v$self, $COMMENT_REQUEST->u:I
+            invoke-static {v$self, v$builderTemp, v$body}, $HANDOFF->replyResponse(Ljava/lang/Object;ILjava/lang/String;)V
+        """.trimIndent())
+
+        commentError.addInstructions(baseError + 1, """
+            iget v0, p0, $COMMENT_REQUEST->u:I
+            invoke-static {p0, v0, p1}, $HANDOFF->replyError(Ljava/lang/Object;I$VOLLEY_ERROR)V
+        """.trimIndent())
+
+        notice.addInstructions(channel + 1, """
+            iget-object v4, p0, Lx8/a;->c:Landroid/content/Context;
+            invoke-static {p0, v$builder, v4}, $HANDOFF->replyActions(Ljava/lang/Object;Ljava/lang/Object;Landroid/content/Context;)V
+        """.trimIndent())
+        notice.addInstructionsWithLabels(0, """
+            iget-object v0, p0, $COMMENT_REQUEST->x:Ljava/lang/String;
+            iget-object v1, p0, Lx8/a;->c:Landroid/content/Context;
+            invoke-static {p0, v0, v1}, $HANDOFF->replyNotice(Ljava/lang/Object;Ljava/lang/String;Landroid/content/Context;)Ljava/lang/String;
+            move-result-object v0
+            if-eqz v0, :original
+            move-object p1, v0
+            const/4 p2, 0x0
+        """.trimIndent(), ExternalLabel("original", noticeCode[0]))
+    }
+}
