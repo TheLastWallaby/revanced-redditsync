@@ -59,15 +59,20 @@ maintainers yet; the tested route is ReVanced CLI (see
 
 The rest of this page is version history and technical detail.
 
-## v0.7.1-rc.1 candidate: retired media hosts, random subreddit and RedGifs link IDs
+## v0.7.1 retired media hosts, random subreddit and RedGifs link IDs
 
-The [v0.7.1-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.1-rc.1)
-is for phone testing. Apply it to **stock** Sync and check all patch results (22
-with Use /user/ endpoint). Stable remains v0.7.0 until the candidate passes and
-stable publication is authorized. It has not been tested on a phone yet.
+The [v0.7.1 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.1)
+rebuilds the runtime code from the phone-tested
+[v0.7.1-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.1-rc.1).
+Apply it to **stock** Sync and check all patch results (22 with Use /user/ endpoint).
+
+On rc.1 the tester reported that it is all good and authorized stable
+publication; only an overall result was given for the five numbered checks
+(dead-host link cards, other media, random entries, NSFW in the browser, general
+regressions). See `validation-phone-tests.json`.
 
 It adds three selectable patches, described under
-[Included patches](#included-patches--cumulative-v070):
+[Included patches](#included-patches--cumulative-v071):
 
 - **Sync: skip retired media hosts**
   ([issue #57](https://github.com/TheLastWallaby/revanced-redditsync/issues/57)):
@@ -933,16 +938,16 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Stable v0.7.0 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.0)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.0/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.0/sync-gallery-comments-compat-v0.7.0-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.0/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.0/build-info.json)
+- [Stable v0.7.1 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.1)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.1/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.1/sync-gallery-comments-compat-v0.7.1-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.1/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.1/build-info.json)
+- [Archived v0.7.1-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.1-rc.1)
+- [Previous stable v0.7.0](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.0)
 - [Archived v0.7.0-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.0-rc.1)
 - [Previous stable v0.6.14](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.14)
   (needs an APK already patched with the official ReVanced Sync patches)
-- [Archived v0.6.14-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.14-rc.1)
-- [Previous stable v0.6.13](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.13)
 
 For unpublished changes, download the `patch-bundle-<run>-<attempt>` artifact from
 the PR's passing [CI run](https://github.com/TheLastWallaby/revanced-redditsync/actions/workflows/ci.yml).
@@ -982,7 +987,7 @@ Releases up to v0.6.14 instead needed two passes: the official ReVanced Sync
 patches first, then this bundle on that output
 ([issue #70](https://github.com/TheLastWallaby/revanced-redditsync/issues/70)).
 
-## Included patches — cumulative v0.7.0
+## Included patches — cumulative v0.7.1
 
 Official ReVanced Sync patches, ported for build 23033 (see
 [v0.7.0](#v070-one-pass-patching-from-stock-sync-issue-70)): **Spoof client**,
@@ -1031,8 +1036,7 @@ This bundle's own patches:
   RedGifs rejects the base's cached one and retries that request once, as
   described above.
 
-New in the [v0.7.1-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.1-rc.1)
-(not stable yet; see [above](#v071-rc1-candidate-retired-media-hosts-random-subreddit-and-redgifs-link-ids)):
+New in [v0.7.1](#v071-retired-media-hosts-random-subreddit-and-redgifs-link-ids):
 
 - **Sync: fix RedGifs link IDs** reads the RedGifs video ID from links with a
   slash before their query or fragment, such as `redgifs.com/watch/<id>/?92`.
@@ -1043,7 +1047,7 @@ New in the [v0.7.1-rc.1 candidate](https://github.com/TheLastWallaby/revanced-re
   Sync reads them; links Sync already read correctly give the same ID.
   `RedgifsLinkPatchTest` runs the reader before and after the patch (a
   hand-written model of it in CI, and Sync's real method locally).
-  Not tested on a phone.
+  The rc.1 phone checks did not include such a link.
 - **Sync: skip retired media hosts**
   ([issue #57](https://github.com/TheLastWallaby/revanced-redditsync/issues/57))
   shows links to shut-down media services as ordinary link cards that open the
@@ -1077,7 +1081,8 @@ New in the [v0.7.1-rc.1 candidate](https://github.com/TheLastWallaby/revanced-re
   applies the patch and executes the classifiers, post-type and image-URL
   helpers and request constructors before and after it, and walks the media
   part of Sync's link router (`LinkHelper`, `y7.b.c`) with them: on hand-written
-  models in CI, and on Sync's real methods locally. Not tested on a phone.
+  models in CI, and on Sync's real methods locally. The tester reported the
+  rc.1 phone checks as an overall pass.
 - **Sync: hide random subreddit**
   ([issue #54](https://github.com/TheLastWallaby/revanced-redditsync/issues/54)).
   Reddit retired its random subreddit. Sync 23033 still offered it, and every
@@ -1104,7 +1109,8 @@ New in the [v0.7.1-rc.1 candidate](https://github.com/TheLastWallaby/revanced-re
   stand-ins for Android and Sync's services that record what Sync asks for:
   stock Sync opens the sheet and queues `RandomRequest`; the patched entries
   show the message or are hidden, and nothing is queued. It runs on hand-written
-  models in CI, and passed on Sync's real methods locally. Not tested on a phone.
+  models in CI, and passed on Sync's real methods locally. The tester reported
+  the rc.1 phone checks as an overall pass.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
@@ -1124,7 +1130,7 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
    with the official ReVanced Sync patches.)
 2. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
    and apply the default patches: the eight ported official patches except Use
-   /user/ endpoint, plus this bundle's eleven. Set Spoof client's
+   /user/ endpoint, plus this bundle's fourteen. Set Spoof client's
    `OAuth client ID` (and `Redirect URI`/`User-Agent` if needed). Check that
    each patch reports success.
 3. Sign the result with your own keystore. Matching the key used by your current
@@ -1146,7 +1152,7 @@ java -jar revanced-cli-6.0.0-all.jar patch \
   -p output/patches.rvp -b \
   -O "OAuth client ID=your-reddit-client-id" -e "Spoof client" \
   --keystore your-signing-key.keystore \
-  -o Sync-v23.06.30-compat-v0.7.0.apk \
+  -o Sync-v23.06.30-compat-v0.7.1.apk \
   Sync-v23.06.30-stock.apk
 ```
 
@@ -1287,6 +1293,9 @@ result was given.
 Stable v0.7.0 rebuilds the v0.7.0-rc.1 runtime code after the tester reported
 all ten one-pass checks looking good and authorized promotion; only an overall
 result was given.
+Stable v0.7.1 rebuilds the v0.7.1-rc.1 runtime code after the tester reported
+the five retired-host, random-subreddit and regression checks as all good and
+authorized promotion; only an overall result was given.
 These are checks of the supplied cases, not exhaustive Android/live Reddit tests.
 This standalone bundle does not represent a full upstream Gradle build.
 

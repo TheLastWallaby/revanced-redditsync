@@ -2,6 +2,21 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.7.1",
+      "tested_release": "v0.7.1-rc.1",
+      "results": {
+        "overall": "passed: the tester replied \"All good, promote\"; no individual results were given for the five numbered checks (dead-host link shows a link card and opens the original URL; Imgur, RedGifs, Reddit video and galleries still load; random entries hidden or show the message; NSFW post or subreddit in the browser as before; share links, link normalization and comment media regressions)"
+      },
+      "promotion": "Stable v0.7.1 rebuilds the same runtime patch and extension source as the tested v0.7.1-rc.1 candidate, built from stock Sync 23033 by the private builder with all 22 patches reported as succeeded. The tester replied \"All good, promote\", authorizing stable publication; candidate assets remain immutable.",
+      "unverified": [
+        "individual results for the five numbered checks",
+        "which retired hosts and which random entries were tried on the phone",
+        "RedGifs links with a slash before the query (Sync: fix RedGifs link IDs); not part of the checklist",
+        "ReVanced Manager import and one-pass patching",
+        "separate device installation of the stable rebuild"
+      ]
+    },
+    {
       "stable": "v0.7.0",
       "tested_release": "v0.7.0-rc.1",
       "results": {
