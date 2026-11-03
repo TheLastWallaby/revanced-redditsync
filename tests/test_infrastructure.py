@@ -158,6 +158,11 @@ class InfrastructureTests(unittest.TestCase):
         # The android.content.ContentValues stand-in is not a suite.
         self.assertNotIn("android.content.ContentValues", tests)
 
+    def test_messaging_suites_are_discovered(self):
+        tests = discover_java_tests(ROOT / "tests")
+        self.assertIn("app.revanced.extension.synccompat.MessagingHandoffTest", tests)
+        self.assertIn("MessagingHandoffPatchTest", tests)
+
     def test_comment_request_suites_are_discovered(self):
         tests = discover_java_tests(ROOT / "tests")
         self.assertIn("BatchCommentsTest", tests)

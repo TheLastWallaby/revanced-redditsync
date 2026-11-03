@@ -59,6 +59,29 @@ maintainers yet; the tested route is ReVanced CLI (see
 
 The rest of this page is version history and technical detail.
 
+## v0.7.5-rc.1 candidate: poll options and Reddit Chat handoff (issues #9, #10)
+
+The [v0.7.5-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5-rc.1)
+is for phone testing. Apply it to **stock** Sync and check all patch results (28
+with Use /user/ endpoint). Stable remains v0.7.4 until the candidate passes and
+stable publication is authorized. It has not been tested on a phone yet.
+
+It adds two selectable patches, on by default, described under
+[Included patches](#included-patches--cumulative-v074):
+
+- **Sync: show poll options**
+  ([issue #9](https://github.com/TheLastWallaby/revanced-redditsync/issues/9)):
+  a poll post shows its options, closing time or "Poll closed", and the vote
+  counts Reddit provides, with **Open poll on Reddit** for voting. Voting in
+  Sync itself is not added.
+- **Sync: hand off retired messaging to Reddit Chat**
+  ([issue #10](https://github.com/TheLastWallaby/revanced-redditsync/issues/10)):
+  when Reddit refuses a new private message, or a reply to an old one, because
+  direct messages moved to Reddit Chat, your text is kept and Sync offers
+  **Open Reddit Chat** (and, for replies, **Open message archive**). The inbox,
+  comment replies, mentions, mark-read and message history are unchanged. Chat
+  itself is not added to Sync.
+
 ## v0.7.4 YouTube links open in the YouTube app (issue #60)
 
 The [v0.7.4 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.4)
@@ -1462,7 +1485,7 @@ New in [v0.7.4](#v074-youtube-links-open-in-the-youtube-app-issue-60):
   both orders on the stock APK locally). No phone results were reported for
   rc.1; the owner asked for stable promotion.
 
-New since v0.7.4 (not in a release yet):
+New in the [v0.7.5-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5-rc.1):
 
 - **Sync: show poll options**
   ([issue #9](https://github.com/TheLastWallaby/revanced-redditsync/issues/9)),
@@ -1530,6 +1553,83 @@ New since v0.7.4 (not in a release yet):
   `PatchInteractionTest` applied all 27 patches to the stock APK in both name
   orders with identical results (the parser is also changed by the inline
   media, comment video and award patches). Not yet checked on a phone.
+
+- **Sync: hand off retired messaging to Reddit Chat**
+  ([issue #10](https://github.com/TheLastWallaby/revanced-redditsync/issues/10)),
+  on by default. Reddit's help pages call Chat "the home for direct messaging"
+  and say old private messages are archived read-only: they "cannot be replied
+  to", only deleted, reported or copied
+  ([How to use Reddit Chat](https://support.reddithelp.com/hc/en-us/articles/39411701270036-How-to-use-Reddit-Chat),
+  [private message archive](https://support.reddithelp.com/hc/en-us/articles/39673186812564-Accessing-existing-private-messages-private-message-archive),
+  both read on 2026-11-03). Sync 23033's messaging, and what the patch does:
+
+  | Action | Sync code | Route | Reddit now (public sources) | With the patch |
+  |---|---|---|---|---|
+  | Inbox, unread, messages, comment and post replies, mentions, sent | `OAuthMessagesRequest` (`y8.a0`) | `message/inbox`, `unread`, `messages`, `comments`, `selfreply`, `mentions`, `sent` `.json` | Works: RedReader 1.27 (Sept 2026) reads the inbox; `message/messages` briefly redirected OAuth clients to the login page and Reddit fixed it ([PRAW #2081](https://github.com/praw-dev/praw/issues/2081), Sept 2025) | Unchanged |
+  | Unread check for notifications | `OAuthNewMessagesRequest` (`y8.g0`) | `message/unread.json?mark=false` | Works (same listing) | Unchanged |
+  | Moderator mail | `OAuthNewModMailRequest` (`y8.h0`); `y8.a0` `moderator`, `moderator/unread` | `message/moderator…` | Not confirmed by a public source (needs a phone check) | Unchanged |
+  | Mark one read / all read | `OAuthMarkMessageRequest` (`y8.x`) / `OAuthMarkAllMessagesViewedRequest` (`y8.w`) | `api/read_message` / `api/read_all_messages` | Works: RedReader added both on 2026-09-15 ("there is no longer a public API for marking an item as unread"; Sync has no mark-unread action) | Unchanged |
+  | Delete a message, block a user | `OAuthDeleteMessageRequest` (`y8.i`), `OAuthBlockRequest` (`y8.d`) | `api/del_msg`, `api/block_user` | Archived messages "can be deleted" (Reddit Help); API not confirmed | Unchanged |
+  | Reply to a comment or post (editor, inbox, notification reply) | `OAuthCommentRequest` (`y8.e`), types 0 and 1 | `api/comment` (`t3_`, `t1_`) | Works | Unchanged |
+  | **New private message** | `EditFragment.f4` → `OAuthMessageRequest` (`y8.z`) | `api/compose` | **Refused** with `RESTRICTED_TO_PM`: "User doesn't accept direct messages. Try sending a chat request instead." ([RES #5575](https://github.com/honestbleeps/Reddit-Enhancement-Suite/issues/5575); RES removed its compose feature on 2026-11-02, [RES #5723](https://github.com/honestbleeps/Reddit-Enhancement-Suite/pull/5723), because it "no longer works on Reddit") | Chat handoff for that answer only |
+  | **Reply to a private message** (editor or notification reply) | `EditFragment.f4`, `MessageReplyReceiver` → `y8.e`, type 2 | `api/comment` (`t4_`) | Archived messages "cannot be replied to"; Reddit's API answer is not documented (needs a phone check) | Chat handoff only if Reddit answers `RESTRICTED_TO_PM`; any other answer keeps Sync's notification |
+  | Message to a subreddit's moderators (to `/r/name`) | `y8.z` | `api/compose` | `to=/r/name` fails with `USER_DOESNT_EXIST`, `to=r/name` works ([PRAW #2092](https://github.com/praw-dev/praw/issues/2092), Dec 2025) | Unchanged (Sync shows Reddit's message); not part of this change |
+
+  **New message refused.** Sync's editor stays open with your text (as Sync
+  already does on an error) and a dialog replaces Sync's toast: "Message not
+  sent. Reddit now sends direct messages through Reddit Chat. Your message is
+  still here, so you can copy it into a chat." with **Open Reddit Chat** and
+  **Close**.
+
+  **Reply refused.** Sync closes the editor as soon as you send a reply and,
+  unlike for comment replies, saves no draft. With the patch the reply is saved
+  as one of Sync's editor drafts ("Draft saved"; Sync offers it the next time an
+  editor opens), a toast says "Reddit now sends direct messages through Reddit
+  Chat. Old private messages are read-only. Your reply was saved as a draft.",
+  and Sync's "Error submitting message" notification says the same, with **Open
+  Reddit Chat** and **Open message archive** instead of a **Retry** that Reddit
+  would refuse again.
+
+  - **Addresses:** `https://www.reddit.com/chat` and, for the archive,
+    `https://www.reddit.com/notifications`: Reddit Help says the archive is "in
+    the notifications inbox" (the archive icon at its top) and gives no direct
+    link (**needs a phone check**). Both are fixed HTTPS addresses opened with
+    Android's normal `ACTION_VIEW`, so the Reddit app opens them if it is
+    installed and set to open Reddit links, otherwise the browser. If Sync itself
+    would receive the link (it claims every `www.reddit.com` path when you
+    enable its supported links), a browser is asked instead.
+  - **Only that answer.** The handoff starts only for Reddit's `json.errors`
+    entry `RESTRICTED_TO_PM` (also with an error status), on these two routes.
+    Messages that send, other Reddit errors (wrong user, rate limit, captcha,
+    deleted parent), network failures, a rejected sign-in (HTTP 401, which Sync
+    refreshes), rate limiting (429) and server errors (5xx) keep Sync's handling.
+  - **Not added:** Reddit Chat in Sync. Reddit's documented API has no Chat
+    endpoints ([RedReader #1279](https://github.com/QuantumBadger/RedReader/issues/1279)).
+  - Nothing is logged, and no message text goes anywhere but where Sync already
+    sent it.
+
+  **How.** Five small hooks, each checked against build 23033 first: the start
+  of `OAuthMessageRequest.parseNetworkResponse` turns the refusal into a
+  handoff error; the editor's send-message error listener (`EditFragment$d`)
+  shows the dialog after Sync dismisses its progress dialog; in
+  `OAuthCommentRequest`, the parser's report of `json.errors` and
+  `parseNetworkError` note a refused message reply, and its notification
+  method `d` saves the draft, changes the text, drops Retry and adds the two
+  actions. The image upload patch also edits that parser and error handler;
+  both patches give the same result in either order.
+
+  `MessagingHandoffTest` serves Reddit's answers from a loopback server (with a
+  test-only token): the refusal for both routes, sent messages and replies,
+  other Reddit errors, comment replies and edits, network failures, 401, 403,
+  429, 500 and 503, malformed and oversized answers, the fixed HTTPS addresses
+  and when a browser is asked. `MessagingHandoffPatchTest` runs Sync's compose
+  parser, the editor's error listener, the reply parser, network error handler
+  and notification before and after the patch: on hand-written models in CI,
+  and on Sync's real methods locally. `PatchInteractionTest` applied all 28
+  patches to the stock APK in both name orders with identical results. Not yet
+  checked on a phone, and no message was sent from a real account: whether
+  Reddit refuses every new message this way for Sync's client, and what it
+  answers to a reply, need the phone checks.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
