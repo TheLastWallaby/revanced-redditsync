@@ -1620,6 +1620,41 @@ New in [v0.7.5](#v075-poll-options-and-reddit-chat-handoff-issues-9-10):
   old archived message, comment replies from the inbox, mark read and
   moderator mail.
 
+New since v0.7.5 (not in a release yet):
+
+- **Sync: don't report Amazon links**
+  ([issue #101](https://github.com/TheLastWallaby/revanced-redditsync/issues/101)),
+  on by default. Every link in a post body or comment is a `CustomUrlSpan`
+  (`mb.d`). When you tapped one containing `amazon.com/` and `/dp/` (a product
+  page), its `onClick` first queued `AmazonAnalyticsRequest` (`e7.e`): a POST of
+  the whole link, as the form field `url`, to
+  `https://us-central1-ad-server-f1010.cloudfunctions.net/add`, Sync's former
+  ad backend. Nothing switched it off: not Sync Ultra, not the ads check that
+  **Disable ads** turns off, not Sync's crash-reporting switch. The request
+  carried no Reddit token, but it did send the link (which can include search
+  or referral text) and your IP address. Sync never added an affiliate tag to
+  the link, so the report did nothing for you.
+
+  With the patch, `onClick` no longer builds or queues that request; the link
+  then opens exactly as before, through Sync's link router. As a backstop,
+  `AmazonAnalyticsRequest`'s own address is `sync-compat-disabled:amazon`, a
+  non-network URL that Sync's network stack rejects before connecting, as for
+  the retired-host requests above. Not changed: every other part of
+  `onClick` (flair, code, settings and table links, the AMP bypass, Reddit and
+  other links), Amazon links that aren't product pages (which Sync never
+  reported) and how Amazon links open.
+
+  `AmazonLinkPatchTest` taps links through `onClick` before and after the patch,
+  with a recording request queue and link router: before, each Amazon product
+  link queues the POST with the link and then opens; after, nothing is queued
+  and the same link opens. Amazon search and other-country links, Reddit,
+  image, YouTube, Imgur, profile, flair and table taps give the same result
+  both times. It also checks that only the five report instructions are
+  removed and only the request's address changes: on hand-written models in
+  CI, and on Sync's real methods locally. `PatchInteractionTest` applied all
+  29 patches to the stock APK in both name orders with identical results.
+  Not checked on a phone or with a traffic capture.
+
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
 comment listings. A more marker, unrelated comment, wrong post, unknown shape,
