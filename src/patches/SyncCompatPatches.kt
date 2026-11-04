@@ -2732,7 +2732,38 @@ val showSyncPollOptions = bytecodePatch(
             !branchesBack && !targeted &&
             listOf("selftext", "selftext_raw", "selftext_processed").all { s -> code.any { it.stringValue() == s } },
             "Sync post parser")
+
+        // LinkHelper.c (y7.b.c) opens any reddit.com/poll/ link with LinkHandler.W, a Custom Tab. Reddit
+        // redirects the poll address to the post, and Chrome hands a Custom Tab redirect that Sync can
+        // handle back to Sync, so the poll link reopened the post in Sync. The branch is
+        // `const-string vX, "Was poll"`, the log call, `invoke-static {context, link}, W`, `return vY`.
+        val helper = proxy(classes.singleOrNull { it.type == LINK_HELPER && it.sourceFile == "LinkHelper.java" }
+            ?: throw PatchException("Expected Sync LinkHelper was not found. This patch targets build 23033 only.")).mutableClass
+            .methods.singleOrNull {
+                it.name == "c" && it.returnType == "Z" && it.parameterTypes.map { p -> p.toString() } ==
+                    listOf("Landroid/content/Context;", "[Lr0/d;") + List(5) { "Ljava/lang/String;" } + listOf("Z", "Z", "Z")
+            } ?: throw PatchException("Unsupported Sync LinkHelper entry. This patch targets build 23033 only.")
+        val route = helper.implementation!!.instructions
+        val marker = route.singleIndex("poll link branch") { route[it].stringValue() == "Was poll" }
+        val scratch = route[marker].registerA()!!
+        val open = route.getOrNull(marker + 2) as? FiveRegisterInstruction
+        val done = route.getOrNull(marker + 3)
+        fun targeted(i: Int) = route.any { it is BuilderOffsetInstruction && it.target.location.instruction === route[i] }
+        layout(scratch < 16 && route.getOrNull(marker + 1)?.methodRef()?.let { it.definingClass == "Lwc/i;" && it.name == "f" } == true &&
+            (route[marker + 1] as FiveRegisterInstruction).let { it.registerCount == 2 && it.registerD == scratch } &&
+            open != null && open.methodRef()?.toString() == "$LINK_HANDLER->W(Landroid/content/Context;Ljava/lang/String;)V" &&
+            open.registerCount == 2 && open.registerC < 16 && open.registerD < 16 &&
+            open.registerC != scratch && open.registerD != scratch &&
+            done != null && done.opcode == Opcode.RETURN && !targeted(marker + 1) && !targeted(marker + 2) &&
+            route.none { it.methodRef()?.definingClass == POLL }, "Sync LinkHelper poll branch")
+
+        // All layouts verified; edit.
         parse.addInstructions(add, "invoke-static {v$values, v$data}, $POLL->apply($CONTENT_VALUES$JSON_OBJECT)V")
+        helper.addInstructionsWithLabels(marker + 2, """
+            invoke-static {v${open!!.registerC}, v${open.registerD}}, $POLL->openInBrowser(Landroid/content/Context;Ljava/lang/String;)Z
+            move-result v$scratch
+            if-nez v$scratch, :opened
+        """.trimIndent(), ExternalLabel("opened", done!!))
     }
 }
 

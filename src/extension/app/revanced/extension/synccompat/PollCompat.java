@@ -23,10 +23,15 @@ import org.json.JSONObject;
  * closing time or "Poll closed", the vote total and per-option counts only where Reddit sent
  * them, the signed-in user's choice if Reddit sent one, and an "Open poll on Reddit" link.
  *
- * <p>The link is Reddit's own poll address, {@code https://www.reddit.com/poll/<post id>}, which
- * Reddit redirects to the post. Sync's link router opens {@code reddit.com/poll/} links in a
- * browser tab ({@code LinkHandler.W}), where voting works; the post's permalink would reopen the
- * same post in Sync. It is built only from a validated post ID.
+ * <p>The link is Reddit's own poll address, {@code https://www.reddit.com/poll/<post id>}, built
+ * only from a validated post ID. Reddit redirects it to {@code https://www.reddit.com/comments/<id>},
+ * an address Sync itself handles. Sync's link router opens {@code reddit.com/poll/} links in a
+ * Custom Tab ({@code LinkHandler.W}), and Chrome hands a Custom Tab redirect that the calling app
+ * can handle back to that app ({@code ExternalNavigationHandler}, "FOR_TRUSTED_CALLER"), so the
+ * post reopened in Sync. The patch therefore sends {@code reddit.com/poll/} links to
+ * {@link #openInBrowser} first: a plain view intent aimed at the browser's package, which Chrome
+ * keeps in the browser through redirects ("Launching intent explicitly targeted the browser").
+ * Without a usable browser, Sync's Custom Tab opens the link as before.
  *
  * <p>Option text is Reddit's text (HTML-escaped by Reddit, decoded as Sync decodes its own text)
  * escaped again for HTML, so it can't add tags, Markdown or links. Without {@code poll_data}, or
@@ -68,6 +73,98 @@ public final class PollCompat {
             values.put(PROCESSED, text == null || text.isEmpty() ? block : text + block);
         } catch (RuntimeException unexpected) {
             // The post keeps Sync's own values.
+        }
+    }
+
+    /** Finds and starts the browser; replaced in tests. */
+    interface Browser {
+        /** The package that opens an ordinary web link, or null. */
+        String defaultBrowser(android.content.Context context);
+
+        /** Packages offering a Custom Tabs service (Sync's manifest may see these). */
+        List<String> customTabBrowsers(android.content.Context context);
+
+        /** Sync's own package. */
+        String ownPackage(android.content.Context context);
+
+        void open(android.content.Context context, String url, String browserPackage);
+    }
+
+    static Browser browser = new AndroidBrowser();
+    static int maxUrl = 2048;
+
+    /**
+     * Opens a {@code reddit.com/poll/} link in the browser, outside Sync. Returns false, so Sync
+     * opens it as before, for a non-web link or when no browser other than Sync can be found or
+     * started. Never throws.
+     */
+    public static boolean openInBrowser(android.content.Context context, String url) {
+        try {
+            if (context == null || url == null || url.length() > maxUrl) return false;
+            String lower = url.toLowerCase(Locale.ROOT);
+            if (!lower.startsWith("https://") && !lower.startsWith("http://")) return false;
+            String target = chooseBrowser(browser.defaultBrowser(context), browser.customTabBrowsers(context),
+                    browser.ownPackage(context));
+            if (target == null) return false;
+            browser.open(context, url, target);
+            return true;
+        } catch (RuntimeException unavailable) {
+            return false;
+        }
+    }
+
+    /**
+     * The default browser when it is a real browser (one with a Custom Tabs service, if any are
+     * visible), otherwise the first visible Custom Tabs browser; never Sync or the system chooser.
+     */
+    static String chooseBrowser(String preferred, List<String> customTabs, String ownPackage) {
+        boolean known = false;
+        if (customTabs != null) for (String p : customTabs) if (usableBrowser(p, ownPackage)) known = true;
+        if (usableBrowser(preferred, ownPackage) && (!known || customTabs.contains(preferred))) return preferred;
+        if (customTabs != null) for (String p : customTabs) if (usableBrowser(p, ownPackage)) return p;
+        return null;
+    }
+
+    private static boolean usableBrowser(String browserPackage, String ownPackage) {
+        return browserPackage != null && !browserPackage.isEmpty() && !browserPackage.equals(ownPackage) &&
+                !browserPackage.equals("android");
+    }
+
+    private static final class AndroidBrowser implements Browser {
+        @Override
+        public String defaultBrowser(android.content.Context context) {
+            android.content.Intent probe = new android.content.Intent(android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse("https://www.example.com/"));
+            probe.addCategory(android.content.Intent.CATEGORY_BROWSABLE);
+            android.content.pm.ResolveInfo match = context.getPackageManager().resolveActivity(probe,
+                    android.content.pm.PackageManager.MATCH_DEFAULT_ONLY);
+            return match == null || match.activityInfo == null ? null : match.activityInfo.packageName;
+        }
+
+        @Override
+        public List<String> customTabBrowsers(android.content.Context context) {
+            List<String> packages = new ArrayList<>();
+            List<android.content.pm.ResolveInfo> services = context.getPackageManager().queryIntentServices(
+                    new android.content.Intent("android.support.customtabs.action.CustomTabsService"), 0);
+            if (services != null) for (android.content.pm.ResolveInfo service : services) {
+                if (service != null && service.serviceInfo != null) packages.add(service.serviceInfo.packageName);
+            }
+            return packages;
+        }
+
+        @Override
+        public String ownPackage(android.content.Context context) {
+            return context.getPackageName();
+        }
+
+        @Override
+        public void open(android.content.Context context, String url, String browserPackage) {
+            android.content.Intent view = new android.content.Intent(android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse(url));
+            view.addCategory(android.content.Intent.CATEGORY_BROWSABLE);
+            view.setPackage(browserPackage);
+            if (!(context instanceof android.app.Activity)) view.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(view);
         }
     }
 
