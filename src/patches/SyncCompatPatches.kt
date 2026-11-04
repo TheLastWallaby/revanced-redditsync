@@ -3043,6 +3043,56 @@ val stopSyncAmazonLinkReports = bytecodePatch(
     }
 }
 
+private const val IMAGE_SEARCH = "Lapp/revanced/extension/synccompat/ImageSearch;"
+private const val IMAGE_VIEWER = "Lcom/laurencedawson/reddit_sync/ui/fragments/ImageViewerFragment;"
+private const val IMAGE_SEARCH_ADDRESS = "https://images.google.com/searchbyimage?image_url="
+
+val fixSyncImageSearch = bytecodePatch(
+    name = "Sync: fix image search",
+    description = "Make the full-screen image viewer's search button open Google Lens for the image, with its URL " +
+        "encoded, instead of Google's retired searchbyimage address (HTTP 404).",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        // ImageViewerFragment.onSearchCliced, bound by ButterKnife to the viewer's image_link_search
+        // button: LinkHandler.X(B0(), "https://images.google.com/searchbyimage?image_url=" + u0),
+        // where u0 is the image URL, appended unencoded. LinkHandler.X is a plain ACTION_VIEW.
+        val viewer = proxy(classes.singleOrNull { it.type == IMAGE_VIEWER && it.sourceFile == "ImageViewerFragment.java" }
+            ?: throw PatchException("Expected Sync ImageViewerFragment was not found. This patch targets build 23033 only.")).mutableClass
+        val search = viewer.methods.singleOrNull {
+            it.name == "onSearchCliced" && it.returnType == "V" && it.parameterTypes.isEmpty() && !AccessFlags.STATIC.isSet(it.accessFlags)
+        } ?: throw PatchException("Unsupported Sync image search button.")
+        val code = search.implementation!!.instructions
+        if (code.any { it.methodRef()?.definingClass == IMAGE_SEARCH }) throw PatchException("Image search fix is already installed.")
+        val image = "$IMAGE_VIEWER->u0:Ljava/lang/String;"
+        val reads = code.count {
+            it.opcode == Opcode.IGET_OBJECT && (it as ReferenceInstruction).reference.toString() == image &&
+                (it as TwoRegisterInstruction).registerB == search.implementation!!.registerCount - 1
+        }
+        val activity = "Landroidx/fragment/app/Fragment;->B0()Landroidx/fragment/app/FragmentActivity;"
+        layout(search.implementation!!.registerCount == 4 && search.implementation!!.tryBlocks.isEmpty() &&
+            code.count { it.stringValue() == IMAGE_SEARCH_ADDRESS } == 1 && reads == 1 &&
+            code.count { it.methodRef()?.toString() == OPEN_EXTERNALLY } == 1 &&
+            code.firstOrNull()?.methodRef()?.toString() == activity &&
+            code.none { it is BuilderOffsetInstruction } && code.last().opcode == Opcode.RETURN_VOID,
+            "Sync image search button")
+
+        // All layouts verified; edit. An http(s) image URL opens Google Lens through the same
+        // LinkHandler.X; anything else keeps Sync's address. p0 is the fragment; v0-v2 are free.
+        search.addInstructionsWithLabels(0, """
+            iget-object v0, p0, $image
+            invoke-static {v0}, $IMAGE_SEARCH->lensUrl(Ljava/lang/String;)Ljava/lang/String;
+            move-result-object v1
+            if-eqz v1, :original
+            invoke-virtual {p0}, $activity
+            move-result-object v0
+            invoke-static {v0, v1}, $OPEN_EXTERNALLY
+            return-void
+        """.trimIndent(), ExternalLabel("original", code[0]))
+    }
+}
+
 private const val PEEK = "Lapp/revanced/extension/synccompat/ImagePeekCompat;"
 private const val PEEK_DIALOG = "Lcom/laurencedawson/reddit_sync/ui/fragment_dialogs/ImagePeekDialogFragment;"
 private const val PEEK_LAYOUT = "Lcom/laurencedawson/reddit_sync/ui/fragment_dialogs/ImagePeekDialogFragment\$f;"

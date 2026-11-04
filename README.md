@@ -1654,6 +1654,37 @@ New since v0.7.5 (not in a release yet):
   CI, and on Sync's real methods locally. `PatchInteractionTest` applied all
   29 patches to the stock APK in both name orders with identical results.
   Not checked on a phone or with a traffic capture.
+- **Sync: fix image search**
+  ([issue #102](https://github.com/TheLastWallaby/revanced-redditsync/issues/102)),
+  on by default. The search button in the full-screen image viewer
+  (`image_link_search`, `ImageViewerFragment.onSearchCliced`) opened
+  `https://images.google.com/searchbyimage?image_url=` with the image URL
+  appended as it was, through `LinkHandler.X` (`y7.a.X`, a plain `ACTION_VIEW`).
+  Google now answers that address with HTTP 404, and because the URL wasn't
+  encoded, Google would have received only the part before its first `&`,
+  which for Reddit's signed `preview.redd.it` links (gallery images, for
+  example) drops the signature.
+
+  With the patch the button opens Google Lens'
+  `https://lens.google.com/uploadbyurl?url=<image URL>` through the same
+  `LinkHandler.X`, with the image URL percent-encoded as one value (UTF-8;
+  only letters, digits and `-._~` stay as they are), so Lens receives it byte
+  for byte. Only `http`/`https` URLs with a host are passed this way; anything
+  else keeps Sync's address. Privacy is unchanged: as before, Google receives
+  the image's URL, only when you tap the button. Not changed: the other viewer
+  buttons and how the image itself loads.
+
+  `ImageSearchTest` checks the encoding of `&`, `?`, `#`, `%`, `+`, spaces and
+  non-ASCII text, that each encoded value decodes to the exact original bytes
+  (signed query included) on Lens' fixed address, and that other schemes,
+  empty or over-long input, missing hosts and control characters are refused.
+  `ImageSearchPatchTest` taps the button before and after the patch with a
+  recording `LinkHandler.X`: before, the `images.google.com` address; after,
+  the Lens address for `i.redd.it`, signed preview, Imgur and plain-HTTP
+  images, and Sync's address for non-web URLs; every other method of the viewer
+  is unchanged. It runs on a hand-written model in CI and on Sync's real
+  viewer locally. `PatchInteractionTest` applied all 30 patches to the stock
+  APK in both name orders with identical results. Not checked on a phone.
 
 - **Sync: fix image peek**, on by default. Long-pressing the thumbnail of a
   text post with a picture showed **Glide failed to grab this image**, while
@@ -1682,7 +1713,7 @@ New since v0.7.5 (not in a release yet):
   loaders before and after the patch, recording the URL Glide gets: on
   hand-written models in CI, and on Sync's real methods locally, where stock
   Sync requests the escaped thumbnail and the patched peek the body picture.
-  `PatchInteractionTest` applied all 30 patches to the stock APK in both name
+  `PatchInteractionTest` applied all 31 patches to the stock APK in both name
   orders with identical results. Not checked on a phone yet.
 
 Version 0.6 treats an ID as completed with no available comment only when both
