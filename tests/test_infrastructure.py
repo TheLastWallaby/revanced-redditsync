@@ -167,6 +167,11 @@ class InfrastructureTests(unittest.TestCase):
         tests = discover_java_tests(ROOT / "tests")
         self.assertIn("AmazonLinkPatchTest", tests)
 
+    def test_image_search_suites_are_discovered(self):
+        tests = discover_java_tests(ROOT / "tests")
+        self.assertIn("app.revanced.extension.synccompat.ImageSearchTest", tests)
+        self.assertIn("ImageSearchPatchTest", tests)
+
     def test_comment_request_suites_are_discovered(self):
         tests = discover_java_tests(ROOT / "tests")
         self.assertIn("BatchCommentsTest", tests)
