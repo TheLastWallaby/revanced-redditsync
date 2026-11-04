@@ -5,9 +5,9 @@ v23.06.30-13:39**, version code **23033**, free package
 `com.laurencedawson.reddit_sync`.
 
 One patch bundle that gets Sync working again with today's Reddit: sign-in,
-galleries, "load more comments", Reddit videos, RedGifs, share links and more.
-Since **v0.7.0** it is applied to the stock Sync APK in one pass; the official
-ReVanced Sync patches are included.
+galleries, "load more comments", Reddit videos, third-party media, share links
+and more. Since **v0.7.0** it is applied to the stock Sync APK in one pass; the
+official ReVanced Sync patches are included.
 
 This is a community bundle, not an official ReVanced release. Only the free
 Sync build above is supported; Pro/dev packages and other versions are not.
@@ -174,7 +174,7 @@ It adds two selectable patches, described under
   manifest forms, saves silent videos as video only, and says "No valid video
   files found" instead of saving a broken file. Playback is not changed.
 
-## v0.7.1 retired media hosts, random subreddit and RedGifs link IDs
+## v0.7.1 retired media hosts, random subreddit and media link IDs
 
 The [v0.7.1 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.1)
 rebuilds the runtime code from the phone-tested
@@ -199,8 +199,8 @@ It adds three selectable patches, described under
   the Random chip, actions and toggles are hidden, and random links and
   selections show "Random subreddit is no longer available from Reddit." without
   asking Reddit's retired endpoints.
-- **Sync: fix RedGifs link IDs**: RedGifs links with a slash before their query,
-  such as `redgifs.com/watch/<id>/?92`, open again.
+- A link-ID fix for a third-party video host: its links with a slash before
+  their query open again.
 
 Not changed: Sync's `old.reddit.com` handling, including its over-18 handoff.
 
@@ -228,10 +228,12 @@ code 23033) is patched in one pass:
 | Disable ads | on | Turns off Sync's ads |
 | Disable Sync for Lemmy bottom sheet | on | Skips the sign-up sheet at startup |
 | Fix /s/ links | on | Resolves Reddit share links |
-| Fix Redgifs API | on | Sends RedGifs requests with temporary tokens and Sync's User-Agent |
 | Fix post thumbnails | on | Unescapes `&amp;` in thumbnail URLs |
 | Fix video downloads | on | Saves both the video and audio track |
 | Use /user/ endpoint | off | Uses `/user/` instead of `/u/` for profile requests |
+
+The eighth, an on-by-default API fix for a third-party video host, is listed
+under [Included patches](#included-patches--cumulative-v075).
 
 **Spoof client options.** `OAuth client ID` (required), `Redirect URI` (default
 Sync's `http://redditsync/auth`; must match your Reddit app) and `User-Agent`
@@ -245,7 +247,7 @@ run twice. The Sync-specific ReVanced extension code is included unchanged excep
 for two small local changes noted in the files. ReVanced's shared extension
 (settings screens, YouTube support) is not included; small local `Logger` and
 `Utils` classes replace the parts Sync uses. Patches that build on official code
-(share links, link normalization, comment video links, RedGifs tokens) depend on
+(share links, link normalization, comment video links, video-host tokens) depend on
 the port, so ReVanced applies it first. The bundle rejects an APK that already
 contains ReVanced code; do not combine it with the official ReVanced Sync patches.
 
@@ -309,7 +311,7 @@ player and autoplay helper before and after it (HLS before, DASH after). Run wit
 the base APK path, it checks the hooks on the real methods; that was done locally
 on the checksum-verified base and is not part of CI.
 
-## v0.6.13 RedGifs full-screen lookups (issue #49)
+## v0.6.13 third-party video lookups (issue #49)
 
 The [v0.6.13 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.6.13)
 rebuilds the runtime code from the phone-tested
@@ -325,103 +327,44 @@ unsigned `v.redd.it` HLS link) is a separate, pre-existing problem this release
 does not change; v0.6.14 above addresses it. See
 `validation-phone-tests.json`.
 
-It adds the selectable **Sync: refresh RedGifs tokens** patch for
+It adds a selectable token-refresh patch, listed under
+[Included patches](#included-patches--cumulative-v075), for
 [issue #49](https://github.com/TheLastWallaby/revanced-redditsync/issues/49):
-a RedGifs preview plays, but full screen shows "Error connecting to Redgifs".
+a third-party video played in the feed preview, but full screen showed a
+connection error.
 
-**Why it happened.** In Sync 23033 every RedGifs lookup (the full-screen viewer
-`ImageViewerFragment`, the long-press peek `ImagePeekDialogFragment`,
-`DownloadMediaJob` and v0.6.6's enhanced autoplay) goes through `m8.a.e` and
-three Volley requests:
-
-1. `OAuthRedgifTokenRequest` (`t8.c`, `POST /v2/oauth/client`)
-2. `GrabIpRequest` (`t8.a`, `GET /info`, which reads the client's `remote-addr`)
-3. `GrabRedgifRequest` (`t8.b`, `GET /v2/gifs/<id>?user-addr=…` with
-   `Authorization: bearer <token>`)
-
-A failure in any of them reaches the viewer's error listener, which shows error
-40, "Error connecting to Redgifs". The feed preview that plays is Reddit's own
-preview video, not this chain. Sync's Volley `BasicNetwork` sends the requests
-through the OkHttp client built by `OkHttpHelper.k()` (`a8.a`), where the
-prepared base installs the inherited ReVanced `FixRedgifsApiPatch`. That
-interceptor answers `/v2/oauth/client` itself with a token from
-`/v2/auth/temporary`, caches it per User-Agent for 23 hours in
-`RedgifsTokenManager.tokenMap` with no invalidation, and adds it to `/info`.
-
-Two things break this:
-
-- **RedGifs retired `/info`.** On 2026-11-01 the live API answered
-  `GET https://api.redgifs.com/info` with HTTP 404, with or without a token, so
-  every full-screen lookup stopped at step 2. `/v2/auth/temporary` now reports
-  the client address itself (`addr`), and `/v2/gifs/<id>` still answers with
-  `hd`/`sd` `.mp4` links. This is what the rc.1 phone test hit.
-- **Rejected tokens.** When a bearer request fails, the inherited interceptor
-  sends it again with the same cached token. Once RedGifs stops accepting that
-  token (users report this after switching between Wi-Fi and mobile data), every
-  lookup fails until Sync's process restarts.
+**Why it happened.** Sync's full-screen viewer, long-press peek, downloads and
+v0.6.6's enhanced autoplay look these videos up with a short chain of API
+requests. The host retired one of those endpoints, and the inherited ReVanced
+fix kept resending a cached token after the host stopped accepting it, so
+lookups failed until Sync restarted.
 
 **What the patch changes.**
 
-- **`/info` answered locally.** Sync's `GET https://api.redgifs.com/info` gets
-  `{"remote-addr": "<addr>"}`, with the address from one bounded
-  `/v2/auth/temporary` request that is reused for 10 minutes. That response's
-  token also replaces the inherited cache entry, so the lookup's next steps use a
-  token issued for the current network. If no valid address can be obtained, the
-  request goes to RedGifs as before and Sync shows its usual error.
-- **Rejected tokens.** After HTTP 401 or 403 from `https://api.redgifs.com` for a
-  GET that carries a bearer token, it fetches one new temporary token and sends
-  that request once more with it. The new token replaces the inherited cache entry.
-- **Shared requests.** Only one token request runs at a time. Requests that need
-  one while it runs wait for it (up to 10 seconds) and reuse its result.
-- **Bounded.** The token request has 5-second connect and read limits, an
-  8-second limit for the whole call and a 16 KiB response limit. It follows no
-  redirects and sends only Sync's User-Agent and `Accept` (no `Authorization`, no
-  cookies). The token must be a string of at most 4096 URL-safe characters, and
-  the address an IPv4 or IPv6 literal, or they are not used.
-- **One retry, no loops.** Whatever RedGifs answers to the retry is what Sync
-  gets. If RedGifs rejects the new token too, it is marked bad and no new token
-  is requested for 30 seconds; the inherited interceptor's own resend and later
-  lookups then show Sync's normal error. A failed token request also starts that
-  30-second backoff.
-- **Untouched:** other hosts, plain HTTP, other methods, paths and statuses, and
-  the token endpoints themselves. Reddit's `Authorization` never reaches RedGifs
-  (Sync's RedGifs requests carry none), and a RedGifs token is sent only to
-  `api.redgifs.com`. **Tokens are never logged**, stored in diagnostics or
-  exported. The address goes only to Sync, which passes it to RedGifs as before.
-  The patch writes no log at all.
-- The hook is one call in `OkHttpHelper.k()`: `FixRedgifsApiPatch.install(builder)`
-  becomes `RedgifsTokenRefresh.install(builder)`, which runs the inherited install
-  and adds the new interceptor inside it, next to the network. Before editing, the
-  patch checks the inherited cache, token, interceptor and installer,
-  `GrabIpRequest`'s `/info` URL and `remote-addr` field, and every OkHttp member
-  the interceptor calls.
-- v0.6.6's enhanced autoplay is unchanged: it still uses Sync's resolver, accepts
-  only HTTPS `.mp4` results on a `redgifs.com` host, and keeps `MediaProxyCompat`'s
-  caches and failure backoff. It uses the same requests, so it benefits too.
+- The retired lookup is answered locally from one bounded token request that is
+  reused for 10 minutes; its token also replaces the inherited cached one.
+- After HTTP 401 or 403, it fetches one new token and retries that request once.
+  A second rejection, or a failed token request, starts a 30-second backoff, so
+  there are no loops.
+- Only one token request runs at a time, with connect, read and total time
+  limits, a 16 KiB response limit, no redirects and no cookies or
+  `Authorization`.
+- Untouched: other hosts, plain HTTP and other requests. Reddit's credentials
+  never reach the host. **Tokens are never logged**, stored in diagnostics or
+  exported, and the patch writes no log at all.
+- v0.6.6's enhanced autoplay is unchanged and benefits from the same fix.
 
-`RedgifsTokenRefreshTest` sends Sync's three requests through a double of the
-inherited interceptor (transcribed from the base) and the new interceptor, against
-loopback servers with test-only tokens whose `/info` answers 404 like the live
-API. It covers lookups that never reach `/info`, address reuse and expiry, a
-missing or invalid address, concurrent first lookups sharing one token request,
-401 and 403 recovery with exactly one refresh, a second rejection reaching Sync's
-error without a loop, concurrent rejections sharing one refresh, and failed,
-timed-out and unusable token responses with no repeated requests. It also checks
-that other hosts, schemes, methods, paths and statuses are untouched and that no
-token or address text reaches the output. The OkHttp classes in the tests are
-stand-ins, not OkHttp itself: they model the interceptor chain, timeouts,
-redirects and OkHttp's rule that a response must be closed before the same call
-sends again. `RedgifsTokenPatchTest` applies the patch to layout fixtures. Run
-with the base APK path, it checks the real classes; that was done locally on the
-checksum-verified base and is not part of CI.
+Tests run the requests against loopback servers with test-only tokens. They
+cover the retired endpoint, address reuse and expiry, concurrent lookups, 401
+and 403 recovery with exactly one refresh, a second rejection without a loop,
+failed and unusable token responses, and that other requests are untouched. A
+patch test applies the hook to layout fixtures; it was also run locally against
+the checksum-verified base, which is not part of CI.
 
 On rc.1 the tester reported the feed preview playing and full screen still
-showing "Error connecting to Redgifs"; see `validation-phone-tests.json`. rc.1
-contained only the token refresh, which never ran because the lookup failed at
-`/info` first.
-
-Possible follow-up, not in this change: an optional "Open RedGifs player"
-action using RedGifs' embed page (`redgifs.com/ifr/<id>`), which keeps audio.
+failing; see `validation-phone-tests.json`. rc.1 contained only the token
+refresh, which never ran because the lookup failed at the retired endpoint
+first.
 
 ## v0.6.12 no legacy Reddit endpoints (issues #48, #51, #55)
 
@@ -786,7 +729,7 @@ neither answers now: `images.syncforreddit.com` does not resolve and
 | Album link-card thumbnail in comments | `ap.syncforreddit.com/image?url=imgur-album-…` | The album's first item as a small thumbnail, looked up once in the background and loaded into the card. |
 | Website preview (Sync Ultra) and Tenor/web-page card thumbnails | `ap.syncforreddit.com/image?url=<page>` | Sync's ordinary link card. YouTube keeps its `i.ytimg.com` thumbnail. Web pages are no longer handed to the image decoder. |
 | Gfycat card thumbnail | `ap.syncforreddit.com/image?url=<gfycat link>` | The link card. Gfycat shut down. |
-| Enhanced autoplay: RedGifs | `ap.syncforreddit.com/image?url=redgifs-…` | Sync's own RedGifs resolver (with the base's RedGifs fix), then the RedGifs video. Errors and unexpected results use Sync's ordinary autoplay source. |
+| Enhanced autoplay: third-party video host | `ap.syncforreddit.com/image?url=…` | Sync's own resolver for that host (with the base's fix for it), then the video. Errors and unexpected results use Sync's ordinary autoplay source. |
 | Enhanced autoplay: Gfycat | `ap.syncforreddit.com/image?url=gfycat-…` | Sync's ordinary autoplay source, or no autoplay when there is none. |
 
 - Imgur requests use fixed HTTPS Imgur hosts and validated IDs, current
@@ -795,19 +738,19 @@ neither answers now: `images.syncforreddit.com` does not resolve and
   extensions. The cover lookup follows no redirects and sends no cookies or
   credentials. Sync's album requests keep their existing `sync_for_reddit`
   User-Agent and send no Reddit authorization.
-- RedGifs results are used only when they are HTTPS `.mp4` links on a
-  `redgifs.com` host. The RedGifs token stays inside Sync's RedGifs requests.
+- Third-party video results are used only when they are HTTPS `.mp4` links on
+  that host's domain. Its token stays inside Sync's own requests to it.
 - Not changed: Sync's `ap.syncforreddit.com/stats.json` and
   `todo.syncforreddit.com` icon/licence links, which are not media proxies.
 
 `MediaProxyCompatTest` covers the ID parsing, the adapted album and item
-responses, album covers, website and Gfycat fallbacks, RedGifs autoplay and a
+responses, album covers, website and Gfycat fallbacks, third-party video autoplay and a
 loopback HTTP server (redirects, size limit, no cookies or credentials). The
 parsers were also run against 39 live Imgur album embed pages (278 items, all
 matching Imgur's own counts) and live single-item pages. The tester reported
 running every check on the v0.6.6-rc.1 phone checklist (Imgur albums and
-gallery links, album link-card thumbnails, website/YouTube link cards, RedGifs
-enhanced autoplay and the gallery/comment-media regression check) and approved
+gallery links, album link-card thumbnails, website/YouTube link cards,
+third-party video enhanced autoplay and the gallery/comment-media regression check) and approved
 stable promotion; see `validation-phone-tests.json`. This is phone confirmation
 for the tested posts, not exhaustive Android or live-service coverage.
 
@@ -1160,7 +1103,7 @@ This bundle's own patches:
   RedGifs rejects the base's cached one and retries that request once, as
   described above.
 
-New in [v0.7.1](#v071-retired-media-hosts-random-subreddit-and-redgifs-link-ids):
+New in [v0.7.1](#v071-retired-media-hosts-random-subreddit-and-media-link-ids):
 
 - **Sync: fix RedGifs link IDs** reads the RedGifs video ID from links with a
   slash before their query or fragment, such as `redgifs.com/watch/<id>/?92`.
@@ -1850,7 +1793,7 @@ Stable v0.6.12 rebuilds the v0.6.12-rc.1 runtime code after the tester reported
 load-more and regression checks passing and authorized promotion; two checks were
 not tested and the awards sheets were not reachable on the phone.
 Stable v0.6.13 rebuilds the v0.6.13-rc.2 runtime code after the tester reported
-the RedGifs fix looking good and authorized promotion; only an overall result
+the video lookup fix looking good and authorized promotion; only an overall result
 was given.
 Stable v0.6.14 rebuilds the v0.6.14-rc.1 runtime code after the tester reported
 Reddit video playback looking good and authorized promotion; only an overall
