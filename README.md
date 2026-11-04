@@ -1655,6 +1655,36 @@ New since v0.7.5 (not in a release yet):
   29 patches to the stock APK in both name orders with identical results.
   Not checked on a phone or with a traffic capture.
 
+- **Sync: fix image peek**, on by default. Long-pressing the thumbnail of a
+  text post with a picture showed **Glide failed to grab this image**, while
+  the feed thumbnail and the opened post showed the picture. Reddit gives such
+  a post no `preview` block, only a thumbnail that is itself a signed
+  `preview.redd.it` link (`?width=140&height=140&crop=…&s=…`). Sync asks for
+  Reddit's default JSON (no `raw_json`, issue #55), so it stores that link
+  with `&amp;` in place of each `&`. Reddit signs the whole query and refuses
+  the escaped form (403). The bundled **Fix post thumbnails** port undoes the
+  escaping in the feed's image loader, but the peek
+  (`ImagePeekDialogFragment`) hands the stored string to Glide itself. Older
+  `b.thumbs.redditmedia.com` thumbnails had no query string, so stock Sync
+  never needed to.
+
+  With the patch, the peek's picture and GIF loaders (`V3`, `U3`) undo the
+  escaping for every post type. For a text post, the peek shows the post
+  body's own link to the same picture (matched by Reddit's media ID): the
+  full-size signed link the opened post loads, instead of the 140px
+  thumbnail. Links Sync's body parser extended with `&height=`, unsigned
+  `preview.redd.it` links and video renditions are not used; the thumbnail is
+  then shown. Not changed: what the feed shows, the opened post, and the
+  peek's other routes (videos, albums, GIF hosts).
+
+  `ImagePeekCompatTest` checks the URL choice. `ImagePeekPatchTest`
+  long-presses text posts through the peek's layout listener and calls both
+  loaders before and after the patch, recording the URL Glide gets: on
+  hand-written models in CI, and on Sync's real methods locally, where stock
+  Sync requests the escaped thumbnail and the patched peek the body picture.
+  `PatchInteractionTest` applied all 30 patches to the stock APK in both name
+  orders with identical results. Not checked on a phone yet.
+
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
 comment listings. A more marker, unrelated comment, wrong post, unknown shape,
