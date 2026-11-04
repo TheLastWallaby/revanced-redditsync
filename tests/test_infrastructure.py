@@ -172,6 +172,14 @@ class InfrastructureTests(unittest.TestCase):
         self.assertIn("app.revanced.extension.synccompat.ImageSearchTest", tests)
         self.assertIn("ImageSearchPatchTest", tests)
 
+    def test_notification_permission_suites_are_discovered(self):
+        tests = discover_java_tests(ROOT / "tests")
+        self.assertIn("app.revanced.extension.synccompat.NotificationPermissionTest", tests)
+        self.assertIn("NotificationPermissionPatchTest", tests)
+        # The shared phone stand-in and Sync's PreferencesHelper adapter are not suites.
+        self.assertNotIn("app.revanced.extension.synccompat.NotificationPermissionDevice", tests)
+        self.assertNotIn("t7.z", tests)
+
     def test_comment_request_suites_are_discovered(self):
         tests = discover_java_tests(ROOT / "tests")
         self.assertIn("BatchCommentsTest", tests)
