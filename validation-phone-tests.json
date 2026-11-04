@@ -2,6 +2,21 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "tested_release": "v0.7.5-rc.1",
+      "results": {
+        "1": "failed: tapping \"Open poll on Reddit\" on an open poll reopened the post in Sync (reported \"Reopens in sync\") instead of Reddit's poll page; whether the options and closing time showed was not reported. Cause found in Sync and Chromium code: Sync opens reddit.com/poll/ links in a Custom Tab, Reddit 301-redirects the poll address to https://www.reddit.com/comments/<id>, which Sync's manifest claims, and Chrome lets a Custom Tab hand such a redirect back to the app that opened it. v0.7.5-rc.2 sends poll links to the browser's package instead",
+        "2": "not reported (closed poll)",
+        "3": "passed: an ordinary text post looks as before (reported \"Yes\")",
+        "4": "not done: the tester found no place to see messages (\"I don't see any area to see messages\"). Sync 23033's Inbox button is an optional action, off by default (actions_messaging); the patch does not change it. Turn it on under Action visibility > Inbox",
+        "5-9": "not reported (inbox reply, mark read, new message, reply to an old message, moderator mail); they depend on the inbox in check 4"
+      },
+      "unverified": [
+        "whether poll options, closing time and counts showed on the phone",
+        "the closed-poll check",
+        "every messaging check (inbox, replies, mark read, new message, reply to an old message, moderator mail)"
+      ]
+    },
+    {
       "stable": "v0.7.4",
       "tested_release": "v0.7.4-rc.1",
       "results": {

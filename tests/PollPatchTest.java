@@ -28,6 +28,11 @@ import org.json.JSONObject;
  * else changes; posts without a poll, with malformed or oversized poll_data, and comments are
  * parsed exactly as before. The hook is one call right before the parser adds the values to its
  * result list.
+ *
+ * The block's "Open poll on Reddit" link (reddit.com/poll/) goes through Sync's link router
+ * (LinkHelper.c, y7.b.c), which opens poll links in a Custom Tab (LinkHandler.W). The patch makes
+ * that branch try PollCompat.openInBrowser first: tapping a poll link opens it in the browser and
+ * skips the Custom Tab, and without a browser the Custom Tab opens as before.
  */
 public final class PollPatchTest {
     private static final String PARSER = "Lc9/c;";
@@ -62,8 +67,11 @@ public final class PollPatchTest {
             BytecodePatchContext stock = context(source, scratch, "stock");
             BytecodePatchContext patched = context(source, scratch, "patched");
             List<String> before = keys(parser(patched));
+            List<String> beforeLinks = keys(linkHelper(patched));
             apply(patched);
             hook(patched, before);
+            linkHook(patched, beforeLinks);
+            int links = links(stock, patched);
 
             long now = System.currentTimeMillis();
             long future = now + 3L * 24 * 3600 * 1000;
@@ -121,7 +129,7 @@ public final class PollPatchTest {
 
             rejections(source, scratch);
             System.out.println("PASS: " + checks + " poll patch checks (" + polls + " poll posts, " + (unchanged.size() + 1)
-                    + " unchanged items, " + (real ? "real Sync parser from the supplied stock APK)" : "hand-written Sync model)"));
+                    + " unchanged items, " + links + " link taps, " + (real ? "real Sync parser from the supplied stock APK)" : "hand-written Sync model)"));
         } finally {
             try (var paths = Files.walk(scratch)) {
                 for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);
@@ -332,6 +340,146 @@ public final class PollPatchTest {
         try { apply(reused); throw new AssertionError("Reused JSON register accepted"); }
         catch (PatchException expected) { check(expected.getMessage().contains("post parser"), "reused register rejected: " + expected.getMessage()); }
         equal(unchanged, keys(reusedParse), "register rejection makes no edits");
+
+        // A link router without Sync's poll branch fails before either method is edited.
+        BytecodePatchContext noPoll = context(source, scratch, "nopoll");
+        MutableMethod route = linkHelper(noPoll);
+        List<Instruction> routeBody = new ArrayList<>(route.getImplementation().getInstructions());
+        for (int i = 0; i < routeBody.size(); i++) {
+            if (!"Was poll".equals(DexRunner.string(routeBody.get(i)))) continue;
+            route.getImplementation().replaceInstruction(i, new BuilderInstruction21c(Opcode.CONST_STRING,
+                    ((OneRegisterInstruction) routeBody.get(i)).getRegisterA(), new ImmutableStringReference("Was other")));
+        }
+        List<String> routeBefore = keys(route), parserBefore = keys(parser(noPoll));
+        try { apply(noPoll); throw new AssertionError("Router without a poll branch accepted"); }
+        catch (PatchException expected) {
+            check(expected.getMessage().contains("poll link branch"), "missing poll branch rejected: " + expected.getMessage());
+        }
+        equal(routeBefore, keys(route), "router rejection leaves the router unedited");
+        equal(parserBefore, keys(parser(noPoll)), "router rejection leaves the parser unedited");
+    }
+
+    // ---- Link router ----
+
+    private static final String HELPER = "Ly7/b;";
+    private static final List<String> ROUTE = List.of("Landroid/content/Context;", "[Lr0/d;", "Ljava/lang/String;",
+            "Ljava/lang/String;", "Ljava/lang/String;", "Ljava/lang/String;", "Ljava/lang/String;", "Z", "Z", "Z");
+    private static final String OPEN = POLL + "->openInBrowser(Landroid/content/Context;Ljava/lang/String;)Z";
+    private static final String TAB = "Ly7/a;->W(Landroid/content/Context;Ljava/lang/String;)V";
+
+    private static MutableMethod linkHelper(BytecodePatchContext context) {
+        ClassDef clazz = context.getClassDefs().get(HELPER);
+        if (clazz == null) throw new AssertionError("Missing " + HELPER);
+        for (MutableMethod method : context.proxy(clazz).getMutableClass().getMethods())
+            if (method.getName().equals("c") && method.getParameterTypes().equals(ROUTE)) return method;
+        throw new AssertionError("Missing " + HELPER + "->c" + ROUTE);
+    }
+
+    /** The poll branch gains exactly: call openInBrowser, move its result, skip the Custom Tab if true. */
+    private static void linkHook(BytecodePatchContext context, List<String> before) {
+        MutableMethod route = linkHelper(context);
+        List<? extends Instruction> live = route.getImplementation().getInstructions();
+        List<Instruction> code = new ArrayList<>(live);
+        int call = -1, count = 0;
+        for (int i = 0; i < code.size(); i++) if (OPEN.equals(reference(code.get(i)))) { call = i; count++; }
+        equal(1, count, "one openInBrowser call");
+        equal("Was poll", DexRunner.string(code.get(call - 2)), "call is in the poll branch");
+        FiveRegisterInstruction open = (FiveRegisterInstruction) code.get(call);
+        FiveRegisterInstruction tab = (FiveRegisterInstruction) code.get(call + 3);
+        equal(TAB, reference(tab), "Custom Tab call follows");
+        equal(List.of(tab.getRegisterC(), tab.getRegisterD()), List.of(open.getRegisterC(), open.getRegisterD()),
+                "same context and link as the Custom Tab call");
+        int scratch = ((OneRegisterInstruction) code.get(call - 2)).getRegisterA();
+        equal(Opcode.MOVE_RESULT, code.get(call + 1).getOpcode(), "result moved");
+        equal(scratch, ((OneRegisterInstruction) code.get(call + 1)).getRegisterA(), "result in the free log register");
+        equal(Opcode.IF_NEZ, code.get(call + 2).getOpcode(), "branch on the result");
+        equal(scratch, ((OneRegisterInstruction) code.get(call + 2)).getRegisterA(), "branch reads the result");
+        Instruction target = code.get(call + 2) instanceof com.android.tools.smali.dexlib2.builder.BuilderOffsetInstruction
+                ? ((com.android.tools.smali.dexlib2.builder.BuilderOffsetInstruction) code.get(call + 2))
+                        .getTarget().getLocation().getInstruction() : null;
+        check(target == code.get(call + 4), "an opened link skips the Custom Tab");
+        equal(Opcode.RETURN, code.get(call + 4).getOpcode(), "to the branch's return");
+        List<String> expected = new ArrayList<>(before);
+        expected.addAll(call + 1, List.of("INVOKE_STATIC:" + OPEN, "MOVE_RESULT:", "IF_NEZ:"));
+        equal(expected, keys(route), "link router only gains the three instructions");
+    }
+
+    /** Taps the poll link (and, on the model, another link) before and after the patch. */
+    private static int links(BytecodePatchContext stock, BytecodePatchContext patched) throws ReflectiveOperationException {
+        Class<?> poll = Class.forName("app.revanced.extension.synccompat.PollCompat");
+        Class<?> browserType = Class.forName("app.revanced.extension.synccompat.PollCompat$Browser");
+        java.lang.reflect.Field field = poll.getDeclaredField("browser");
+        field.setAccessible(true);
+        Object original = field.get(null);
+        String[] browser = {"com.android.chrome"};
+        List<String> opened = new ArrayList<>();
+        Object fake = java.lang.reflect.Proxy.newProxyInstance(browserType.getClassLoader(), new Class<?>[] {browserType},
+                (proxy, method, a) -> {
+                    switch (method.getName()) {
+                        case "defaultBrowser": return browser[0];
+                        case "customTabBrowsers": return browser[0] == null ? List.of() : List.of(browser[0]);
+                        case "ownPackage": return "com.laurencedawson.reddit_sync";
+                        case "open": opened.add("browser " + a[2] + " " + a[1]); return null;
+                        default: throw new AssertionError(method.getName());
+                    }
+                });
+        android.content.Context context = unsafe(android.content.ContextWrapper.class);
+        String url = "https://www.reddit.com/poll/fo7p5b";
+        int taps = 0;
+        field.set(null, fake);
+        try {
+            List<String> stockTap = new ArrayList<>();
+            equal(1, tap(stock, context, url, stockTap), "stock handles the poll link");
+            equal(List.of("tab " + url), stockTap, "stock opens a Custom Tab");
+            equal(0, opened.size(), "stock never asks for a browser");
+
+            List<String> patchedTap = new ArrayList<>();
+            equal(1, tap(patched, context, url, patchedTap), "patched handles the poll link");
+            equal(List.of(), patchedTap, "patched skips the Custom Tab");
+            equal(List.of("browser com.android.chrome " + url), opened, "patched opens the browser explicitly");
+            opened.clear();
+            taps += 2;
+
+            browser[0] = null;
+            patchedTap.clear();
+            equal(1, tap(patched, context, url, patchedTap), "patched without a browser handles the link");
+            equal(List.of("tab " + url), patchedTap, "without a browser the Custom Tab opens as before");
+            equal(0, opened.size(), "nothing opened in a browser");
+            taps++;
+
+            if (!real) {
+                browser[0] = "com.android.chrome";
+                String other = "https://www.reddit.com/r/polls/";
+                List<String> stockOther = new ArrayList<>(), patchedOther = new ArrayList<>();
+                equal(tap(stock, context, other, stockOther), tap(patched, context, other, patchedOther), "other link result");
+                equal(List.of("external " + other), patchedOther, "other links keep Sync's handling");
+                equal(stockOther, patchedOther, "other links unchanged");
+                equal(0, opened.size(), "other links never use the poll browser");
+                taps += 2;
+            }
+        } finally {
+            field.set(null, original);
+        }
+        return taps;
+    }
+
+    private static Object tap(BytecodePatchContext context, android.content.Context app, String url, List<String> log) {
+        DexRunner runner = new DexRunner(context, (ref, a) -> {
+            if (ref.startsWith("Lwc/i;->")) return null;
+            if (ref.equals("Lgb/p;->a(Ljava/lang/String;)V")) return null;
+            if (ref.equals("Lwc/m;->a(Ljava/lang/CharSequence;)Z")) return a[0] == null || a[0].toString().isEmpty() ? 1 : 0;
+            if (ref.equals(TAB)) { log.add("tab " + a[1]); return null; }
+            if (ref.equals("Ly7/a;->X(Landroid/content/Context;Ljava/lang/String;)V")) { log.add("external " + a[1]); return null; }
+            return DexRunner.PASS;
+        }, POLL);
+        return runner.run(linkHelper(context), new Object[] {app, null, null, url, null, null, null, 0, 0, 0});
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T unsafe(Class<T> type) throws ReflectiveOperationException {
+        java.lang.reflect.Field field = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+        field.setAccessible(true);
+        return (T) ((sun.misc.Unsafe) field.get(null)).allocateInstance(type);
     }
 
     // ---- Helpers ----

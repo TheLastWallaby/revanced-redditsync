@@ -70,7 +70,102 @@ public final class PollCompatTest {
         unchangedWithoutPoll();
         apply();
         pollUrl();
-        System.out.println("PASS: " + checks + " poll block checks");
+        try {
+            browser();
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
+        }
+        System.out.println("PASS: " + checks + " poll block and browser checks");
+    }
+
+    /** A fake browser lookup: records each open and can fail any step. */
+    private static final class FakeBrowser implements PollCompat.Browser {
+        String preferred;
+        java.util.List<String> tabs = new java.util.ArrayList<>();
+        String own = "com.laurencedawson.reddit_sync";
+        RuntimeException failure;
+        final java.util.List<String> opened = new java.util.ArrayList<>();
+
+        @Override public String defaultBrowser(android.content.Context context) {
+            if (failure != null) throw failure;
+            return preferred;
+        }
+        @Override public java.util.List<String> customTabBrowsers(android.content.Context context) { return tabs; }
+        @Override public String ownPackage(android.content.Context context) { return own; }
+        @Override public void open(android.content.Context context, String url, String browserPackage) {
+            opened.add(browserPackage + " " + url);
+        }
+    }
+
+    /**
+     * The poll link opens in the user's browser, not a Custom Tab: the default browser if it is a
+     * real browser, else a visible Custom Tabs browser, never Sync or the system chooser
+     * ("android"); with no browser, or a non-web link, Sync keeps its own handling (false).
+     */
+    private static void browser() throws ReflectiveOperationException {
+        java.util.List<String> chrome = java.util.List.of("com.android.chrome");
+        String own = "com.laurencedawson.reddit_sync";
+        equal("com.android.chrome", PollCompat.chooseBrowser("com.android.chrome", chrome, own), "default browser");
+        equal("org.mozilla.firefox", PollCompat.chooseBrowser("org.mozilla.firefox",
+                java.util.List.of("com.android.chrome", "org.mozilla.firefox"), own), "default browser among several");
+        equal("com.android.chrome", PollCompat.chooseBrowser("android", chrome, own), "chooser falls back to a browser");
+        equal("com.android.chrome", PollCompat.chooseBrowser(own, chrome, own), "Sync as default falls back to a browser");
+        equal("com.android.chrome", PollCompat.chooseBrowser(null, chrome, own), "no default falls back to a browser");
+        equal("com.android.chrome", PollCompat.chooseBrowser("com.example.gallery", chrome, own),
+                "a non-browser default is passed over");
+        equal("com.example.browser", PollCompat.chooseBrowser("com.example.browser", java.util.List.of(), own),
+                "a default browser without Custom Tabs when none are visible");
+        equal("com.android.chrome", PollCompat.chooseBrowser(null, java.util.List.of(own, "", "android", "com.android.chrome"), own),
+                "Sync, empty and chooser entries skipped");
+        equal(null, PollCompat.chooseBrowser("android", java.util.List.of(), own), "no browser");
+        equal(null, PollCompat.chooseBrowser(own, null, own), "only Sync");
+        equal(null, PollCompat.chooseBrowser(null, null, own), "nothing visible");
+
+        java.lang.reflect.Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+        unsafeField.setAccessible(true);
+        android.content.Context context = (android.content.Context) ((sun.misc.Unsafe) unsafeField.get(null))
+                .allocateInstance(android.content.ContextWrapper.class);
+        PollCompat.Browser original = PollCompat.browser;
+        int maxUrl = PollCompat.maxUrl;
+        FakeBrowser fake = new FakeBrowser();
+        PollCompat.browser = fake;
+        try {
+            String url = PollCompat.pollUrl("1abcde");
+            fake.preferred = "com.android.chrome";
+            fake.tabs = chrome;
+            check(PollCompat.openInBrowser(context, url), "poll link opened");
+            equal(java.util.List.of("com.android.chrome https://www.reddit.com/poll/1abcde"), fake.opened,
+                    "opened in Chrome, explicitly");
+            fake.opened.clear();
+            check(PollCompat.openInBrowser(context, "http://reddit.com/poll/1abcde"), "http link opened");
+            check(PollCompat.openInBrowser(context, "HTTPS://WWW.REDDIT.COM/poll/1abcde"), "upper-case scheme opened");
+            equal(2, fake.opened.size(), "both opened");
+            fake.opened.clear();
+            for (String other : new String[] {null, "", "reddit.com/poll/1abcde", "javascript:alert(1)//reddit.com/poll/",
+                    "intent://reddit.com/poll/1abcde#Intent;end", "file:///sdcard/reddit.com/poll/x",
+                    "sync-settings://reddit.com/poll/x"}) {
+                check(!PollCompat.openInBrowser(context, other), "Sync keeps a non-web link: " + other);
+            }
+            PollCompat.maxUrl = 40;
+            check(!PollCompat.openInBrowser(context, url + "?x=" + "a".repeat(40)), "overlong link left to Sync");
+            PollCompat.maxUrl = maxUrl;
+            check(!PollCompat.openInBrowser(null, url), "no context left to Sync");
+            fake.preferred = "android";
+            fake.tabs = java.util.List.of();
+            check(!PollCompat.openInBrowser(context, url), "no browser left to Sync");
+            fake.preferred = own;
+            check(!PollCompat.openInBrowser(context, url), "Sync as only handler left to Sync");
+            fake.failure = new SecurityException("test failure");
+            check(!PollCompat.openInBrowser(context, url), "lookup failure left to Sync");
+            equal(0, fake.opened.size(), "nothing opened in the refused cases");
+
+            // The Android implementation, on the JVM's android.jar stubs, fails safely too.
+            PollCompat.browser = original;
+            check(!PollCompat.openInBrowser(context, url), "unavailable Android services left to Sync");
+        } finally {
+            PollCompat.browser = original;
+            PollCompat.maxUrl = maxUrl;
+        }
     }
 
     private static void openPollWithHiddenCounts() {

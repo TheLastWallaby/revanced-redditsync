@@ -59,12 +59,19 @@ maintainers yet; the tested route is ReVanced CLI (see
 
 The rest of this page is version history and technical detail.
 
-## v0.7.5-rc.1 candidate: poll options and Reddit Chat handoff (issues #9, #10)
+## v0.7.5-rc.2 candidate: poll options and Reddit Chat handoff (issues #9, #10)
 
-The [v0.7.5-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5-rc.1)
+The [v0.7.5-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5-rc.2)
 is for phone testing. Apply it to **stock** Sync and check all patch results (28
 with Use /user/ endpoint). Stable remains v0.7.4 until the candidate passes and
-stable publication is authorized. It has not been tested on a phone yet.
+stable publication is authorized.
+
+On the phone, [v0.7.5-rc.1](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5-rc.1)
+left ordinary text posts unchanged, but **Open poll on Reddit** reopened the
+post in Sync instead of Reddit's poll page. rc.2 opens that link in
+your browser. Sync's **Inbox** button is off by default, so the messaging checks
+need it switched on first (see the messaging notes under Included patches). See
+`validation-phone-tests.json`.
 
 It adds two selectable patches, on by default, described under
 [Included patches](#included-patches--cumulative-v074):
@@ -1485,7 +1492,7 @@ New in [v0.7.4](#v074-youtube-links-open-in-the-youtube-app-issue-60):
   both orders on the stock APK locally). No phone results were reported for
   rc.1; the owner asked for stable promotion.
 
-New in the [v0.7.5-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5-rc.1):
+New in the [v0.7.5-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5-rc.2):
 
 - **Sync: show poll options**
   ([issue #9](https://github.com/TheLastWallaby/revanced-redditsync/issues/9)),
@@ -1498,7 +1505,7 @@ New in the [v0.7.5-rc.1 candidate](https://github.com/TheLastWallaby/revanced-re
   | **Poll** line | "Voting closes" and the closing date and time (your phone's time zone and format), or "Poll closed"; then the total, such as "1,234 votes", if Reddit sends it |
   | Options | Each option in Reddit's order; "· 12 votes" only where Reddit sends that option's count; "· **your vote**" on your choice if Reddit reports one |
   | No counts | "Reddit hasn't shared the results." when Reddit sent no option counts. Nothing is estimated |
-  | **Open poll on Reddit** | `https://www.reddit.com/poll/<post id>`, Reddit's own poll address, which Reddit redirects to the post (checked without an account on 2026-11-03). Sync's link router already opens `reddit.com/poll/` links in its browser tab (`LinkHandler.W`, a Custom Tab with your browser's Reddit sign-in), where you can vote. The post's permalink would only reopen the post in Sync |
+  | **Open poll on Reddit** | `https://www.reddit.com/poll/<post id>`, Reddit's own poll address, opened in your browser (with your browser's Reddit sign-in), where you can vote. Reddit redirects it to `https://www.reddit.com/comments/<post id>` (checked without an account on 2026-11-03; `new.reddit.com` and `sh.reddit.com` end at the same address) |
 
   - **No voting in Sync.** PRAW, the reference API client, can create polls
     but has no vote call, and this bundle doesn't use Reddit's private web
@@ -1522,6 +1529,24 @@ New in the [v0.7.5-rc.1 candidate](https://github.com/TheLastWallaby/revanced-re
   `strong`, `br`, `ul`/`li`, `a`). The patch checks that the parser copies the
   item's JSON and makes its values once, never reassigns them before the add,
   and that no later code branches back to it.
+
+  **The poll link (fixed in rc.2).** Sync's link router (`LinkHelper.c`,
+  `y7.b.c`) opens any `reddit.com/poll/` link in a Custom Tab
+  (`LinkHandler.W`). Reddit redirects the poll address to the post, and Sync
+  handles `reddit.com`, `www`, `old`, `m`, `np` and `amp` addresses, so in
+  rc.1 the tab handed the post back to Sync (phone result). Chromium's
+  `ExternalNavigationHandler` lets a Custom Tab hand a redirect to the app
+  that opened the tab ("FOR_TRUSTED_CALLER"), but keeps a link sent
+  explicitly to the browser in the browser ("Launching intent explicitly
+  targeted the browser"; [chromium/src `components/external_intents`](https://chromium.googlesource.com/chromium/src/+/main/components/external_intents/android/java/src/org/chromium/components/external_intents/),
+  read 2026-11-03). The patch now adds three instructions to that poll branch:
+  `PollCompat.openInBrowser` sends the link to your default browser's package
+  (or, if the default is Sync or the chooser, the first browser that offers
+  Custom Tabs, which Sync's manifest can already see), and skips the Custom
+  Tab. With no browser found, the Custom Tab opens as before. This applies to
+  every `reddit.com/poll/` link tapped in Sync. **Needs a phone check:** that
+  the redirect stays in your browser (Chrome's rule is from its source;
+  other browsers may differ).
 
   **Reddit's data.** Poll posts are text posts (`is_self`) whose `poll_data`
   has `options` (`id`, `text`, optional `vote_count`), `voting_end_timestamp`
@@ -1548,11 +1573,18 @@ New in the [v0.7.5-rc.1 candidate](https://github.com/TheLastWallaby/revanced-re
   direction overrides), malformed and oversized data, unchanged values without
   a poll, and the poll link. `PollPatchTest` runs Sync's parser before and after
   the patch on poll posts, plain and malformed posts, a comment and a filtered
-  post: on a hand-written model in CI, and on Sync's real parser locally (the
-  suite answers Markdown rendering, which is native code, and app settings).
-  `PatchInteractionTest` applied all 27 patches to the stock APK in both name
+  post, and taps the poll link through Sync's link router (browser found: the
+  browser opens and the Custom Tab is skipped; none: the Custom Tab opens as
+  before; other links: unchanged): on hand-written models in CI, and on Sync's
+  real parser and link router locally (the suite answers Markdown rendering,
+  which is native code, app settings and the link openers). `PollCompatTest`
+  also covers the browser choice and refuses non-web links.
+  `PatchInteractionTest` applied all 28 patches to the stock APK in both name
   orders with identical results (the parser is also changed by the inline
-  media, comment video and award patches). Not yet checked on a phone.
+  media, comment video and award patches; the link router by the official
+  share-link port, link normalization and the YouTube handoff). Phone result
+  for rc.1: the poll link reopened the post in Sync; ordinary text posts were
+  unchanged; the closed-poll check was not reported.
 
 - **Sync: hand off retired messaging to Reddit Chat**
   ([issue #10](https://github.com/TheLastWallaby/revanced-redditsync/issues/10)),
@@ -1562,6 +1594,13 @@ New in the [v0.7.5-rc.1 candidate](https://github.com/TheLastWallaby/revanced-re
   ([How to use Reddit Chat](https://support.reddithelp.com/hc/en-us/articles/39411701270036-How-to-use-Reddit-Chat),
   [private message archive](https://support.reddithelp.com/hc/en-us/articles/39673186812564-Accessing-existing-private-messages-private-message-archive),
   both read on 2026-11-03). Sync 23033's messaging, and what the patch does:
+
+  **Finding the inbox.** Sync's **Inbox** button is one of its optional
+  actions and is off unless you turn it on (setting `actions_messaging`,
+  default off in Sync 23033's `SettingsSingleton`). Turn it on in Sync's
+  actions menu: **Action visibility** > **Inbox** (`ActionsBottomSheetFragment`).
+  The patch doesn't change this setting. **Needs a phone check:** the exact
+  place of that menu on your screen.
 
   | Action | Sync code | Route | Reddit now (public sources) | With the patch |
   |---|---|---|---|---|
