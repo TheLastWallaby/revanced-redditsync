@@ -2,6 +2,29 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.7.5",
+      "tested_release": "v0.7.5-rc.2",
+      "results": {
+        "1": "passed: open poll (reported \"Yes\"); options shown and \"Open poll on Reddit\" opened Reddit's poll in the browser",
+        "2": "passed: closed poll (reported \"Yes\")",
+        "3": "not retested on rc.2 (passed on rc.1)",
+        "4": "passed: after switching on Sync's Inbox action, the inbox shows new direct messages (reported \"Inbox shows new chats\")",
+        "5": "not reported (reply to a comment from the inbox)",
+        "6": "not reported (mark one read, mark all read)",
+        "7": "not reported (send a new private message)",
+        "8": "passed for a new direct message: replying from Sync's inbox works (reported \"I can reply to them\", \"Private chat reply\", \"it was a new chat\"); a reply to an old archived message was not tried",
+        "9": "not reported (moderator mail)"
+      },
+      "promotion": "Stable v0.7.5 rebuilds the same runtime patch and extension source as the tested v0.7.5-rc.2 candidate, built from stock Sync 23033 by the private builder with all 28 patches reported as succeeded. The owner replied \"Yes\" to \"Publish stable v0.7.5?\", authorizing stable publication; candidate assets remain immutable.",
+      "unverified": [
+        "checks 5, 6, 7 and 9, and a reply to an old archived private message",
+        "whether Reddit refuses a new private message from Sync's client with RESTRICTED_TO_PM, so the Reddit Chat dialog and archive actions were not seen on the phone",
+        "browsers other than the one used for the poll link",
+        "ReVanced Manager import and one-pass patching",
+        "separate device installation of the stable rebuild"
+      ]
+    },
+    {
       "tested_release": "v0.7.5-rc.1",
       "results": {
         "1": "failed: tapping \"Open poll on Reddit\" on an open poll reopened the post in Sync (reported \"Reopens in sync\") instead of Reddit's poll page; whether the options and closing time showed was not reported. Cause found in Sync and Chromium code: Sync opens reddit.com/poll/ links in a Custom Tab, Reddit 301-redirects the poll address to https://www.reddit.com/comments/<id>, which Sync's manifest claims, and Chrome lets a Custom Tab hand such a redirect back to the app that opened it. v0.7.5-rc.2 sends poll links to the browser's package instead",

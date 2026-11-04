@@ -59,22 +59,24 @@ maintainers yet; the tested route is ReVanced CLI (see
 
 The rest of this page is version history and technical detail.
 
-## v0.7.5-rc.2 candidate: poll options and Reddit Chat handoff (issues #9, #10)
+## v0.7.5 poll options and Reddit Chat handoff (issues #9, #10)
 
-The [v0.7.5-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5-rc.2)
-is for phone testing. Apply it to **stock** Sync and check all patch results (28
-with Use /user/ endpoint). Stable remains v0.7.4 until the candidate passes and
-stable publication is authorized.
+The [v0.7.5 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5)
+rebuilds the runtime code from the
+[v0.7.5-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5-rc.2).
+Apply it to **stock** Sync and check all patch results (28 with Use /user/ endpoint).
 
 On the phone, [v0.7.5-rc.1](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5-rc.1)
 left ordinary text posts unchanged, but **Open poll on Reddit** reopened the
-post in Sync instead of Reddit's poll page. rc.2 opens that link in
-your browser. Sync's **Inbox** button is off by default, so the messaging checks
-need it switched on first (see the messaging notes under Included patches). See
-`validation-phone-tests.json`.
+post in Sync instead of Reddit's poll page; rc.2 opens that link in your
+browser. On rc.2 the owner reported open and closed polls working, the inbox
+loading (after switching on Sync's **Inbox** button, which is off by default)
+and a reply to a new direct message sent from Sync's inbox, then authorized
+promotion. Comment replies from the inbox, mark read, a new private message and
+moderator mail were not reported. See `validation-phone-tests.json`.
 
 It adds two selectable patches, on by default, described under
-[Included patches](#included-patches--cumulative-v074):
+[Included patches](#included-patches--cumulative-v075):
 
 - **Sync: show poll options**
   ([issue #9](https://github.com/TheLastWallaby/revanced-redditsync/issues/9)):
@@ -100,7 +102,7 @@ The owner asked for stable promotion of rc.1 without reporting results for its
 seven numbered phone checks, so none are recorded. See `validation-phone-tests.json`.
 
 It adds one selectable patch, on by default, described under
-[Included patches](#included-patches--cumulative-v074):
+[Included patches](#included-patches--cumulative-v075):
 
 - **Sync: open YouTube in the YouTube app**
   ([issue #60](https://github.com/TheLastWallaby/revanced-redditsync/issues/60)):
@@ -131,7 +133,7 @@ is sent with an empty `text` next to `richtext_json`, as Infinity for Reddit doe
 (rc.1 left `text` out).
 
 It adds one selectable patch, described under
-[Included patches](#included-patches--cumulative-v074):
+[Included patches](#included-patches--cumulative-v075):
 
 - **Sync: upload images to Reddit**
   ([issue #53](https://github.com/TheLastWallaby/revanced-redditsync/issues/53)):
@@ -159,7 +161,7 @@ no install can turn it on any more. Since rc.2 the entry is shown for every
 `[deleted]` or `[removed]` comment.
 
 It adds two selectable patches, described under
-[Included patches](#included-patches--cumulative-v074):
+[Included patches](#included-patches--cumulative-v075):
 
 - **Sync: restore comments from Arctic Shift**
   ([issue #52](https://github.com/TheLastWallaby/revanced-redditsync/issues/52)):
@@ -185,7 +187,7 @@ publication; only an overall result was given for the five numbered checks
 regressions). See `validation-phone-tests.json`.
 
 It adds three selectable patches, described under
-[Included patches](#included-patches--cumulative-v074):
+[Included patches](#included-patches--cumulative-v075):
 
 - **Sync: skip retired media hosts**
   ([issue #57](https://github.com/TheLastWallaby/revanced-redditsync/issues/57)):
@@ -1051,11 +1053,14 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Stable v0.7.4 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.4)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.4/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.4/sync-gallery-comments-compat-v0.7.4-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.4/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.4/build-info.json)
+- [Stable v0.7.5 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.5/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.5/sync-gallery-comments-compat-v0.7.5-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.5/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.5/build-info.json)
+- [Archived v0.7.5-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5-rc.2)
+  and [v0.7.5-rc.1](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5-rc.1)
+- [Previous stable v0.7.4](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.4)
 - [Archived v0.7.4-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.4-rc.1)
 - [Previous stable v0.7.3](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3)
 - [Archived v0.7.3-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.3-rc.2)
@@ -1106,7 +1111,7 @@ Releases up to v0.6.14 instead needed two passes: the official ReVanced Sync
 patches first, then this bundle on that output
 ([issue #70](https://github.com/TheLastWallaby/revanced-redditsync/issues/70)).
 
-## Included patches — cumulative v0.7.4
+## Included patches — cumulative v0.7.5
 
 Official ReVanced Sync patches, ported for build 23033 (see
 [v0.7.0](#v070-one-pass-patching-from-stock-sync-issue-70)): **Spoof client**,
@@ -1492,7 +1497,7 @@ New in [v0.7.4](#v074-youtube-links-open-in-the-youtube-app-issue-60):
   both orders on the stock APK locally). No phone results were reported for
   rc.1; the owner asked for stable promotion.
 
-New in the [v0.7.5-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5-rc.2):
+New in [v0.7.5](#v075-poll-options-and-reddit-chat-handoff-issues-9-10):
 
 - **Sync: show poll options**
   ([issue #9](https://github.com/TheLastWallaby/revanced-redditsync/issues/9)),
@@ -1544,9 +1549,8 @@ New in the [v0.7.5-rc.2 candidate](https://github.com/TheLastWallaby/revanced-re
   (or, if the default is Sync or the chooser, the first browser that offers
   Custom Tabs, which Sync's manifest can already see), and skips the Custom
   Tab. With no browser found, the Custom Tab opens as before. This applies to
-  every `reddit.com/poll/` link tapped in Sync. **Needs a phone check:** that
-  the redirect stays in your browser (Chrome's rule is from its source;
-  other browsers may differ).
+  every `reddit.com/poll/` link tapped in Sync. On rc.2 the owner reported the
+  poll link working on the phone; other browsers than the one tried may differ.
 
   **Reddit's data.** Poll posts are text posts (`is_self`) whose `poll_data`
   has `options` (`id`, `text`, optional `vote_count`), `voting_end_timestamp`
@@ -1582,9 +1586,9 @@ New in the [v0.7.5-rc.2 candidate](https://github.com/TheLastWallaby/revanced-re
   `PatchInteractionTest` applied all 28 patches to the stock APK in both name
   orders with identical results (the parser is also changed by the inline
   media, comment video and award patches; the link router by the official
-  share-link port, link normalization and the YouTube handoff). Phone result
-  for rc.1: the poll link reopened the post in Sync; ordinary text posts were
-  unchanged; the closed-poll check was not reported.
+  share-link port, link normalization and the YouTube handoff). Phone results:
+  on rc.1 the poll link reopened the post in Sync and ordinary text posts were
+  unchanged; on rc.2 open and closed polls worked.
 
 - **Sync: hand off retired messaging to Reddit Chat**
   ([issue #10](https://github.com/TheLastWallaby/revanced-redditsync/issues/10)),
@@ -1599,8 +1603,8 @@ New in the [v0.7.5-rc.2 candidate](https://github.com/TheLastWallaby/revanced-re
   actions and is off unless you turn it on (setting `actions_messaging`,
   default off in Sync 23033's `SettingsSingleton`). Turn it on in Sync's
   actions menu: **Action visibility** > **Inbox** (`ActionsBottomSheetFragment`).
-  The patch doesn't change this setting. **Needs a phone check:** the exact
-  place of that menu on your screen.
+  The patch doesn't change this setting. On rc.2 the owner reported the inbox
+  loading once the button was on.
 
   | Action | Sync code | Route | Reddit now (public sources) | With the patch |
   |---|---|---|---|---|
@@ -1665,10 +1669,13 @@ New in the [v0.7.5-rc.2 candidate](https://github.com/TheLastWallaby/revanced-re
   parser, the editor's error listener, the reply parser, network error handler
   and notification before and after the patch: on hand-written models in CI,
   and on Sync's real methods locally. `PatchInteractionTest` applied all 28
-  patches to the stock APK in both name orders with identical results. Not yet
-  checked on a phone, and no message was sent from a real account: whether
-  Reddit refuses every new message this way for Sync's client, and what it
-  answers to a reply, need the phone checks.
+  patches to the stock APK in both name orders with identical results. On rc.2
+  the owner reported the inbox showing new direct messages and a reply to a new
+  one sent from Sync's inbox, so Reddit still accepts that reply and the
+  handoff stays out of the way. Not reported: a new private message (whether
+  Reddit refuses it with `RESTRICTED_TO_PM` for Sync's client), a reply to an
+  old archived message, comment replies from the inbox, mark read and
+  moderator mail.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
@@ -1688,7 +1695,7 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
    with the official ReVanced Sync patches.)
 2. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
    and apply the default patches: the eight ported official patches except Use
-   /user/ endpoint, plus this bundle's eighteen. Set Spoof client's
+   /user/ endpoint, plus this bundle's twenty. Set Spoof client's
    `OAuth client ID` (and `Redirect URI`/`User-Agent` if needed). Check that
    each patch reports success.
 3. Sign the result with your own keystore. Matching the key used by your current
@@ -1710,7 +1717,7 @@ java -jar revanced-cli-6.0.0-all.jar patch \
   -p output/patches.rvp -b \
   -O "OAuth client ID=your-reddit-client-id" -e "Spoof client" \
   --keystore your-signing-key.keystore \
-  -o Sync-v23.06.30-compat-v0.7.4.apk \
+  -o Sync-v23.06.30-compat-v0.7.5.apk \
   Sync-v23.06.30-stock.apk
 ```
 
@@ -1864,6 +1871,9 @@ were given for the other checks. On rc.1 a comment with an image failed silently
 rc.2 shows such failures and sends comments as Infinity for Reddit does.
 Stable v0.7.4 rebuilds the v0.7.4-rc.1 runtime code after the owner asked for
 promotion; no phone results were reported for rc.1's checks.
+Stable v0.7.5 rebuilds the v0.7.5-rc.2 runtime code after the owner reported
+polls, the inbox and a direct-message reply working and authorized promotion.
+On rc.1 the poll link reopened the post in Sync; rc.2 opens it in the browser.
 These are checks of the supplied cases, not exhaustive Android/live Reddit tests.
 This standalone bundle does not represent a full upstream Gradle build.
 
