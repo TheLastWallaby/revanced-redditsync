@@ -5,6 +5,7 @@ import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.patch.PatchException
 import app.revanced.patcher.extensions.InstructionExtensions.addInstructions
 import app.revanced.patcher.extensions.InstructionExtensions.addInstructionsWithLabels
+import app.revanced.patcher.extensions.InstructionExtensions.removeInstructions
 import app.revanced.patcher.extensions.InstructionExtensions.replaceInstruction
 import app.revanced.patcher.extensions.ExternalLabel
 import com.android.tools.smali.dexlib2.Opcode
@@ -2950,5 +2951,94 @@ val handOffSyncRetiredMessaging = bytecodePatch(
             move-object p1, v0
             const/4 p2, 0x0
         """.trimIndent(), ExternalLabel("original", noticeCode[0]))
+    }
+}
+
+private const val CUSTOM_URL_SPAN = "Lmb/d;"
+private const val AMAZON_REPORT = "Le7/e;"
+private const val AMAZON_REPORT_URL = "https://us-central1-ad-server-f1010.cloudfunctions.net/add"
+private const val AMAZON_REPORT_DISABLED = "sync-compat-disabled:amazon"
+
+val stopSyncAmazonLinkReports = bytecodePatch(
+    name = "Sync: don't report Amazon links",
+    description = "Stop sending each tapped Amazon product link to Sync's former ad server " +
+        "(AmazonAnalyticsRequest). The link opens as before.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        fun mutable(type: String, source: String): MutableClassDef =
+            proxy(classes.singleOrNull { it.type == type && it.sourceFile == source } ?: throw PatchException(
+                "Expected Sync $source was not found. This patch targets build 23033 only.")).mutableClass
+        fun MutableMethod.code() = implementation!!.instructions
+        fun MutableMethod.targeted(index: Int): Boolean {
+            val target = code()[index]
+            return code().any { it is BuilderOffsetInstruction && it.target.location.instruction === target } ||
+                implementation!!.tryBlocks.any { block -> block.exceptionHandlers.any { it.handler.location.index == index } }
+        }
+
+        // CustomUrlSpan.onClick (mb.d), every link in a post body or comment: when the link contains
+        // "amazon.com/" and "/dp/", Sync queues AmazonAnalyticsRequest (e7.e) with the link, then opens
+        // it like any other link. The report is the five instructions
+        //   new-instance vR, e7.e; invoke-virtual {p0}, a(); move-result-object vL;
+        //   invoke-direct {vR, vL}, e7.e.<init>(String); invoke-static {vR}, m8.a.a(Request)
+        // between the second contains check and the sync-flair:// check, which both branches reach.
+        val span = mutable(CUSTOM_URL_SPAN, "CustomUrlSpan.java")
+        val click = span.methods.singleOrNull {
+            it.name == "onClick" && it.returnType == "V" && it.parameterTypes.map { p -> p.toString() } == listOf("Landroid/view/View;") &&
+                !AccessFlags.STATIC.isSet(it.accessFlags)
+        } ?: throw PatchException("Unsupported Sync CustomUrlSpan.onClick.")
+        val code = click.code()
+        val stringIndex = { value: String -> code.indexOfFirst { it.stringValue() == value } }
+        if (stringIndex("amazon.com/") >= 0 && code.none {
+                it.opcode == Opcode.NEW_INSTANCE && (it as ReferenceInstruction).reference.toString() == AMAZON_REPORT
+            }) throw PatchException("Amazon link report is already removed.")
+        val made = code.singleIndex("Amazon link report") {
+            code[it].opcode == Opcode.NEW_INSTANCE && (code[it] as ReferenceInstruction).reference.toString() == AMAZON_REPORT
+        }
+        val report = code[made].registerA()
+        val read = code.getOrNull(made + 1) as? FiveRegisterInstruction
+        val link = code.getOrNull(made + 2)?.registerA()
+        val init = code.getOrNull(made + 3) as? FiveRegisterInstruction
+        val queue = code.getOrNull(made + 4) as? FiveRegisterInstruction
+        val after = code.getOrNull(made + 5)
+        val self = click.implementation!!.registerCount - 2
+        // Both checks fall through to the report and branch past it, to the instruction after it.
+        val checks = code.indices.filter { i ->
+            code[i].opcode == Opcode.IF_EQZ && (code[i] as BuilderOffsetInstruction).target.location.instruction === after
+        }
+        layout(made > 0 && report != null && read != null && link != null && init != null && queue != null && after != null &&
+            stringIndex("amazon.com/") in 0 until made && stringIndex("/dp/") in 0 until made &&
+            stringIndex("sync-flair://") > made && checks.size == 2 && checks.all { it < made } && checks.contains(made - 1) &&
+            read.methodRef()?.toString() == "$CUSTOM_URL_SPAN->a()Ljava/lang/String;" && read.registerCount == 1 && read.registerC == self &&
+            code[made + 2].opcode == Opcode.MOVE_RESULT_OBJECT &&
+            init.opcode == Opcode.INVOKE_DIRECT && init.methodRef()?.toString() == "$AMAZON_REPORT-><init>(Ljava/lang/String;)V" &&
+            init.registerCount == 2 && init.registerC == report && init.registerD == link &&
+            queue.opcode == Opcode.INVOKE_STATIC && queue.methodRef()?.toString() == QUEUE_REQUEST &&
+            queue.registerCount == 1 && queue.registerC == report &&
+            (made..made + 4).none { click.targeted(it) } &&
+            code.count { it.opcode == Opcode.NEW_INSTANCE && (it as ReferenceInstruction).reference.toString() == AMAZON_REPORT } == 1,
+            "Sync CustomUrlSpan Amazon report")
+
+        // AmazonAnalyticsRequest itself, as a backstop: its address becomes a non-network URL that
+        // Sync's network stack rejects before connecting, as for the bundle's retired-host requests.
+        val request = mutable(AMAZON_REPORT, "AmazonAnalyticsRequest.java")
+        val constructor = request.methods.singleOrNull {
+            it.name == "<init>" && it.parameterTypes.map { p -> p.toString() } == listOf("Ljava/lang/String;")
+        } ?: throw PatchException("Unsupported Sync AmazonAnalyticsRequest constructor.")
+        val constructorCode = constructor.code()
+        val address = constructorCode.singleIndex("Amazon report address") { constructorCode[it].stringValue() == AMAZON_REPORT_URL }
+        val superCall = constructorCode.singleIndex("AmazonAnalyticsRequest Request constructor call") { i ->
+            constructorCode[i].methodRef()?.toString() == "$VOLLEY_REQUEST-><init>(ILjava/lang/String;$ERROR_LISTENER)V"
+        }
+        val urlRegister = (constructorCode[superCall] as FiveRegisterInstruction).registerE
+        layout(request.superclass == VOLLEY_REQUEST && address < superCall && constructorCode[address].registerA() == urlRegister &&
+            (constructorCode[superCall] as FiveRegisterInstruction).registerCount == 4 && !constructor.targeted(superCall) &&
+            (address + 1 until superCall).none { constructorCode[it].registerA() == urlRegister },
+            "Sync AmazonAnalyticsRequest")
+
+        // All layouts verified; edit.
+        click.removeInstructions(made, 5)
+        constructor.replaceInstruction(address, "const-string v$urlRegister, \"$AMAZON_REPORT_DISABLED\"")
     }
 }

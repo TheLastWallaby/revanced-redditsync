@@ -163,6 +163,10 @@ class InfrastructureTests(unittest.TestCase):
         self.assertIn("app.revanced.extension.synccompat.MessagingHandoffTest", tests)
         self.assertIn("MessagingHandoffPatchTest", tests)
 
+    def test_amazon_link_suite_is_discovered(self):
+        tests = discover_java_tests(ROOT / "tests")
+        self.assertIn("AmazonLinkPatchTest", tests)
+
     def test_comment_request_suites_are_discovered(self):
         tests = discover_java_tests(ROOT / "tests")
         self.assertIn("BatchCommentsTest", tests)
