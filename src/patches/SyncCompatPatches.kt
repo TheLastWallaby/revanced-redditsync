@@ -3155,3 +3155,102 @@ val askSyncNotificationPermission = bytecodePatch(
         """.trimIndent())
     }
 }
+
+private const val PEEK = "Lapp/revanced/extension/synccompat/ImagePeekCompat;"
+private const val PEEK_DIALOG = "Lcom/laurencedawson/reddit_sync/ui/fragment_dialogs/ImagePeekDialogFragment;"
+private const val PEEK_LAYOUT = "Lcom/laurencedawson/reddit_sync/ui/fragment_dialogs/ImagePeekDialogFragment\$f;"
+
+val fixSyncImagePeek = bytecodePatch(
+    name = "Sync: fix image peek",
+    description = "Long-press peek loads Reddit image links whose ampersands are still HTML-escaped (&amp;), which " +
+        "Reddit refuses (\"Glide failed to grab this image\"), and shows a text post's picture at full size from " +
+        "the post body instead of its small thumbnail.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        fun mutable(type: String, source: String): MutableClassDef =
+            proxy(classes.singleOrNull { it.type == type && it.sourceFile == source } ?: throw PatchException(
+                "Expected Sync $source was not found. This patch targets build 23033 only.")).mutableClass
+        fun MutableMethod.code() = implementation!!.instructions
+        fun MutableMethod.targeted(index: Int): Boolean {
+            val target = code()[index]
+            return code().any { it is BuilderOffsetInstruction && it.target.location.instruction === target } ||
+                implementation!!.tryBlocks.any { block -> block.exceptionHandlers.any { it.handler.location.index == index } }
+        }
+        fun Instruction.field(): FieldReference? = (this as? ReferenceInstruction)?.reference as? FieldReference
+        fun Instruction.readsField(type: String, name: String, holder: Int, value: Int): Boolean =
+            opcode == Opcode.IGET_OBJECT && field()?.let { it.definingClass == PEEK_DIALOG && it.name == name && it.type == type } == true &&
+                (this as TwoRegisterInstruction).registerB == holder && registerA() == value
+
+        val dialog = mutable(PEEK_DIALOG, "ImagePeekDialogFragment.java")
+        layout(dialog.fields.any { it.name == "E0" && it.type == POST } &&
+            dialog.fields.any { it.name == "F0" && it.type == "Ljava/lang/String;" }, "Sync image peek fields")
+        layout(classes.singleOrNull { it.type == POST }?.methods?.any {
+            it.name == "P0" && it.parameterTypes.isEmpty() && it.returnType == "Ljava/lang/String;"
+        } == true, "Sync post body getter")
+
+        // ImagePeekDialogFragment.V3 (picture) and U3 (GIF) hand their URL straight to Glide. Both
+        // start with "if (!T3()) return;" on p0, which no branch targets.
+        val loaders = listOf("V3", "U3").map { name ->
+            val loader = dialog.methods.singleOrNull {
+                it.name == name && it.returnType == "V" && it.parameterTypes.map { p -> p.toString() } == listOf("Ljava/lang/String;") &&
+                    !AccessFlags.STATIC.isSet(it.accessFlags)
+            } ?: throw PatchException("Unsupported Sync image peek loader $name.")
+            val code = loader.code()
+            if (code.any { it.methodRef()?.definingClass == PEEK }) throw PatchException("Image peek fix is already installed.")
+            val first = code.firstOrNull() as? FiveRegisterInstruction
+            layout(first != null && code[0].opcode == Opcode.INVOKE_VIRTUAL && first.registerCount == 1 &&
+                first.registerC == loader.implementation!!.registerCount - 2 &&
+                code[0].methodRef()?.toString() == "$PEEK_DIALOG->T3()Z" && !loader.targeted(0) &&
+                code.any { it.methodRef()?.let { m -> m.definingClass == "Lcom/bumptech/glide/g;" } == true }, "Sync image peek loader $name")
+            loader
+        }
+
+        // ImagePeekDialogFragment$f.onGlobalLayout: for a text post (sync_type 2) it sets F0 to the
+        // post's preview_url, or its thumbnail when that is empty, then ends with
+        //   iget-object vF, p0, $f.a; iget-object vU, vF, F0; invoke-virtual {vF, vU}, V3(String); return-void
+        val listener = mutable(PEEK_LAYOUT, "ImagePeekDialogFragment.java")
+        val layoutMethod = listener.methods.singleOrNull { it.name == "onGlobalLayout" && it.parameterTypes.isEmpty() && it.returnType == "V" }
+            ?: throw PatchException("Unsupported Sync image peek layout listener.")
+        val code = layoutMethod.code()
+        if (code.any { it.methodRef()?.definingClass == PEEK }) throw PatchException("Image peek fix is already installed.")
+        val type = code.indexOfFirst { it.methodRef()?.toString() == "$POST->Y0()I" }
+        val show = code.indexOfFirst { it.methodRef()?.toString() == "$PEEK_DIALOG->V3(Ljava/lang/String;)V" }
+        val registers = layoutMethod.implementation!!.registerCount
+        val thisRegister = registers - 1
+        val call = code.getOrNull(show) as? FiveRegisterInstruction
+        val fragment = call?.registerC
+        val url = call?.registerD
+        val textCheck = code.getOrNull(type + 3)
+        layout(type > 0 && show > type + 4 && call != null && call.registerCount == 2 && fragment != url &&
+            code[type + 1].opcode == Opcode.MOVE_RESULT && code[type + 2].opcode == Opcode.CONST_4 &&
+            (code[type + 2] as NarrowLiteralInstruction).narrowLiteral == 2 && textCheck?.opcode == Opcode.IF_NE &&
+            textCheck.branchTarget() === code.getOrNull(show + 2) &&
+            (type until show).any { code[it].methodRef()?.toString() == "$POST->H0()Ljava/lang/String;" } &&
+            (type until show).any { code[it].methodRef()?.toString() == "$POST->Z0()Ljava/lang/String;" } &&
+            code[show - 2].opcode == Opcode.IGET_OBJECT && code[show - 2].registerA() == fragment &&
+            (code[show - 2] as TwoRegisterInstruction).registerB == thisRegister &&
+            code[show - 2].field()?.let { it.definingClass == PEEK_LAYOUT && it.type == PEEK_DIALOG } == true &&
+            code[show - 1].readsField("Ljava/lang/String;", "F0", fragment!!, url!!) &&
+            code.getOrNull(show + 1)?.opcode == Opcode.RETURN_VOID && !layoutMethod.targeted(show) &&
+            !layoutMethod.targeted(show - 1) && registers <= 16, "Sync text post image peek")
+        // Scratch register: dead here, since the branch returns right after V3.
+        val scratch = (0 until thisRegister).first { it != fragment && it != url }
+
+        // All layouts verified; edit.
+        for (loader in loaders) loader.addInstructions(0, """
+            invoke-static {p1}, $PEEK->imageUrl(Ljava/lang/String;)Ljava/lang/String;
+            move-result-object p1
+        """.trimIndent())
+        // F0 also feeds the peek's save/share options, so they get the same picture.
+        layoutMethod.addInstructions(show, """
+            iget-object v$scratch, v$fragment, $PEEK_DIALOG->E0:$POST
+            invoke-virtual {v$scratch}, $POST->P0()Ljava/lang/String;
+            move-result-object v$scratch
+            invoke-static {v$scratch, v$url}, $PEEK->textPostImage(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+            move-result-object v$url
+            iput-object v$url, v$fragment, $PEEK_DIALOG->F0:Ljava/lang/String;
+        """.trimIndent())
+    }
+}

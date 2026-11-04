@@ -151,6 +151,11 @@ class InfrastructureTests(unittest.TestCase):
         self.assertIn("app.revanced.extension.synccompat.YouTubeLinksTest", tests)
         self.assertIn("YouTubeAppPatchTest", tests)
 
+    def test_image_peek_suites_are_discovered(self):
+        tests = discover_java_tests(ROOT / "tests")
+        self.assertIn("app.revanced.extension.synccompat.ImagePeekCompatTest", tests)
+        self.assertIn("ImagePeekPatchTest", tests)
+
     def test_poll_suites_are_discovered(self):
         tests = discover_java_tests(ROOT / "tests")
         self.assertIn("app.revanced.extension.synccompat.PollCompatTest", tests)
