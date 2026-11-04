@@ -3093,6 +3093,69 @@ val fixSyncImageSearch = bytecodePatch(
     }
 }
 
+private const val NOTIFICATION_PERMISSION = "Lapp/revanced/extension/synccompat/NotificationPermission;"
+private const val ACTIVITIES = "Lcom/laurencedawson/reddit_sync/ui/activities/"
+
+val askSyncNotificationPermission = bytecodePatch(
+    name = "Sync: ask for notification permission",
+    description = "On Android 13 and later, ask once for the notification permission when Sync's main screen opens, " +
+        "if inbox checks are on and the permission isn't granted. Sync asked only during onboarding.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        fun mutable(type: String, source: String): MutableClassDef =
+            proxy(classes.singleOrNull { it.type == type && it.sourceFile == source } ?: throw PatchException(
+                "Expected Sync $source was not found. This patch targets build 23033 only.")).mutableClass
+        fun MutableMethod.code() = implementation?.instructions ?: emptyList()
+        fun MutableMethod.calls(ref: String) = code().any { it.methodRef()?.toString() == ref }
+        fun MutableMethod.hasStrings(vararg values: String) = values.all { v -> code().any { it.stringValue() == v } }
+        val resume = "${ACTIVITIES}BaseMaterialActivity;->onResume()V"
+
+        // HomeActivity, Sync's launcher, opens MainActivity (the main screen) or the onboarding.
+        // MainActivity inherits onResume from BaseMaterialActivity, which calls BaseActivity's.
+        val main = mutable("${ACTIVITIES}MainActivity;", "MainActivity.java")
+        val ownResume = main.methods.filter { it.name == "onResume" && it.parameterTypes.isEmpty() }
+        if (ownResume.any { it.calls("$NOTIFICATION_PERMISSION->onResume(Landroid/app/Activity;)V") })
+            throw PatchException("Notification permission request is already installed.")
+        val home = mutable("${ACTIVITIES}HomeActivity;", "HomeActivity.java")
+        val base = mutable("${ACTIVITIES}BaseMaterialActivity;", "BaseMaterialActivity.java")
+        val baseResume = base.methods.singleOrNull { it.name == "onResume" && it.parameterTypes.isEmpty() && it.returnType == "V" }
+        layout(ownResume.isEmpty() && main.superclass == "${ACTIVITIES}BaseMaterialActivity;" &&
+            !AccessFlags.FINAL.isSet(main.accessFlags) &&
+            home.methods.any { m -> m.code().any {
+                it.opcode == Opcode.CONST_CLASS && (it as ReferenceInstruction).reference.toString() == main.type } } &&
+            baseResume != null && AccessFlags.PUBLIC.isSet(baseResume.accessFlags) && !AccessFlags.FINAL.isSet(baseResume.accessFlags) &&
+            !AccessFlags.STATIC.isSet(baseResume.accessFlags) && baseResume.calls("${ACTIVITIES}BaseActivity;->onResume()V"),
+            "Sync main screen")
+
+        // MessageSchedulingHelper.g (z7.b), Sync's "should check the inbox" rule, which the extension
+        // repeats: PreferencesHelper.f(context, "MessagingService").getString("message_preference_new",
+        // "3") read with Integer.parseInt, on when above 0.
+        val schedule = mutable("Lz7/b;", "MessageSchedulingHelper.java").methods.singleOrNull {
+            it.name == "g" && it.returnType == "Z" && it.parameterTypes.map { p -> p.toString() } == listOf("Landroid/content/Context;") &&
+                AccessFlags.STATIC.isSet(it.accessFlags)
+        }
+        val preferences = "Lt7/z;->f(Landroid/content/Context;Ljava/lang/String;)Landroid/content/SharedPreferences;"
+        layout(schedule != null && schedule.hasStrings("MessagingService", "message_preference_new", "3") &&
+            schedule.calls(preferences) &&
+            schedule.calls("Landroid/content/SharedPreferences;->getString(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;") &&
+            schedule.calls("Ljava/lang/Integer;->parseInt(Ljava/lang/String;)I") && schedule.code().any { it.opcode == Opcode.IF_LEZ } &&
+            classes.any { c -> c.type == "Lt7/z;" && c.sourceFile == "PreferencesHelper.java" && c.methods.any {
+                it.name == "f" && it.returnType == "Landroid/content/SharedPreferences;" && AccessFlags.PUBLIC.isSet(it.accessFlags) &&
+                    AccessFlags.STATIC.isSet(it.accessFlags) &&
+                    it.parameterTypes.map { p -> p.toString() } == listOf("Landroid/content/Context;", "Ljava/lang/String;")
+            } }, "Sync inbox check setting")
+
+        // All layouts verified; edit. Sync's own onResume runs first, unchanged.
+        main.addOverride("onResume", "V", 1, """
+            invoke-super {p0}, $resume
+            invoke-static {p0}, $NOTIFICATION_PERMISSION->onResume(Landroid/app/Activity;)V
+            return-void
+        """.trimIndent())
+    }
+}
+
 private const val PEEK = "Lapp/revanced/extension/synccompat/ImagePeekCompat;"
 private const val PEEK_DIALOG = "Lcom/laurencedawson/reddit_sync/ui/fragment_dialogs/ImagePeekDialogFragment;"
 private const val PEEK_LAYOUT = "Lcom/laurencedawson/reddit_sync/ui/fragment_dialogs/ImagePeekDialogFragment\$f;"

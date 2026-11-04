@@ -59,6 +59,30 @@ maintainers yet; the tested route is ReVanced CLI (see
 
 The rest of this page is version history and technical detail.
 
+## v0.7.6-rc.1 candidate: Amazon link reports, image search and notification permission (issues #101, #102, #105)
+
+The [v0.7.6-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.6-rc.1)
+is for phone testing. Apply it to **stock** Sync and check all patch results (31
+with Use /user/ endpoint). Stable remains v0.7.5 until the candidate passes and
+stable publication is authorized. It has not been tested on a phone yet.
+
+It adds three selectable patches, on by default, described under
+[Included patches](#included-patches--cumulative-v075):
+
+- **Sync: don't report Amazon links**
+  ([issue #101](https://github.com/TheLastWallaby/revanced-redditsync/issues/101)):
+  tapping an Amazon product link no longer sends that link to Sync's former
+  ad server first. The link opens as before.
+- **Sync: fix image search**
+  ([issue #102](https://github.com/TheLastWallaby/revanced-redditsync/issues/102)):
+  the full-screen image viewer's search button opens Google Lens results for
+  the image, instead of Google's retired search-by-image page (HTTP 404).
+- **Sync: ask for notification permission**
+  ([issue #105](https://github.com/TheLastWallaby/revanced-redditsync/issues/105)):
+  on Android 13 and later, with inbox checks on, Sync's main screen asks once
+  for the notification permission if it isn't granted, so inbox notifications
+  can appear. It never asks again after that.
+
 ## v0.7.5 poll options and Reddit Chat handoff (issues #9, #10)
 
 The [v0.7.5 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5)
@@ -1620,7 +1644,7 @@ New in [v0.7.5](#v075-poll-options-and-reddit-chat-handoff-issues-9-10):
   old archived message, comment replies from the inbox, mark read and
   moderator mail.
 
-New since v0.7.5 (not in a release yet):
+New in the [v0.7.6-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.6-rc.1):
 
 - **Sync: don't report Amazon links**
   ([issue #101](https://github.com/TheLastWallaby/revanced-redditsync/issues/101)),
@@ -1685,6 +1709,55 @@ New since v0.7.5 (not in a release yet):
   is unchanged. It runs on a hand-written model in CI and on Sync's real
   viewer locally. `PatchInteractionTest` applied all 30 patches to the stock
   APK in both name orders with identical results. Not checked on a phone.
+- **Sync: ask for notification permission**
+  ([issue #105](https://github.com/TheLastWallaby/revanced-redditsync/issues/105)),
+  on by default. Sync 23033 targets Android 13 (API 33) and declares
+  `POST_NOTIFICATIONS`, so on Android 13 and later its notifications stay
+  blocked until you allow them. Sync asks only in its onboarding
+  (`OnboardingActivity` and its notifications button). Its inbox check
+  (**Periodically check for new messages**, `message_preference_new`, default
+  "Every 60 minutes") still runs, so if you skipped or declined that step you
+  got no inbox notifications, nor this bundle's "Error submitting comment" and
+  Reddit Chat notifications, and no hint why.
+
+  With the patch, when Sync's main screen (`MainActivity`, which the launcher
+  `HomeActivity` opens) comes to the front, after Sync's own `onResume`, it
+  asks for the permission with Android's own prompt, once, if all of these
+  hold:
+
+  - Android 13 or later;
+  - inbox checks are not Off, read as Sync reads them
+    (`MessageSchedulingHelper`: the setting through `PreferencesHelper`, which
+    gives the signed-in account's own settings if it has them, as a number
+    above 0);
+  - the permission isn't granted;
+  - the patch hasn't asked before on this install. It records that in a
+    preferences file of its own (`app.revanced.synccompat`, a name no Reddit
+    account's settings file can have), before it asks, so a refusal is never
+    repeated. Android itself stops showing the prompt after two refusals.
+
+  If the permission is granted, or inbox checks are Off, nothing is recorded:
+  if you later revoke it, or turn inbox checks on, the next start asks once.
+  Not changed: the onboarding, Sync's notification and inbox check settings,
+  the inbox checks themselves and `AndroidManifest.xml` (the permission is
+  already declared). On a new install where you decline in the onboarding,
+  the main screen asks once more right after it. Nothing is logged.
+
+  `NotificationPermissionTest` runs the helper on a stand-in phone (API level,
+  permission state, Sync's settings, preference files): it asks once on
+  Android 13 to 16 with inbox checks every 10 minutes to 24 hours (and Sync's
+  default when unset), writing its flag first; never on Android 12L or
+  earlier, with checks Off or unreadable, when granted, a second time, or when
+  the flag can't be written; Sync's settings are only read; failures are
+  swallowed. `NotificationPermissionPatchTest` resumes the main screen before
+  the patch (nothing asked; only the onboarding requests the permission) and
+  after it (Sync's `onResume` first, then one request under exactly those
+  conditions), and checks that only `MainActivity.onResume` is added: on
+  hand-written models in CI, and on Sync's real classes locally.
+  `PatchInteractionTest` applied all 31 patches to the stock APK in both name
+  orders with identical results. Not checked on a phone.
+
+New since the v0.7.6-rc.1 candidate (not in a release yet):
 
 - **Sync: fix image peek**, on by default. Long-pressing the thumbnail of a
   text post with a picture showed **Glide failed to grab this image**, while
@@ -1713,7 +1786,7 @@ New since v0.7.5 (not in a release yet):
   loaders before and after the patch, recording the URL Glide gets: on
   hand-written models in CI, and on Sync's real methods locally, where stock
   Sync requests the escaped thumbnail and the patched peek the body picture.
-  `PatchInteractionTest` applied all 31 patches to the stock APK in both name
+  `PatchInteractionTest` applied all 32 patches to the stock APK in both name
   orders with identical results. Not checked on a phone yet.
 
 Version 0.6 treats an ID as completed with no available comment only when both
