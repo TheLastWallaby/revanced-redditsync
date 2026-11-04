@@ -59,15 +59,25 @@ maintainers yet; the tested route is ReVanced CLI (see
 
 The rest of this page is version history and technical detail.
 
-## v0.7.6-rc.1 candidate: Amazon link reports, image search and notification permission (issues #101, #102, #105)
+## v0.7.6 Amazon link reports, image search, notification permission and image peek (issues #101, #102, #105)
 
-The [v0.7.6-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.6-rc.1)
-is for phone testing. Apply it to **stock** Sync and check all patch results (31
-with Use /user/ endpoint). Stable remains v0.7.5 until the candidate passes and
-stable publication is authorized. It has not been tested on a phone yet.
+The [v0.7.6 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.6)
+rebuilds the runtime code from the
+[v0.7.6-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.6-rc.1),
+plus **Sync: fix image peek**
+([PR #108](https://github.com/TheLastWallaby/revanced-redditsync/pull/108)), which was merged after
+that candidate was built. Apply it to **stock** Sync and check all patch results
+(32 with Use /user/ endpoint).
 
-It adds three selectable patches, on by default, described under
-[Included patches](#included-patches--cumulative-v075):
+The owner reported rc.1 looking good, said they had tested both the rc.1
+changes and the image peek fix, and authorized promotion. Only an overall
+result was given for rc.1's six numbered checks (Amazon links, image search,
+the notification prompt, inbox notifications, no prompt with inbox checks Off,
+general regressions). The image peek fix was not in a published candidate, and
+the build used to test it was not stated. See `validation-phone-tests.json`.
+
+It adds four selectable patches, on by default, described under
+[Included patches](#included-patches--cumulative-v076):
 
 - **Sync: don't report Amazon links**
   ([issue #101](https://github.com/TheLastWallaby/revanced-redditsync/issues/101)):
@@ -82,6 +92,10 @@ It adds three selectable patches, on by default, described under
   on Android 13 and later, with inbox checks on, Sync's main screen asks once
   for the notification permission if it isn't granted, so inbox notifications
   can appear. It never asks again after that.
+- **Sync: fix image peek**
+  ([PR #108](https://github.com/TheLastWallaby/revanced-redditsync/pull/108)): long-pressing a text
+  post with a picture shows the picture instead of **Glide failed to grab this
+  image**.
 
 ## v0.7.5 poll options and Reddit Chat handoff (issues #9, #10)
 
@@ -100,7 +114,7 @@ promotion. Comment replies from the inbox, mark read, a new private message and
 moderator mail were not reported. See `validation-phone-tests.json`.
 
 It adds two selectable patches, on by default, described under
-[Included patches](#included-patches--cumulative-v075):
+[Included patches](#included-patches--cumulative-v076):
 
 - **Sync: show poll options**
   ([issue #9](https://github.com/TheLastWallaby/revanced-redditsync/issues/9)):
@@ -126,7 +140,7 @@ The owner asked for stable promotion of rc.1 without reporting results for its
 seven numbered phone checks, so none are recorded. See `validation-phone-tests.json`.
 
 It adds one selectable patch, on by default, described under
-[Included patches](#included-patches--cumulative-v075):
+[Included patches](#included-patches--cumulative-v076):
 
 - **Sync: open YouTube in the YouTube app**
   ([issue #60](https://github.com/TheLastWallaby/revanced-redditsync/issues/60)):
@@ -157,7 +171,7 @@ is sent with an empty `text` next to `richtext_json`, as Infinity for Reddit doe
 (rc.1 left `text` out).
 
 It adds one selectable patch, described under
-[Included patches](#included-patches--cumulative-v075):
+[Included patches](#included-patches--cumulative-v076):
 
 - **Sync: upload images to Reddit**
   ([issue #53](https://github.com/TheLastWallaby/revanced-redditsync/issues/53)):
@@ -185,7 +199,7 @@ no install can turn it on any more. Since rc.2 the entry is shown for every
 `[deleted]` or `[removed]` comment.
 
 It adds two selectable patches, described under
-[Included patches](#included-patches--cumulative-v075):
+[Included patches](#included-patches--cumulative-v076):
 
 - **Sync: restore comments from Arctic Shift**
   ([issue #52](https://github.com/TheLastWallaby/revanced-redditsync/issues/52)):
@@ -211,7 +225,7 @@ publication; only an overall result was given for the five numbered checks
 regressions). See `validation-phone-tests.json`.
 
 It adds three selectable patches, described under
-[Included patches](#included-patches--cumulative-v075):
+[Included patches](#included-patches--cumulative-v076):
 
 - **Sync: skip retired media hosts**
   ([issue #57](https://github.com/TheLastWallaby/revanced-redditsync/issues/57)):
@@ -257,7 +271,7 @@ code 23033) is patched in one pass:
 | Use /user/ endpoint | off | Uses `/user/` instead of `/u/` for profile requests |
 
 The eighth, an on-by-default API fix for a third-party video host, is listed
-under [Included patches](#included-patches--cumulative-v075).
+under [Included patches](#included-patches--cumulative-v076).
 
 **Spoof client options.** `OAuth client ID` (required), `Redirect URI` (default
 Sync's `http://redditsync/auth`; must match your Reddit app) and `User-Agent`
@@ -352,7 +366,7 @@ does not change; v0.6.14 above addresses it. See
 `validation-phone-tests.json`.
 
 It adds a selectable token-refresh patch, listed under
-[Included patches](#included-patches--cumulative-v075), for
+[Included patches](#included-patches--cumulative-v076), for
 [issue #49](https://github.com/TheLastWallaby/revanced-redditsync/issues/49):
 a third-party video played in the feed preview, but full screen showed a
 connection error.
@@ -1020,11 +1034,13 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Stable v0.7.5 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.5/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.5/sync-gallery-comments-compat-v0.7.5-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.5/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.5/build-info.json)
+- [Stable v0.7.6 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.6)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.6/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.6/sync-gallery-comments-compat-v0.7.6-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.6/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.6/build-info.json)
+- [Archived v0.7.6-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.6-rc.1)
+- [Previous stable v0.7.5](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5)
 - [Archived v0.7.5-rc.2 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5-rc.2)
   and [v0.7.5-rc.1](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.5-rc.1)
 - [Previous stable v0.7.4](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.4)
@@ -1078,7 +1094,7 @@ Releases up to v0.6.14 instead needed two passes: the official ReVanced Sync
 patches first, then this bundle on that output
 ([issue #70](https://github.com/TheLastWallaby/revanced-redditsync/issues/70)).
 
-## Included patches — cumulative v0.7.5
+## Included patches — cumulative v0.7.6
 
 Official ReVanced Sync patches, ported for build 23033 (see
 [v0.7.0](#v070-one-pass-patching-from-stock-sync-issue-70)): **Spoof client**,
@@ -1644,7 +1660,7 @@ New in [v0.7.5](#v075-poll-options-and-reddit-chat-handoff-issues-9-10):
   old archived message, comment replies from the inbox, mark read and
   moderator mail.
 
-New in the [v0.7.6-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.6-rc.1):
+New in [v0.7.6](#v076-amazon-link-reports-image-search-notification-permission-and-image-peek-issues-101-102-105):
 
 - **Sync: don't report Amazon links**
   ([issue #101](https://github.com/TheLastWallaby/revanced-redditsync/issues/101)),
@@ -1677,7 +1693,8 @@ New in the [v0.7.6-rc.1 candidate](https://github.com/TheLastWallaby/revanced-re
   removed and only the request's address changes: on hand-written models in
   CI, and on Sync's real methods locally. `PatchInteractionTest` applied all
   29 patches to the stock APK in both name orders with identical results.
-  Not checked on a phone or with a traffic capture.
+  On rc.1 the owner reported the phone checks as an overall pass; no traffic
+  capture was reported.
 - **Sync: fix image search**
   ([issue #102](https://github.com/TheLastWallaby/revanced-redditsync/issues/102)),
   on by default. The search button in the full-screen image viewer
@@ -1708,7 +1725,8 @@ New in the [v0.7.6-rc.1 candidate](https://github.com/TheLastWallaby/revanced-re
   images, and Sync's address for non-web URLs; every other method of the viewer
   is unchanged. It runs on a hand-written model in CI and on Sync's real
   viewer locally. `PatchInteractionTest` applied all 30 patches to the stock
-  APK in both name orders with identical results. Not checked on a phone.
+  APK in both name orders with identical results. On rc.1 the owner reported
+  the phone checks as an overall pass.
 - **Sync: ask for notification permission**
   ([issue #105](https://github.com/TheLastWallaby/revanced-redditsync/issues/105)),
   on by default. Sync 23033 targets Android 13 (API 33) and declares
@@ -1755,9 +1773,8 @@ New in the [v0.7.6-rc.1 candidate](https://github.com/TheLastWallaby/revanced-re
   conditions), and checks that only `MainActivity.onResume` is added: on
   hand-written models in CI, and on Sync's real classes locally.
   `PatchInteractionTest` applied all 31 patches to the stock APK in both name
-  orders with identical results. Not checked on a phone.
-
-New since the v0.7.6-rc.1 candidate (not in a release yet):
+  orders with identical results. On rc.1 the owner reported the phone checks
+  as an overall pass.
 
 - **Sync: fix image peek**, on by default. Long-pressing the thumbnail of a
   text post with a picture showed **Glide failed to grab this image**, while
@@ -1787,7 +1804,8 @@ New since the v0.7.6-rc.1 candidate (not in a release yet):
   hand-written models in CI, and on Sync's real methods locally, where stock
   Sync requests the escaped thumbnail and the patched peek the body picture.
   `PatchInteractionTest` applied all 32 patches to the stock APK in both name
-  orders with identical results. Not checked on a phone yet.
+  orders with identical results. Not in a published candidate; the owner
+  reported testing it before stable promotion, without individual results.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
@@ -1807,7 +1825,7 @@ tokens, headers, usernames, comment bodies, URLs and actual post/comment IDs.
    with the official ReVanced Sync patches.)
 2. Load the released `patches.rvp` (or `output/patches.rvp` after a local build)
    and apply the default patches: the eight ported official patches except Use
-   /user/ endpoint, plus this bundle's twenty. Set Spoof client's
+   /user/ endpoint, plus this bundle's twenty-four. Set Spoof client's
    `OAuth client ID` (and `Redirect URI`/`User-Agent` if needed). Check that
    each patch reports success.
 3. Sign the result with your own keystore. Matching the key used by your current
@@ -1829,7 +1847,7 @@ java -jar revanced-cli-6.0.0-all.jar patch \
   -p output/patches.rvp -b \
   -O "OAuth client ID=your-reddit-client-id" -e "Spoof client" \
   --keystore your-signing-key.keystore \
-  -o Sync-v23.06.30-compat-v0.7.5.apk \
+  -o Sync-v23.06.30-compat-v0.7.6.apk \
   Sync-v23.06.30-stock.apk
 ```
 
@@ -1986,6 +2004,9 @@ promotion; no phone results were reported for rc.1's checks.
 Stable v0.7.5 rebuilds the v0.7.5-rc.2 runtime code after the owner reported
 polls, the inbox and a direct-message reply working and authorized promotion.
 On rc.1 the poll link reopened the post in Sync; rc.2 opens it in the browser.
+Stable v0.7.6 rebuilds the v0.7.6-rc.1 runtime code plus the image peek fix
+(merged after that candidate) after the owner reported rc.1 looking good, said
+they had tested both, and authorized promotion; only an overall result was given.
 These are checks of the supplied cases, not exhaustive Android/live Reddit tests.
 This standalone bundle does not represent a full upstream Gradle build.
 

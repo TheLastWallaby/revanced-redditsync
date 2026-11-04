@@ -2,6 +2,19 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.7.6",
+      "tested_release": "v0.7.6-rc.1",
+      "overall": "passed: the owner replied \"Looks good, promote\" to the rc.1 handoff; no individual results were given for the six numbered checks (Amazon product link opens and other links unchanged, image search opens Google Lens for i.redd.it, gallery and Imgur images, notification prompt shown once on Android 13+ and not after a denial, inbox notification after granting, no prompt with inbox checks Off, general regressions)",
+      "also_reported": "Sync: fix image peek (PR #108), merged to main after v0.7.6-rc.1 was built and not part of any published candidate: when asked whether stable could ship it untested, the owner answered \"I tested both, promote\". The build used for that test was not stated.",
+      "promotion": "Stable v0.7.6 rebuilds the v0.7.6-rc.1 runtime code plus PR #108 from main, built from stock Sync 23033. The owner's \"promote\" authorized stable publication; candidate assets remain immutable.",
+      "unverified": [
+        "individual results for the six numbered rc.1 checks, including the optional traffic capture for check 1",
+        "which build the image peek fix was tested on",
+        "ReVanced Manager import and one-pass patching",
+        "separate device installation of the stable rebuild"
+      ]
+    },
+    {
       "stable": "v0.7.5",
       "tested_release": "v0.7.5-rc.2",
       "results": {
