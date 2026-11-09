@@ -83,8 +83,10 @@ python3 build.py --bootstrap
 
 The original `--tools /path/to/tools` entry point remains supported. Every clean
 build removes old compiler outputs so deleted code cannot remain in a bundle.
-Archive timestamps use the source commit time. CI artifacts are retained for 30
-days; published releases remain available after those preview artifacts expire.
+Archive timestamps use the source commit time. CI artifacts are retained for 7
+days to stay within the free Actions storage quota; published releases remain
+available after those preview artifacts expire. The private builder uploads no
+artifact: its APK, verification report and checksums go only to its private release.
 
 On Windows, run the same commands with `python`. To read Sync's own code for a
 fix, run `python3 scripts/inspect_base.py` with `gh` access to the private
