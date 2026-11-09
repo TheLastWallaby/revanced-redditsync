@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Request bounds for "load more comments" (issue #3): budget, subtree reuse, shared
- * rate limits, 401/403/429, deadline, cancellation and Reddit's batch endpoint.
+ * rate limits, 401/403/429, time target, deadline, cancellation and Reddit's batch endpoint.
  * The batch attempt is off by default (issue #51); its scenarios turn it on by reflection.
  * Real Volley types and HTTP to a loopback server; no Reddit account or credentials.
  */
@@ -159,7 +159,7 @@ public final class BoundedCommentsTest {
         bodies.clear();statuses.clear();delays.clear();throttled.clear();perId.clear();batchOmit.clear();
         retryAfter = "1";rateRemaining = null;rateReset = null;requiredAuth = null;batchBody = null;lastBatchQuery = null;
         batchStatus = 403;peak.set(0);batchPeak.set(0);d9.d.reset();
-        limit("maxRequests",32);limit("deadlineMs",20_000);limit("timeoutMs",15_000);limit("rateReserve",10);
+        limit("maxRequests",32);limit("targetMs",5_000);limit("deadlineMs",20_000);limit("timeoutMs",15_000);limit("rateReserve",10);
         limit("defaultBackoffMs",5_000);limit("maxBackoffMs",60_000);limit("failureLimit",4);
         limit("batchRecheckMs",6L*60*60*1000);
         batch(false);
@@ -276,7 +276,7 @@ public final class BoundedCommentsTest {
             check(calls.get()-before==32,"100 IDs: requests stop at the 32-request budget");
             check(ids(all,"t1").equals(hundred.subList(0,33)),"budgeted IDs load in order");
             check(ids(all,"more").equals(hundred.subList(33,100)),"unrequested IDs stay pending in order");
-            check(peak.get()<=4,"no more than four requests in flight");
+            check(peak.get()<=6,"no more than six requests in flight");
             requestCounts.put(100,calls.get()-before);
 
             List<String> many = range("m",150);
@@ -321,15 +321,16 @@ public final class BoundedCommentsTest {
             check(calls.get()-before==1,"only the ID outside the first tree is requested");
 
             reset();
-            bodies.put("s1",thread(comment("s1","t3_post123",comment("s5","t1_s1"),comment("s6","t1_s1"))));
-            for (String slow : Arrays.asList("s2","s3","s4")) delays.put(slow,300L);
+            // s7 and s8 come after the first six requests, which s1's tree answers first.
+            bodies.put("s1",thread(comment("s1","t3_post123",comment("s7","t1_s1"),comment("s8","t1_s1"))));
+            for (String slow : Arrays.asList("s2","s3","s4","s5","s6")) delays.put(slow,300L);
             before = calls.get();
-            all = load(range("s",7));
-            check(calls.get()-before==4,"IDs inside an earlier sibling's returned tree are not requested");
-            check(ids(all,"t1").equals(Arrays.asList("s0","s1","s5","s6","s2","s3","s4")) && ids(all,"more").isEmpty(),
+            all = load(range("s",9));
+            check(calls.get()-before==6,"IDs inside an earlier sibling's returned tree are not requested");
+            check(ids(all,"t1").equals(Arrays.asList("s0","s1","s7","s8","s2","s3","s4","s5","s6")) && ids(all,"more").isEmpty(),
                     "reused subtree keeps requested order and parent-first nesting");
 
-            // Two taps at once share four workers.
+            // Two taps at once share six workers.
             reset();
             for (String id : range("x",12)) delays.put(id,40L);
             for (String id : range("y",12)) delays.put(id,40L);
@@ -340,7 +341,41 @@ public final class BoundedCommentsTest {
             first.join();second.join();
             check(errors.isEmpty(),"concurrent taps succeed");
             check(ids(pair[0],"t1").equals(range("x",12)) && ids(pair[1],"t1").equals(range("y",12)),"concurrent taps both load fully");
-            check(peak.get()>1 && peak.get()<=4,"concurrent taps share the four-request limit");
+            check(peak.get()>1 && peak.get()<=6,"concurrent taps share the six-request limit");
+
+            // Slow Reddit responses: once a comment has loaded, no request starts after the
+            // time target. Requests already sent finish and the rest stays in order for the next tap.
+            reset();
+            limit("targetMs",300);
+            List<String> slowRow = range("sl",40);
+            for (String id : slowRow) delays.put(id,250L);
+            before = calls.get();
+            long tapStart = System.currentTimeMillis();
+            all = load(slowRow);
+            long tapElapsed = System.currentTimeMillis()-tapStart;
+            int sent = calls.get()-before, shown = ids(all,"t1").size();
+            check(tapElapsed<2_000,"a slow tap returns soon after the time target ("+tapElapsed+" ms)");
+            check(sent>=6 && sent<=18,"no request starts after the target ("+sent+" requests)");
+            check(shown==sent+1 && ids(all,"t1").equals(slowRow.subList(0,shown)),"loaded comments keep requested order");
+            check(ids(all,"more").equals(slowRow.subList(shown,40)) && complete(all,slowRow),"the rest stays pending in order");
+            check(workersIdleWithin(2_000),"requests sent before the target finish");
+            List<String> slowNext = ids(all,"more");
+            all = load(slowNext);
+            int nextShown = ids(all,"t1").size();
+            check(nextShown>1 && ids(all,"t1").equals(slowNext.subList(0,nextShown)) && complete(all,slowNext),
+                    "the next tap continues after the shown comments");
+
+            // The target never ends a tap before anything has loaded.
+            reset();
+            limit("targetMs",50);
+            bodies.put("fallback:ta0",thread());
+            List<String> lateRow = range("ta",20);
+            for (String id : lateRow) delays.put(id,300L);
+            before = calls.get();
+            all = things(raw(thread(),String.join(",",lateRow),plain,null,Collections.<String,String>emptyMap()));
+            check(ids(all,"t1").equals(lateRow.subList(1,7)),"with nothing loaded the tap waits for the first replies");
+            check(calls.get()-before==7 && ids(all,"more").equals(lateRow.subList(7,20)),
+                    "then starts nothing new and keeps the rest pending");
 
             // Slow responses: an overall deadline, after which in-flight sockets are closed.
             reset();
@@ -362,16 +397,17 @@ public final class BoundedCommentsTest {
 
             // Canceling the originating request.
             reset();
-            for (String slow : range("k",6).subList(1,6)) delays.put(slow,5_000L);
+            // Eight slow IDs: two more than the workers, so a request after cancellation would show.
+            for (String slow : range("k",9).subList(1,9)) delays.put(slow,5_000L);
             SyncRequest canceled = new SyncRequest(plain);
             before = calls.get();
             new Timer(true).schedule(new TimerTask() { public void run() { canceled.cancel(); } },300);
             start = System.currentTimeMillis();
-            all = load(range("k",6),plain,canceled);
+            all = load(range("k",9),plain,canceled);
             elapsed = System.currentTimeMillis()-start;
             check(elapsed<1_500,"in-flight work stops soon after Sync cancels the request ("+elapsed+" ms)");
-            check(calls.get()-before<=4,"no request starts after cancellation");
-            check(ids(all,"t1").equals(Collections.singletonList("k0")) && complete(all,range("k",6)),"canceled IDs remain pending");
+            check(calls.get()-before<=6,"no request starts after cancellation");
+            check(ids(all,"t1").equals(Collections.singletonList("k0")) && complete(all,range("k",9)),"canceled IDs remain pending");
             check(workersIdleWithin(2_000),"canceled in-flight requests are closed");
 
             reset();
@@ -383,9 +419,10 @@ public final class BoundedCommentsTest {
             check(complete(all,range("g",10)),"already canceled request keeps every ID");
 
             reset();
-            for (String slow : range("qa",5).subList(1,5)) delays.put(slow,1_500L);
+            // The busy tap's six slow requests fill every worker.
+            for (String slow : range("qa",7).subList(1,7)) delays.put(slow,1_500L);
             SyncRequest queued = new SyncRequest(plain);
-            List<String> busyIds = range("qa",5), queuedIds = range("qb",5);
+            List<String> busyIds = range("qa",7), queuedIds = range("qb",5);
             JSONArray[] busyResult = new JSONArray[1], queuedResult = new JSONArray[1];
             errors.clear();
             Thread busy = background(() -> busyResult[0] = load(busyIds), errors);
@@ -419,12 +456,13 @@ public final class BoundedCommentsTest {
             reset();
             retryAfter = "30";
             throttled.put("u1",new AtomicInteger(1));
-            for (String id : Arrays.asList("u2","u3","u4")) delays.put(id,150L);
+            // u7 is the first ID after the six requests sent before the 429 arrives.
+            for (String id : Arrays.asList("u2","u3","u4","u5","u6")) delays.put(id,150L);
             start = System.currentTimeMillis();
-            all = load(range("u",6));
+            all = load(range("u",8));
             check(System.currentTimeMillis()-start<3_000,"a wait beyond the deadline is not slept through");
-            check(perId("u1")==1 && perId("u5")==0,"no request starts during a long backoff");
-            check(ids(all,"more").contains("u1") && complete(all,range("u",6)),"backed-off IDs stay pending");
+            check(perId("u1")==1 && perId("u7")==0,"no request starts during a long backoff");
+            check(ids(all,"more").contains("u1") && complete(all,range("u",8)),"backed-off IDs stay pending");
             before = calls.get();
             all = load(range("v",4));
             check(calls.get()==before && ids(all,"t1").equals(Collections.singletonList("v0")) && complete(all,range("v",4)),
@@ -438,7 +476,8 @@ public final class BoundedCommentsTest {
             rateRemaining = "12";rateReset = "300";
             before = calls.get();
             all = load(range("rl",20));
-            check(calls.get()-before<=6,"requests stop at Reddit's remaining-quota reserve ("+(calls.get()-before)+")");
+            // Six requests start before any rate header arrives; then two more reach the reserve.
+            check(calls.get()-before<=8,"requests stop at Reddit's remaining-quota reserve ("+(calls.get()-before)+")");
             check(complete(all,range("rl",20)),"quota-limited IDs stay pending");
             reset();
             Map<String,String> lowQuota = new HashMap<>();
@@ -464,7 +503,7 @@ public final class BoundedCommentsTest {
             SyncRequest unchanged = new SyncRequest(stale);
             before = calls.get();
             all = load(range("n",10),stale,unchanged);
-            check(calls.get()-before<=4,"unrefreshable token stops after the requests already in flight");
+            check(calls.get()-before<=6,"unrefreshable token stops after the requests already in flight");
             check(unchanged.headerReads.get()==1,"refresh attempted only once");
             check(ids(all,"t1").equals(Collections.singletonList("n0")) && complete(all,range("n",10)),"rejected IDs stay pending");
             reset();
@@ -480,7 +519,7 @@ public final class BoundedCommentsTest {
             for (String id : range("f",20).subList(1,20)) statuses.put(id,403);
             before = calls.get();
             all = load(range("f",20));
-            check(calls.get()-before<=7,"repeated 403s stop early ("+(calls.get()-before)+" requests)");
+            check(calls.get()-before<=9,"repeated 403s stop early ("+(calls.get()-before)+" requests)");
             check(ids(all,"t1").equals(Collections.singletonList("f0")) && complete(all,range("f",20)),"forbidden IDs stay pending");
             reset();
             statuses.put("fallback:fa0",403);

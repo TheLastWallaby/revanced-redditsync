@@ -225,7 +225,7 @@ val fixSyncGalleries = bytecodePatch(
 
 val fixSyncMoreComments = bytecodePatch(
     name = "Sync: load more comments in batches",
-    description = "Experimental: batch-load hidden comments through the normal thread endpoint, retaining failed requests for retry. Each tap makes a bounded number of requests, follows Reddit's rate limits and stops when Sync cancels the load.",
+    description = "Experimental: batch-load hidden comments through the normal thread endpoint, retaining failed requests for retry. Each tap makes a bounded number of requests, shows what has loaded after about five seconds, follows Reddit's rate limits and stops when Sync cancels the load.",
 ) {
     compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
     dependsOn(extensionPatch)

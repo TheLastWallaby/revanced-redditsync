@@ -34,6 +34,11 @@ final class CommentTransport {
     // Limits are non-final so the tests can shorten them.
     /** Extra HTTP requests one expansion may make, on top of Sync's own first request. */
     static int maxRequests = 32;
+    /**
+     * Once something has loaded, no new request starts after this long: the tap shows what
+     * has arrived and the rest stays in the continuation row. Requests already sent finish.
+     */
+    static long targetMs = 5_000;
     static long deadlineMs = 20_000;
     static int timeoutMs = 15_000;
     /** Requests left in Reddit's window for Sync's own traffic. */
@@ -45,7 +50,7 @@ final class CommentTransport {
     static long batchRecheckMs = 6 * 60 * 60 * 1000L;
 
     /** Shared by every expansion; queued work is bounded too. */
-    static final int THREADS = 4;
+    static final int THREADS = 6;
     static final ThreadPoolExecutor executor = new ThreadPoolExecutor(THREADS, THREADS, 30, TimeUnit.SECONDS,
             new ArrayBlockingQueue<Runnable>(4 * THREADS), runnable -> {
                 Thread thread = new Thread(runnable, "SyncCompat comments");
@@ -188,7 +193,7 @@ final class CommentTransport {
     /** One "load more" tap. */
     static final class Expansion {
         final Request<?> request;
-        final long deadline;
+        final long deadline, target;
         final int budget;
         final AtomicInteger requests = new AtomicInteger();
         private final AtomicReference<String> stop = new AtomicReference<>();
@@ -200,7 +205,9 @@ final class CommentTransport {
         Expansion(Request<?> request, Map<String, String> headers) {
             this.request = request;
             this.headers = headers == null ? Collections.<String, String>emptyMap() : headers;
-            this.deadline = now() + deadlineMs;
+            long start = now();
+            this.deadline = start + deadlineMs;
+            this.target = start + targetMs;
             this.budget = Math.max(0, maxRequests);
         }
 
@@ -249,6 +256,8 @@ final class CommentTransport {
         void release() { requests.decrementAndGet(); }
 
         long remainingMs() { return Math.max(0, deadline - now()); }
+
+        boolean pastTarget() { return now() >= target; }
 
         /** Serial /api/morechildren request, shared with every other expansion. */
         String fetchBatch(String url) throws IOException {
@@ -320,11 +329,12 @@ final class CommentTransport {
         }
 
         private void awaitTurn(boolean claimed) throws Deferred {
-            // A claimed request still starts after the budget closes, but not after
-            // a rejected token, rate limiting or repeated failures.
+            // A claimed request still starts after the budget or time target closes, but not
+            // after a rejected token, rate limiting or repeated failures.
             while (true) {
                 String reason = stop.get();
-                boolean halted = aborted() || (reason != null && !"budget".equals(reason) && !"busy".equals(reason));
+                boolean halted = aborted() || (reason != null && !"budget".equals(reason)
+                        && !"busy".equals(reason) && !"target".equals(reason));
                 if (claimed ? halted : !active()) throw new Deferred();
                 long wait = takeTurn();
                 if (wait == 0) break;
