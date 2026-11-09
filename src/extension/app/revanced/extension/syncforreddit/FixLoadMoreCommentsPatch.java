@@ -389,7 +389,7 @@ public final class FixLoadMoreCommentsPatch {
             if (things.length() == 0 && exhausted.isEmpty()) {
                 // Nothing loaded: keep Sync's row in place with a short reason.
                 String stop = expansion.stopReason();
-                if (stop != null && !"budget".equals(stop)) {
+                if (stop != null && !"budget".equals(stop) && !"target".equals(stop)) {
                     diagnostic.stage = "stopped";
                     throw stopFailure(stop);
                 }
@@ -517,7 +517,8 @@ public final class FixLoadMoreCommentsPatch {
     /**
      * Requests the remaining IDs a few at a time. An ID already returned inside an
      * earlier subtree is not requested again. Stops at the budget, the deadline,
-     * cancellation, rate limiting, a rejected token or repeated request failures.
+     * cancellation, rate limiting, a rejected token or repeated request failures,
+     * and starts nothing new past the time target once a comment has loaded.
      */
     private static void fetchEach(CommentTransport.Expansion expansion, String url, Map<String, String> params,
                                   List<String> ids, Set<String> loaded, Set<String> touched, JSONArray things,
@@ -528,7 +529,10 @@ public final class FixLoadMoreCommentsPatch {
         // Trees are kept per ID and added in the requested order, preserving Reddit's sort.
         CommentFetch[] results = new CommentFetch[ids.size()];
         int next = 0, failures = 0;
+        boolean anyLoaded = things.length() > 0;
         while (true) {
+            // Show what has arrived instead of waiting for the whole budget.
+            if (anyLoaded && expansion.pastTarget()) expansion.stop("target");
             while (running.size() < CommentTransport.THREADS && next < ids.size() && expansion.canStart()) {
                 final String child = ids.get(next);
                 if (loaded.contains(child)) {
@@ -567,7 +571,10 @@ public final class FixLoadMoreCommentsPatch {
                 failures = 0;
                 results[index] = result;
                 // Later IDs inside this subtree need no request of their own.
-                if (!result.verifiedEmpty) addSubtreeIds(result.json, child, loaded);
+                if (!result.verifiedEmpty) {
+                    addSubtreeIds(result.json, child, loaded);
+                    anyLoaded |= loaded.contains(child);
+                }
             } catch (ExecutionException failed) {
                 Throwable cause = failed.getCause();
                 if (cause instanceof CommentTransport.Deferred) continue;

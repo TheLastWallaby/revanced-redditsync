@@ -1112,9 +1112,9 @@ This bundle's own patches:
   v0.6.12 a gallery link without a post ID fails without any request
   instead of using `/api/info` (issue #48).
 - **Sync: load more comments in batches** uses normal comment routes, with at
-  most 32 additional requests per tap (four at a time), Reddit rate-limit and
-  backoff handling, a 20-second deadline and cancellation, sharing Sync's own
-  rate-limit helper. It reuses comments already returned and preserves failed and
+  most 32 additional requests per tap (six at a time), Reddit rate-limit and
+  backoff handling, a five-second target for showing what has loaded, a
+  20-second deadline and cancellation, sharing Sync's own rate-limit helper. It reuses comments already returned and preserves failed and
   untouched IDs, parent relationships and nested retries. Since v0.6.12 it
   no longer tries Reddit's `/api/morechildren` endpoint first (issue #51), and no
   comment or gallery request adds `raw_json` (issue #55).
@@ -1806,6 +1806,28 @@ New in [v0.7.6](#v076-amazon-link-reports-image-search-notification-permission-a
   `PatchInteractionTest` applied all 32 patches to the stock APK in both name
   orders with identical results. Not in a published candidate; the owner
   reported testing it before stable promotion, without individual results.
+
+New since v0.7.6 (not in a release yet):
+
+- **Sync: load more comments in batches** returns sooner. Tapping the
+  "load more comments" row at the end of a thread could take up to the
+  20-second deadline.
+  Reddit doesn't accept Sync's `/api/morechildren` request, so the patch
+  fetches each hidden comment on its own: up to 32 requests per tap, four at a
+  time, and Sync shows nothing until the last one finishes. Each tap now runs
+  six requests at a time and, once a comment has loaded, starts no new request
+  after five seconds. Requests already sent finish; the rest stay in the
+  "load more comments" row, in order, for the next tap. When Reddit answers
+  quickly a tap still loads up to 33 comments; when it is slow, a tap shows
+  fewer comments sooner. Rate limits, retries, continuation parents, the
+  20-second deadline and cancellation are unchanged.
+
+  `BoundedCommentsTest` checks against a loopback server with slow responses
+  that no request starts after the target, the loaded comments keep their
+  order, the rest stays pending and the next tap continues after them, and
+  that the target never ends a tap before anything has loaded. Its request
+  bounds now allow six requests in flight. Not checked on a phone or against
+  Reddit's live timings.
 
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
