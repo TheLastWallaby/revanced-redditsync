@@ -2110,6 +2110,7 @@ private const val SYNC_POST = "Lxa/d;"
 private const val SHEET_ITEM = "Lcom/laurencedawson/reddit_sync/ui/fragment_dialogs/bottom/material_dialogs/base/AbstractSelectionDialogBottomSheet\$h;"
 private const val QUEUE_REQUEST = "Lm8/a;->a(Lcom/android/volley/Request;)V"
 private const val RESTORE_SWITCH = "Lt7/d0;->e()Z"
+private const val AUTHOR_CHECK = "Lorg/apache/commons/lang3/StringUtils;->equalsAnyIgnoreCase(Ljava/lang/CharSequence;[Ljava/lang/CharSequence;)Z"
 
 /** OkHttp and Volley members ArcticShiftRestore calls; each must exist in the base. */
 private val ARCHIVE_MEMBERS = mapOf(
@@ -2133,7 +2134,8 @@ private val ARCHIVE_MEMBERS = mapOf(
 val restoreSyncCommentsFromArcticShift = bytecodePatch(
     name = "Sync: restore comments from Arctic Shift",
     description = "Send Sync's \"Restore comment\" lookup to the Arctic Shift archive instead of the retired Pushshift API, " +
-        "show the action for every [deleted] or [removed] comment (without Sync Ultra, which can no longer be activated, " +
+        "show the action for every [deleted] or [removed] comment and every comment Reddit replaced with " +
+        "\"[ Removed by Reddit ]\" (without Sync Ultra, which can no longer be activated, " +
         "or Sync's retired server switch), and show \"$ARCHIVE_MESSAGE\" " +
         "when the archive has no copy. Only the comment ID is sent, over HTTPS, without Reddit authorization or cookies; " +
         "the restored text comes from that third-party archive.",
@@ -2212,7 +2214,9 @@ val restoreSyncCommentsFromArcticShift = bytecodePatch(
         // A4 builds the sheet: "Restore comment" needs Sync Ultra (uc.b.j) and the remote-config switch
         // ultra_restore (t7.d0.e), which only governed Sync's own Pushshift lookup. Sync records Ultra only
         // when its retired server sends a purchase message, so neither can be turned on any more: both
-        // results are overridden for this item only. The [deleted]/[removed] check between them stays.
+        // results are overridden for this item only. Between them Sync checks the author (Post.e) for
+        // [deleted]/[removed]; that stays, and a comment whose text (Post.o) is Reddit's removal notice,
+        // where Reddit keeps the author, is offered too.
         val menu = sheet.method("A4", emptyList(), "V")
         val menuCode = menu.code()
         val gate = menuCode.singleIndex("Restore comment server switch") { menuCode[it].methodRef()?.toString() == RESTORE_SWITCH }
@@ -2222,6 +2226,19 @@ val restoreSyncCommentsFromArcticShift = bytecodePatch(
         fun Instruction.branch() = (this as? BuilderOffsetInstruction)?.target?.location?.instruction
         val label = menuCode.indices.firstOrNull { it > gate && menuCode[it].stringValue() == "Restore comment" }
         val stored = menuCode.indices.firstOrNull { it > gate && menuCode[it].fieldRef() == "$COMMENT_SHEET->e1:$SHEET_ITEM" }
+        val author = ultra?.let { u -> menuCode.indices.singleOrNull { it in u + 3 until gate && menuCode[it].methodRef()?.toString() == AUTHOR_CHECK } }
+        val authorResult = author?.let { menuCode.getOrNull(it + 1) }?.takeIf { it.opcode == Opcode.MOVE_RESULT }?.registerA()
+        val loaded = author?.let { a -> menuCode.indices.lastOrNull { it < a && menuCode[it].methodRef()?.toString() == "$SYNC_POST->e()Ljava/lang/String;" } }
+        val sheetPost = loaded?.let { menuCode.getOrNull(it - 1) }?.takeIf { it.opcode == Opcode.IGET_OBJECT && it.fieldRef() == "$COMMENT_SHEET->Q0:$SYNC_POST" }
+        val self = (sheetPost as? TwoRegisterInstruction)?.registerB
+        layout(author != null && authorResult != null && authorResult < 16 && self != null && self < 16 &&
+            self == menu.implementation!!.registerCount - 1 && AccessFlags.STATIC.isSet(menu.accessFlags).not() &&
+            menuCode.getOrNull(author + 2)?.let { it.opcode == Opcode.IF_EQZ && it.registerA() == authorResult &&
+                it.branch() != null && it.branch() === menuCode.getOrNull(gate + 2)?.branch() } == true &&
+            !menu.targeted(author + 1) && !menu.targeted(author + 2) &&
+            classes.singleOrNull { it.type == SYNC_POST }?.methods?.any {
+                it.name == "o" && it.parameterTypes.isEmpty() && it.returnType == "Ljava/lang/String;" } == true,
+            "Sync restore comment author check")
         layout(switch != null && switch < 16 && menuCode.getOrNull(gate + 2)?.let {
                 it.opcode == Opcode.IF_EQZ && it.registerA() == switch } == true &&
             ultra != null && gate - ultra < 24 && label != null && label - gate < 6 && stored != null && stored - gate < 12 &&
@@ -2234,6 +2251,14 @@ val restoreSyncCommentsFromArcticShift = bytecodePatch(
 
         // All layouts verified; edit.
         menu.addInstructions(gate + 2, "const/4 v$switch, 0x1")
+        menu.addInstructionsWithLabels(author!! + 2, """
+            if-nez v$authorResult, :offered
+            iget-object v$authorResult, v$self, $COMMENT_SHEET->Q0:$SYNC_POST
+            invoke-virtual {v$authorResult}, $SYNC_POST->o()Ljava/lang/String;
+            move-result-object v$authorResult
+            invoke-static {v$authorResult}, $ARCHIVE_RESTORE->removedByReddit(Ljava/lang/String;)Z
+            move-result v$authorResult
+        """.trimIndent(), ExternalLabel("offered", menuCode[author + 2]))
         menu.addInstructions(ultra!! + 2, "const/4 v$ultraResult, 0x1")
         click.replaceInstruction(queued, "invoke-virtual {v$postRegister}, $postId")
         click.addInstructions(queued + 1, """

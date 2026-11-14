@@ -30,6 +30,12 @@ import org.json.JSONObject;
  * {@code {"data":[{"id","author","body"}]}}, so the request is sent here and the checked answer is
  * handed to Sync's own {@code parseNetworkResponse}, which stores the author and text.
  *
+ * <p>Sync offers the action when the author is {@code [deleted]} or {@code [removed]}; the patch also
+ * offers it when the text is Reddit's own removal notice ({@link #removedByReddit}), where Reddit
+ * keeps the author. Arctic Shift saves comments seconds after they are posted, so a comment Reddit
+ * removed later usually still has its original text there; one removed at once is archived as the
+ * notice and counts as not archived.
+ *
  * <p>Only the validated base-36 comment ID is sent, over HTTPS to one fixed host, by a client of its
  * own: no Sync interceptors, cookies, Reddit authorization or redirects. Time and size are bounded.
  * When the archive has no usable copy the user sees {@link #NOT_ARCHIVED}. Nothing is logged.
@@ -50,6 +56,9 @@ public final class ArcticShiftRestore {
     static long CALL_TIMEOUT_MS = 20_000;
 
     private static final Pattern BASE36 = Pattern.compile("[0-9a-z]{1," + MAX_ID_LENGTH + "}");
+    /** "[ Removed by Reddit ]", and longer forms such as "[ Removed by Reddit in response to a copyright notice. ]". */
+    private static final Pattern REMOVED_BY_REDDIT = Pattern.compile("\\[\\s*removed by reddit(?:\\s[^\\]]*)?\\]",
+            Pattern.CASE_INSENSITIVE);
 
     /** What happened to one restore; the message, if any, is what the user sees. */
     enum Outcome {
@@ -92,6 +101,15 @@ public final class ArcticShiftRestore {
         } catch (RejectedExecutionException busy) {
             platform.toast(FAILED);
         }
+    }
+
+    /**
+     * Whether a comment's text is Reddit's own removal notice. Called while Sync builds the comment
+     * options sheet, with the comment's raw text ({@code Post.o()}), when its author is not
+     * {@code [deleted]} or {@code [removed]}.
+     */
+    public static boolean removedByReddit(String body) {
+        return body != null && REMOVED_BY_REDDIT.matcher(body.trim()).matches();
     }
 
     /** The bare base-36 ID Arctic Shift expects, or null. A {@code t1_} prefix is removed. */
@@ -160,7 +178,7 @@ public final class ArcticShiftRestore {
     /**
      * Sync's parser input for the archived comment: exactly one entry with Sync's own ID and the
      * archive's author and body. Null when the answer is malformed or has no usable copy of the
-     * comment (absent, or itself only "[deleted]"/"[removed]").
+     * comment (absent, or itself only "[deleted]", "[removed]" or Reddit's removal notice).
      */
     static byte[] adapt(String id, String syncId, String text) {
         try {
@@ -182,7 +200,8 @@ public final class ArcticShiftRestore {
 
     private static boolean restorable(String body) {
         String text = body.trim();
-        return !text.isEmpty() && !text.equalsIgnoreCase("[deleted]") && !text.equalsIgnoreCase("[removed]");
+        return !text.isEmpty() && !text.equalsIgnoreCase("[deleted]") && !text.equalsIgnoreCase("[removed]")
+                && !removedByReddit(text);
     }
 
     /** A client of its own: none of Sync's interceptors, no cookie jar, no redirects. */
