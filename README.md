@@ -1829,6 +1829,37 @@ New since v0.7.6 (not in a release yet):
   bounds now allow six requests in flight. Not checked on a phone or against
   Reddit's live timings.
 
+- **Sync: restore comments from Arctic Shift** also offers **Restore comment**
+  for comments Reddit itself removed
+  ([issue #113](https://github.com/TheLastWallaby/revanced-redditsync/issues/113)).
+  Sync showed the entry only when the comment's author is `[deleted]` or
+  `[removed]` (`Post.e`, checked in `CommentMoreDialogBottomSheet.A4`). When
+  Reddit's admins remove a comment, Reddit keeps the author and replaces the
+  text with `[ Removed by Reddit ]`, so those comments had no restore action.
+  The entry is now also shown when the comment's raw text (`Post.o`) is that
+  notice: `[ Removed by Reddit ]` or a longer form such as
+  `[ Removed by Reddit in response to a copyright notice. ]`, ignoring case and
+  spacing. Text that only contains or quotes it is not matched.
+
+  Arctic Shift saves comments seconds after they are posted and keeps that
+  copy, so a comment Reddit removed later (for example after reports) usually
+  still has its original author and text there; a probe of the public API on
+  2026-11-14 found live-captured comments stored as first seen. A comment
+  Reddit removed at once is archived as the notice itself (for example one
+  saved 17 seconds after posting); the archived notice counts as not archived
+  and shows "This comment isn't in the Arctic Shift archive." The request,
+  privacy, limits and Sync's parser are unchanged: only the comment ID is sent,
+  and **the restored text comes from that third-party archive, not Reddit**.
+
+  `ArcticShiftRestoreTest` checks which texts are the notice and that an
+  archived notice is not restored. `ArcticShiftRestorePatchTest` builds the
+  sheet before and after the patch for the notice and its variants, ordinary
+  and quoting texts, and every Ultra and server-switch combination, and taps
+  Restore for a Reddit-removed comment the archive has and one it saved only
+  as the notice. Not checked on a phone, and no live comment that Reddit shows
+  as removed was confirmed restorable end to end: the probe could not read
+  Reddit's own view anonymously.
+
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
 comment listings. A more marker, unrelated comment, wrong post, unknown shape,

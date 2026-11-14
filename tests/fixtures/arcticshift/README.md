@@ -2,7 +2,7 @@ Hand-written Smali models of the Sync 23033 code "Sync: restore comments from Ar
 edits or checks: the comment options sheet (`CommentMoreDialogBottomSheet`, `t9.s`: `A4`
 builds the items, `r0` handles a tap), `RestoreCommentRequest` (`r8.h`: the Pushshift URL
 builder, constructor and `parseNetworkResponse`) and the `Post` getters it uses (`xa.d`,
-`xa.a`, `xa.b`). They keep the names, signatures, register layouts and strings the patch
+`xa.a`, `xa.b`: ID `U`, author `e`, raw text `o`). They keep the names, signatures, register layouts and strings the patch
 checks, but are not the original bodies. `volley-*.smali` are generated signature-only
 skeletons of the Volley members the helper calls; the test also assembles the OkHttp
 skeletons in `../redgifs/okhttp3-*.smali`.

@@ -7,7 +7,7 @@
 .field d1:Lcom/laurencedawson/reddit_sync/ui/fragment_dialogs/bottom/material_dialogs/base/AbstractSelectionDialogBottomSheet$h;
 .field e1:Lcom/laurencedawson/reddit_sync/ui/fragment_dialogs/bottom/material_dialogs/base/AbstractSelectionDialogBottomSheet$h;
 
-# Builds the sheet: "Restore comment" for a [removed]/[deleted] comment, with Sync Ultra and the
+# Builds the sheet: "Restore comment" for a comment whose author (Post.e) is [removed]/[deleted], with Sync Ultra and the
 # ultra_restore remote-config switch; then "Read aloud".
 .method public A4()V
     .registers 7

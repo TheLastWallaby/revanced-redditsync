@@ -11,3 +11,6 @@
 
 .method public abstract e()Ljava/lang/String;
 .end method
+
+.method public abstract o()Ljava/lang/String;
+.end method

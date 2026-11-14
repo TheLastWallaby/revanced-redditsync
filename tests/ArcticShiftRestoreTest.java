@@ -75,6 +75,7 @@ public final class ArcticShiftRestoreTest {
 
     public static void main(String[] args) throws Exception {
         ids();
+        notice();
         adapt();
 
         HttpServer archive = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -120,6 +121,18 @@ public final class ArcticShiftRestoreTest {
                 ArcticShiftRestore.url("k0cydtb"), "the only URL requested");
     }
 
+    /** Reddit's own removal notice, which Sync's comment sheet now also offers Restore for. */
+    private static void notice() {
+        for (String text : new String[] {"[ Removed by Reddit ]", "[Removed by Reddit]", "[removed by reddit]", " [ Removed by Reddit ] ",
+                "[ Removed by Reddit on account of violating the content policy. ]",
+                "[ Removed by Reddit in response to a copyright notice. ]", "[\tRemoved by Reddit\n]"})
+            check(ArcticShiftRestore.removedByReddit(text), "notice: " + text);
+        for (String text : new String[] {null, "", "[removed]", "[deleted]", "Removed by Reddit", "[ Removed by Redditors ]",
+                "[ Removed by Reddit ] but here is more", "quoting [ Removed by Reddit ]", "[ Removed by Reddit", "Removed by Reddit ]",
+                "[ Removed by Reddit ] ]x", "[ removed ]"})
+            check(!ArcticShiftRestore.removedByReddit(text), "not the notice: " + text);
+    }
+
     private static void adapt() {
         String found = "{\"data\":[{\"author\":\"someone\",\"body\":\"Spending over $60k \\u00e9 \\\"quoted\\\"\\n[link](https://x.y)\",\"id\":\"k0cydtb\"}]}";
         JSONObject parsed = new JSONObject(new String(ArcticShiftRestore.adapt("k0cydtb", "k0cydtb", found), StandardCharsets.UTF_8));
@@ -152,6 +165,8 @@ public final class ArcticShiftRestoreTest {
             "{\"data\":[{\"author\":\"a\",\"body\":\"[deleted]\",\"id\":\"k0cydtb\"}]}",
             "{\"data\":[{\"author\":\"a\",\"body\":\" [Removed] \",\"id\":\"k0cydtb\"}]}",
             "{\"data\":[{\"author\":\"a\",\"body\":\"   \",\"id\":\"k0cydtb\"}]}",
+            "{\"data\":[{\"author\":\"a\",\"body\":\"[ Removed by Reddit ]\",\"id\":\"k0cydtb\"}]}",
+            "{\"data\":[{\"author\":\"a\",\"body\":\" [ removed by reddit in response to a legal request. ] \",\"id\":\"k0cydtb\"}]}",
             "{\"data\":[{\"author\":\"a\",\"body\":\"text\",\"id\":\"k0cydtb\"}",
             "{\"error\":\"Too many requests\"}",
         };

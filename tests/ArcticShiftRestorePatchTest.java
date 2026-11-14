@@ -31,8 +31,8 @@ import okhttp3.OkHttpClient;
  * "Restore comment" is shown; tapping it (r0) builds RestoreCommentRequest (r8.h).
  *
  * Before: the entry needs Sync Ultra and Sync's ultra_restore server switch, and the tap queues the
- * Pushshift request. After: the entry is shown for every [deleted] or [removed] comment, with or
- * without Sync Ultra (which can no longer be activated), and the tap sends the comment ID to a
+ * Pushshift request. After: the entry is shown for every comment whose author is [deleted] or
+ * [removed], and for one whose text is Reddit's "[ Removed by Reddit ]" notice, with or without Sync Ultra (which can no longer be activated), and the tap sends the comment ID to a
  * loopback Arctic Shift archive (no Authorization or Cookie header) and hands the answer to
  * RestoreCommentRequest's own parser, which stores the author and text; a comment the archive
  * lacks shows the message. Android and app services are stand-ins that record what Sync asked for.
@@ -44,6 +44,8 @@ public final class ArcticShiftRestorePatchTest {
     private static final String NETWORK = "Lcom/android/volley/NetworkResponse;";
     private static final String MESSAGE = "This comment isn't in the Arctic Shift archive.";
     private static final String PUSHSHIFT = "https://api.pushshift.io/reddit/comment/search/?ids=";
+    private static final String AUTHOR_CHECK = "Lorg/apache/commons/lang3/StringUtils;->equalsAnyIgnoreCase(Ljava/lang/CharSequence;[Ljava/lang/CharSequence;)Z";
+    private static final String NOTICE = "[ Removed by Reddit ]";
     private static final List<String> DEFAULTED = List.of("Ld8/m;", "Lcom/laurencedawson/reddit_sync/singleton/a;", "Lu7/g;",
             "Lt7/z;", "Landroid/content/SharedPreferences;", "Landroidx/fragment/app/Fragment;", "Lorg/apache/commons/lang3/StringUtils;");
     private static final Set<String> TRANSPORT = Set.of("accept", "user-agent", "host", "connection", "cache-control", "pragma",
@@ -68,7 +70,9 @@ public final class ArcticShiftRestorePatchTest {
             Collections.sort(headers);
             ARCHIVE.add(exchange.getRequestURI().getRawPath() + "?" + query + " " + headers);
             String body = query != null && query.startsWith("ids=k0cydtb&")
-                    ? "{\"data\":[{\"author\":\"someone\",\"body\":\"the archived text\",\"id\":\"k0cydtb\"}]}" : "{\"data\":[]}";
+                    ? "{\"data\":[{\"author\":\"someone\",\"body\":\"the archived text\",\"id\":\"k0cydtb\"}]}"
+                    : query != null && query.startsWith("ids=k0instant&")
+                    ? "{\"data\":[{\"author\":\"someone\",\"body\":\"" + NOTICE + "\",\"id\":\"k0instant\"}]}" : "{\"data\":[]}";
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, bytes.length);
             try (OutputStream out = exchange.getResponseBody()) { out.write(bytes); }
@@ -136,6 +140,26 @@ public final class ArcticShiftRestorePatchTest {
             equal(stockItems, others, "other items keep Sync's own Ultra checks, switch " + on);
         }
         check(!patched.items("an ordinary comment").contains("Restore comment"), "without Ultra, still only for removed or deleted comments");
+
+        // Reddit's own removal keeps the author and replaces the text.
+        for (boolean ultra : new boolean[] {false, true}) for (boolean on : new boolean[] {false, true}) {
+            for (Sync sync : List.of(stock, patched)) { sync.ultra = ultra; sync.serverSwitch = on; }
+            String when = "Ultra " + ultra + ", switch " + on;
+            stockItems = stock.items("someone", NOTICE);
+            patchedItems = patched.items("someone", NOTICE);
+            check(!stockItems.contains("Restore comment"), "stock never offers Restore for Reddit's notice, " + when);
+            check(patchedItems.contains("Restore comment"), "patched offers Restore for Reddit's notice, " + when + ": " + patchedItems);
+            others = new ArrayList<>(patchedItems);
+            others.remove("Restore comment");
+            equal(stockItems, others, "other items unchanged for Reddit's notice, " + when);
+            for (String text : List.of("[removed by reddit]", "  [ Removed by Reddit in response to a copyright notice. ] ",
+                    "[ Removed by Reddit on account of violating the content policy. ]"))
+                check(patched.items("someone", text).contains("Restore comment"), "notice variant " + text + ", " + when);
+            for (String text : List.of("an ordinary comment", "[removed]", "[deleted]", "Removed by Reddit", "[ Removed by Redditors ]",
+                    "[ Removed by Reddit ] and more", "quoting [ Removed by Reddit ]", ""))
+                check(!patched.items("someone", text).contains("Restore comment"), "not offered for '" + text + "' by an author, " + when);
+            check(!patched.items("someone", null).contains("Restore comment"), "no text, no crash, " + when);
+        }
         for (Sync sync : List.of(stock, patched)) { sync.ultra = true; sync.serverSwitch = false; }
     }
 
@@ -172,6 +196,22 @@ public final class ArcticShiftRestorePatchTest {
         check(patched.updates.isEmpty(), "nothing stored for a missing comment");
         check(events.contains("toast " + MESSAGE), "missing comment message: " + events);
         equal("dismissed", events.get(events.size() - 1), "sheet dismissed");
+
+        // A comment Reddit removed after Arctic Shift saved it: same lookup, original text stored.
+        ARCHIVE.clear();
+        events = patched.restore("k0cydtb", "someone", NOTICE);
+        equal(1, ARCHIVE.size(), "Reddit-removed comment asked once");
+        check(ARCHIVE.get(0).startsWith("/api/comments/ids?ids=k0cydtb&fields=id,author,body ["), "only the comment ID: " + ARCHIVE.get(0));
+        equal(1, patched.updates.size(), "Reddit-removed comment stored once: " + patched.updates);
+        check(patched.updates.get(0).contains("body_raw=the archived text"), "original text stored: " + patched.updates.get(0));
+        check(events.stream().noneMatch(e -> e.startsWith("toast ") && !e.equals("toast Restoring comment")), "no error message: " + events);
+
+        // One Reddit removed before Arctic Shift saved it is archived as the notice: not archived.
+        ARCHIVE.clear();
+        events = patched.restore("k0instant", "someone", NOTICE);
+        equal(1, ARCHIVE.size(), "instantly removed comment asked once");
+        check(patched.updates.isEmpty(), "the notice is not stored as restored text: " + patched.updates);
+        check(events.contains("toast " + MESSAGE), "instant removal shows the not-archived message: " + events);
 
         ARCHIVE.clear();
         events = patched.restore("bad/id");
@@ -288,15 +328,25 @@ public final class ArcticShiftRestorePatchTest {
         }
 
         /** Builds the sheet for a comment with this text; the titles it shows. */
-        List<String> items(String text) {
+        List<String> items(String author) {
+            return items(author, "some text");
+        }
+
+        /** Builds the sheet for a comment with this author and raw text; the titles it shows. */
+        List<String> items(String author, String body) {
             items.clear();
-            run.run(method(context, SHEET, "A4", List.of()), new Object[] {sheet("k0cydtb", text)});
+            run.run(method(context, SHEET, "A4", List.of()), new Object[] {sheet("k0cydtb", author, body)});
             return new ArrayList<>(items);
         }
 
         /** Builds the sheet for a [deleted] comment and taps Restore comment; what Sync did. */
         List<String> restore(String id) {
-            DexRunner.SyncObject sheet = sheet(id, "[deleted]");
+            return restore(id, "[deleted]", "[removed]");
+        }
+
+        /** Builds the sheet for a comment with this author and text and taps Restore comment. */
+        List<String> restore(String id, String author, String body) {
+            DexRunner.SyncObject sheet = sheet(id, author, body);
             run.run(method(context, SHEET, "A4", List.of()), new Object[] {sheet});
             Object restore = sheet.fields.get("e1");
             check(restore instanceof DexRunner.SyncObject, "Restore comment shown");
@@ -313,10 +363,11 @@ public final class ArcticShiftRestorePatchTest {
             return new ArrayList<>(events);
         }
 
-        private static DexRunner.SyncObject sheet(String id, String text) {
+        private static DexRunner.SyncObject sheet(String id, String author, String body) {
             DexRunner.SyncObject post = new DexRunner.SyncObject("Lxa/b;");
             post.fields.put("c", id);
-            post.fields.put("J", text);
+            post.fields.put("J", author);
+            post.fields.put("Z0", body);
             post.fields.put("j0", "1690000000");
             DexRunner.SyncObject sheet = new DexRunner.SyncObject(SHEET);
             sheet.fields.put("Q0", post);
@@ -343,9 +394,13 @@ public final class ArcticShiftRestorePatchTest {
         check(gate > 0 && menu.indexOf("INVOKE_STATIC:Lt7/d0;->e()Z") == menu.lastIndexOf("INVOKE_STATIC:Lt7/d0;->e()Z"), "one server switch");
         int ultra = menu.subList(0, gate).lastIndexOf("INVOKE_STATIC:Luc/b;->j()Z");
         check(ultra > 0 && gate - ultra < 25, "Ultra check before the switch");
+        int author = menu.subList(ultra, gate).indexOf("INVOKE_STATIC:" + AUTHOR_CHECK) + ultra;
+        check(author > ultra && menu.subList(ultra, gate).lastIndexOf("INVOKE_STATIC:" + AUTHOR_CHECK) + ultra == author, "one author check");
         menu.add(gate + 2, "CONST_4:");
+        menu.addAll(author + 2, List.of("IF_NEZ:", "IGET_OBJECT:" + SHEET + "->Q0:Lxa/d;", "INVOKE_VIRTUAL:Lxa/d;->o()Ljava/lang/String;",
+                "MOVE_RESULT_OBJECT:", "INVOKE_STATIC:" + HELPER + "->removedByReddit(Ljava/lang/String;)Z", "MOVE_RESULT:"));
         menu.add(ultra + 2, "CONST_4:");
-        equal(menu, after.get("A4"), "menu: only the Ultra and server switch results for Restore are overridden");
+        equal(menu, after.get("A4"), "menu: Ultra and server switch overridden for Restore; Reddit's notice also offers it");
 
         List<String> click = new ArrayList<>(before.get("r0"));
         int queued = click.indexOf("INVOKE_STATIC:Lm8/a;->a(Lcom/android/volley/Request;)V");
