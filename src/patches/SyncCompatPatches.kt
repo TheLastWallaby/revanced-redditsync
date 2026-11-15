@@ -2268,6 +2268,88 @@ val restoreSyncCommentsFromArcticShift = bytecodePatch(
     }
 }
 
+private const val ARCHIVED_PROFILE = "Lapp/revanced/extension/synccompat/ArchivedProfile;"
+private const val POSTS_REQUEST = "Ly8/k0;"
+private const val POSTS_HELPER = "Ld7/d;"
+
+/** NetworkResponse members ArchivedProfile reads or calls; each must exist in the base. */
+private val PROFILE_RESPONSE_FIELDS = listOf("statusCode:I", "data:[B", "allHeaders:Ljava/util/List;", "networkTimeMs:J")
+
+val showHiddenSyncProfilesFromArcticShift = bytecodePatch(
+    name = "Sync: show hidden profile history from Arctic Shift",
+    description = "When Reddit answers a profile's Overview, Comments or Submitted tab with nothing, as it does for users who " +
+        "hide their posts and comments, show that user's posts and comments archived by Arctic Shift instead, newest first, " +
+        "read by Sync's own parser, with a message saying where they come from. Every other listing is unchanged. Only the " +
+        "username (and, when scrolling, a timestamp or one post or comment ID) is sent, over HTTPS, without Reddit " +
+        "authorization or cookies; the archived copies come from that third-party archive, not from Reddit.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        val found = classes.singleOrNull { it.type == POSTS_REQUEST && it.sourceFile == "OAuthPostsRequest.java" }
+            ?: throw PatchException("Expected Sync OAuthPostsRequest.java was not found. This patch targets build 23033 only.")
+        val request = proxy(found).mutableClass
+        fun method(name: String, parameters: List<String>, returns: String): MutableMethod =
+            request.methods.singleOrNull { it.name == name && it.parameterTypes == parameters && it.returnType == returns }
+                ?: throw PatchException("Unsupported Sync method $POSTS_REQUEST->$name.")
+        fun MutableMethod.code() = implementation!!.instructions
+        fun MutableMethod.calls(ref: String) = code().any { it.methodRef()?.toString() == ref }
+        fun MutableMethod.hasStrings(vararg values: String) = values.all { v -> code().any { it.stringValue() == v } }
+
+        // OAuthPostsRequest.b turns the listing name user###<Section>###<name>###null (MaterialPostsHelper, d7.d)
+        // into user/<name>/<Section>.json?sort=…[&after=<fullname>&limit=25], the URL ArchivedProfile reads.
+        val url = method("b", listOf("Landroid/content/Context;", "Ljava/lang/String;", "Ljava/lang/String;", "Lo8/g;",
+            "Ljava/lang/String;", "Ljava/lang/String;"), "Ljava/lang/String;")
+        layout(AccessFlags.STATIC.isSet(url.accessFlags) && url.hasStrings("user/", "/", ".json", "?sort=", "after=", "&limit=25") &&
+            listOf("J", "u", "v").all { name -> url.code().any {
+                it.methodRef()?.let { m -> m.definingClass == POSTS_HELPER && m.name == name && m.parameterTypes == listOf("Ljava/lang/String;") } == true
+            } }, "Sync profile listing URL")
+
+        // parseNetworkResponse reads the listing (data.children by kind, data.after) and parses each child
+        // with PostParserHelper (c9.c); Reddit's answer is first read from its parameter.
+        val parse = method("parseNetworkResponse", listOf(NETWORK), "Lcom/android/volley/Response;")
+        val code = parse.code()
+        if (code.any { it.methodRef()?.definingClass == ARCHIVED_PROFILE })
+            throw PatchException("Hidden profiles are already shown from Arctic Shift.")
+        val registers = parse.implementation!!.registerCount
+        val self = registers - 2
+        val response = registers - 1
+        layout(request.superclass == "Lx8/a;" && !AccessFlags.STATIC.isSet(parse.accessFlags) && registers >= 4 && code.isNotEmpty() &&
+            code.none { it is BuilderOffsetInstruction && it.target.location.index == 0 } &&
+            parse.implementation!!.tryBlocks.none { it.startCodeAddress == 0 } &&
+            parse.hasStrings("data", "children", "kind", "after") &&
+            code.any { (it as? ReferenceInstruction)?.reference?.toString() == "$NETWORK->data:[B" } &&
+            code.any { it.methodRef()?.let { m -> m.definingClass == "Lc9/c;" && m.name == "b" } == true },
+            "Sync OAuthPostsRequest parser")
+
+        val network = classes.singleOrNull { it.type == NETWORK }
+            ?: throw PatchException("Sync lacks $NETWORK. This patch targets Sync build 23033 only.")
+        val fields = network.fields.map { "${it.name}:${it.type}" }.toSet()
+        for (field in PROFILE_RESPONSE_FIELDS) if (field !in fields)
+            throw PatchException("Sync lacks $NETWORK->$field. This patch targets Sync build 23033 only.")
+        val members = ARCHIVE_MEMBERS.filterKeys { it != NETWORK && it != "Lcom/android/volley/Response;" } +
+            (NETWORK to listOf("<init>(I[BZJLjava/util/List;)V")) +
+            ("Lcom/android/volley/Request;" to listOf("getUrl()Ljava/lang/String;"))
+        for ((type, wanted) in members) {
+            val clazz = classes.singleOrNull { it.type == type }
+                ?: throw PatchException("Sync lacks $type. This patch targets Sync build 23033 only.")
+            val present = clazz.methods.map { "${it.name}(${it.parameterTypes.joinToString("")})${it.returnType}" }.toSet()
+            for (member in wanted) if (member !in present)
+                throw PatchException("Sync lacks $type->$member. This patch targets Sync build 23033 only.")
+        }
+
+        // All layouts verified; edit. v0 and v1 hold nothing yet at the method's start.
+        parse.addInstructions(0, """
+            invoke-virtual/range {v$self .. v$self}, Lcom/android/volley/Request;->getUrl()Ljava/lang/String;
+            move-result-object v0
+            move-object/from16 v1, v$response
+            invoke-static {v0, v1}, $ARCHIVED_PROFILE->response(Ljava/lang/String;$NETWORK)$NETWORK
+            move-result-object v1
+            move-object/from16 v$response, v1
+        """.trimIndent())
+    }
+}
+
 private const val DOWNLOAD_MANIFEST = "Lapp/revanced/extension/synccompat/VideoDownloadManifest;"
 private const val DOWNLOAD_PORT = "Lapp/revanced/extension/syncforreddit/FixRedditVideoDownloadPatch;"
 private const val VIDEO_REQUEST = "Lr8/g;"

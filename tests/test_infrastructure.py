@@ -130,6 +130,11 @@ class InfrastructureTests(unittest.TestCase):
         self.assertIn("app.revanced.extension.synccompat.ArcticShiftRestoreTest", tests)
         self.assertIn("ArcticShiftRestorePatchTest", tests)
 
+    def test_archived_profile_suites_are_discovered(self):
+        tests = discover_java_tests(ROOT / "tests")
+        self.assertIn("app.revanced.extension.synccompat.ArchivedProfileTest", tests)
+        self.assertIn("ArchivedProfilePatchTest", tests)
+
     def test_reddit_image_upload_suites_are_discovered(self):
         tests = discover_java_tests(ROOT / "tests")
         self.assertIn("app.revanced.extension.synccompat.RedditImageUploadTest", tests)
