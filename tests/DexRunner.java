@@ -160,6 +160,12 @@ final class DexRunner {
                                 : i.getOpcode() == Opcode.OR_INT_2ADDR ? x | y : x ^ y;
                         break;
                     }
+                    case ADD_LONG_2ADDR: case SUB_LONG_2ADDR: {
+                        TwoRegisterInstruction t = (TwoRegisterInstruction) i;
+                        long x = ((Number) r[t.getRegisterA()]).longValue(), y = ((Number) r[t.getRegisterB()]).longValue();
+                        r[t.getRegisterA()] = i.getOpcode() == Opcode.ADD_LONG_2ADDR ? x + y : x - y;
+                        break;
+                    }
                     case OR_INT_LIT8: case OR_INT_LIT16: {
                         TwoRegisterInstruction t = (TwoRegisterInstruction) i;
                         r[t.getRegisterA()] = (Integer) r[t.getRegisterB()] | ((NarrowLiteralInstruction) i).getNarrowLiteral();
@@ -207,7 +213,7 @@ final class DexRunner {
                         r[t.getRegisterA()] = isInstance(r[t.getRegisterB()], type) ? 1 : 0;
                         break;
                     }
-                    case IGET: case IGET_OBJECT: case IGET_BOOLEAN: {
+                    case IGET: case IGET_OBJECT: case IGET_BOOLEAN: case IGET_WIDE: {
                         TwoRegisterInstruction t = (TwoRegisterInstruction) i;
                         FieldReference f = (FieldReference) ((ReferenceInstruction) i).getReference();
                         Object holder = r[t.getRegisterB()];
@@ -219,11 +225,13 @@ final class DexRunner {
                             break;
                         }
                         if (!(holder instanceof SyncObject)) throw new AssertionError("Field " + f + " read from " + holder);
+                        // A wide value is held in its first register, as everywhere in this runner.
                         r[t.getRegisterA()] = ((SyncObject) holder).fields.getOrDefault(f.getName(),
-                                f.getType().startsWith("L") || f.getType().startsWith("[") ? null : 0);
+                                f.getType().startsWith("L") || f.getType().startsWith("[") ? null
+                                : f.getType().equals("J") ? (Object) 0L : f.getType().equals("D") ? (Object) 0.0 : 0);
                         break;
                     }
-                    case IPUT: case IPUT_OBJECT: case IPUT_BOOLEAN: {
+                    case IPUT: case IPUT_OBJECT: case IPUT_BOOLEAN: case IPUT_WIDE: {
                         TwoRegisterInstruction t = (TwoRegisterInstruction) i;
                         FieldReference f = (FieldReference) ((ReferenceInstruction) i).getReference();
                         ((SyncObject) r[t.getRegisterB()]).fields.put(f.getName(), r[t.getRegisterA()]);
