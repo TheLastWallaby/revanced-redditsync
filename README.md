@@ -1918,6 +1918,69 @@ New since v0.7.6 (not in a release yet):
   answers a hidden profile with an empty listing, not an error, comes from
   third-party reports.
 
+- **Sync: use subreddit suggested comment sort**, on by default. With the
+  comment sort set to **Suggested**, a subreddit that suggests a sort (for
+  example **New**) now gets its comments in that sort. Sync 23033 used only a
+  post's own `suggested_sort`; Reddit keeps a subreddit's suggestion in the
+  subreddit's about data (`suggested_comment_sort`), not on each post. For a
+  post without its own, Sync labelled the sort **Top** and asked Reddit for the
+  comments without a sort, so the subreddit's suggestion was not used. A
+  comment thread (a link to one comment, or "view full context") was worse:
+  Sync never asked for a sort there at all, so the thread always came back in
+  Reddit's default order whatever sort was shown.
+
+  | Comment sort, post | Requested and shown |
+  |---|---|
+  | Suggested, post has its own suggested sort | The post's sort, as before, now also requested explicitly |
+  | Suggested, post has none, subreddit suggests one | The subreddit's sort (was: no sort, labelled **Top**) |
+  | Suggested, neither suggests one | Unchanged: no sort, labelled **Top** |
+  | Any sort you pick yourself | Unchanged |
+  | A comment thread, Suggested | As for a post's comments above (was: no sort) |
+  | A comment thread, a sort you pick | That sort (was: no sort, Reddit's default order) |
+
+  - **Lookup.** The subreddit's sort comes from Reddit's
+    `/r/<subreddit>/about.json`, asked with Sync's own Authorization and
+    User-Agent only, at the same Reddit host as the comments request. It is
+    asked once per subreddit and kept for six hours (a failed lookup is asked
+    again after five minutes), so the first post you open in a subreddit costs
+    one small extra request. It is asked from Sync's network thread just before
+    the comments request, never on the main thread, and gives up after 2.5
+    seconds; if it fails the comments load as before.
+  - **Label and menu.** Sync's post parser stores the subreddit's sort as the
+    post's suggested sort when the post has none and the subreddit's sort is
+    already known, so the sort label and the sort menu show it (for example
+    **New** instead of **Top**).
+  - **Load more.** "Load more comments" with the Suggested sort asks for the
+    same sort the post's comments were loaded with.
+  - Not changed: posts whose own suggested sort is "blank", `r/all`,
+    `r/popular` and other listings that are not subreddits, and any explicitly
+    chosen sort. A post opened from a link before Sync has parsed it is loaded
+    in its subreddit's sort; if that post has a different suggested sort of its
+    own, reopen it or pick the sort from the menu.
+
+  **How.** Three hooks: a call at the return of Sync's comments URL builder
+  (`OAuthCommentsRequest.f`, `y8.g.f`), which adds a chosen sort to a comment
+  thread's URL as Sync already does for a post's comments; a `getUrl` override
+  on the same request, which hands Volley's URL to
+  `SuggestedCommentSort.commentsUrl`; and one call in Sync's post parser
+  (`PostParserHelper.a`, `c9.c.a`) between its `suggested_sort` read and
+  store. The patch checks Sync's URL builder (one return, its comment and sort
+  parameters only read) and the parser's read, clean (`c8.d.e`) and store
+  sequence before editing anything.
+
+  `SuggestedCommentSortTest` checks against a loopback Reddit with test-only
+  tokens which URLs gain a sort (comment threads included), the headers sent, caching, failures (HTTP
+  403/404/500, oversized, malformed, slow), cancelled requests, the main-thread
+  rule, one lookup for concurrent requests, the parser hook and every load-more
+  route. `SuggestedCommentSortPatchTest` runs Sync's URL builder (posts and
+  comment threads, Suggested and chosen sorts), the new `getUrl` and the post
+  parser before and after the patch: on hand-written
+  models in CI, and on Sync's real methods with the stock APK locally.
+  `PatchInteractionTest` applies all 33 patches to the stock APK in both name
+  orders. Not checked on a phone or against Reddit's live API (the public API
+  refused anonymous requests from the test machine).
+
+
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
 comment listings. A more marker, unrelated comment, wrong post, unknown shape,

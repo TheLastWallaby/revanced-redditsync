@@ -28,6 +28,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.synccompat.SuggestedCommentSort;
 
 /**
  * Reddit blocks /api/morechildren, so "View more" fails with HTTP 403.
@@ -507,10 +508,8 @@ public final class FixLoadMoreCommentsPatch {
         // No raw_json: Sync's comment parser unescapes Reddit's default HTML-escaped text itself.
         Uri.Builder builder = uri.buildUpon().appendQueryParameter("api_type", "json")
                 .appendQueryParameter("link_id", linkId).appendQueryParameter("children", joined.toString());
-        String sort = params.get("sort");
-        if (!TextUtils.isEmpty(sort) && !"suggested".equalsIgnoreCase(sort)) {
-            builder.appendQueryParameter("sort", "best".equalsIgnoreCase(sort) ? "confidence" : sort);
-        }
+        String sort = SuggestedCommentSort.requestSort(params.get("sort"), params.get("link_id"));
+        if (sort != null) builder.appendQueryParameter("sort", sort);
         return builder.build().toString();
     }
 
@@ -653,10 +652,8 @@ public final class FixLoadMoreCommentsPatch {
         if (postId.startsWith("t3_")) postId = postId.substring(3);
         Uri.Builder builder = uri.buildUpon().encodedPath("/comments/" + postId + "/comment/" + child);
 
-        String sort = params.get("sort");
-        if (!TextUtils.isEmpty(sort) && !"suggested".equalsIgnoreCase(sort)) {
-            builder.appendQueryParameter("sort", "best".equalsIgnoreCase(sort) ? "confidence" : sort);
-        }
+        String sort = SuggestedCommentSort.requestSort(params.get("sort"), params.get("link_id"));
+        if (sort != null) builder.appendQueryParameter("sort", sort);
 
         return builder.build().toString();
     }
@@ -670,10 +667,8 @@ public final class FixLoadMoreCommentsPatch {
         Uri.Builder builder = uri.buildUpon().encodedPath("/comments/" + postId + ".json")
                 .appendQueryParameter("comment", child).appendQueryParameter("context", "0")
                 .appendQueryParameter("limit", "100").appendQueryParameter("depth", "10");
-        String sort = params.get("sort");
-        if (!TextUtils.isEmpty(sort) && !"suggested".equalsIgnoreCase(sort)) {
-            builder.appendQueryParameter("sort", "best".equalsIgnoreCase(sort) ? "confidence" : sort);
-        }
+        String sort = SuggestedCommentSort.requestSort(params.get("sort"), params.get("link_id"));
+        if (sort != null) builder.appendQueryParameter("sort", sort);
         return builder.build().toString();
     }
 
