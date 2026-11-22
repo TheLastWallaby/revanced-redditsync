@@ -335,7 +335,7 @@ public final class ArchivedProfilePatchTest {
             for (String header : request.replaceAll(".*\\[|\\]", "").split(", "))
                 check(TRANSPORT.contains(header), "no Authorization, Cookie or other header: " + header);
         }
-        equal(List.of("Reddit shows nothing for u/" + USER + ". Showing copies from the Arctic Shift archive."), patched.toasts,
+        equal(List.of("Showing archived history from Arctic Shift."), patched.toasts,
                 "where the items come from");
 
         // The next page: Sync's own URL with the archive's after; the rest, then the end of the list.

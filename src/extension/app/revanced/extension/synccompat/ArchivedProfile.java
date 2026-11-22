@@ -50,6 +50,13 @@ import org.json.JSONObject;
  * saved them, not live Reddit data.
  */
 public final class ArchivedProfile {
+    // Android 12+ shows at most two lines of a text toast and cuts the rest, so these stay short
+    // (at most MAX_MESSAGE characters) and name no user: the profile on screen already does.
+    public static final String SHOWING = "Showing archived history from Arctic Shift.";
+    public static final String UNAVAILABLE = "Couldn't reach the Arctic Shift archive.";
+    public static final String NO_MORE = "Couldn't load more from Arctic Shift.";
+    static final int MAX_MESSAGE = 45;
+
     static final String HOST = "arctic-shift.photon-reddit.com";
     static final String POSTS = "/api/posts/search";
     static final String COMMENTS = "/api/comments/search";
@@ -113,14 +120,12 @@ public final class ArchivedProfile {
             try {
                 page = page(listing);
             } catch (IOException | RuntimeException unreachable) {
-                platform.toast(listing.after == null
-                        ? "Reddit shows nothing for u/" + listing.user + ", and the Arctic Shift archive couldn't be reached."
-                        : "Couldn't load more from the Arctic Shift archive.");
+                platform.toast(listing.after == null ? UNAVAILABLE : NO_MORE);
                 return reddit;
             }
             if (page == null) return reddit;
             if (listing.after == null && ANNOUNCED.add(listing.user.toLowerCase(Locale.ROOT)))
-                platform.toast("Reddit shows nothing for u/" + listing.user + ". Showing copies from the Arctic Shift archive.");
+                platform.toast(SHOWING);
             return new NetworkResponse(200, page, false, reddit.networkTimeMs, reddit.allHeaders);
         } catch (Exception | LinkageError failed) {
             return reddit;

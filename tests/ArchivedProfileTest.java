@@ -78,6 +78,7 @@ public final class ArchivedProfileTest {
 
     public static void main(String[] args) throws Exception {
         data();
+        messages();
         listings();
         empties();
 
@@ -181,6 +182,18 @@ public final class ArchivedProfileTest {
 
     private static JSONObject listing(NetworkResponse response) {
         return new JSONObject(new String(response.data, StandardCharsets.UTF_8)).getJSONObject("data");
+    }
+
+    // ---- Messages fit a two-line toast ----
+
+    private static void messages() {
+        for (String message : List.of(ArchivedProfile.SHOWING, ArchivedProfile.UNAVAILABLE, ArchivedProfile.NO_MORE)) {
+            // Android 12+ cuts a text toast after two lines; a username would make the length unbounded.
+            check(message.length() <= ArchivedProfile.MAX_MESSAGE, "message fits two toast lines: " + message.length() + " " + message);
+            check(!message.contains("u/"), "message names no user: " + message);
+            check(message.contains("Arctic Shift"), "message names the archive: " + message);
+        }
+        check(ArchivedProfile.MAX_MESSAGE <= 45, "limit stays within two lines on a narrow phone");
     }
 
     // ---- Which URLs and answers ----
@@ -322,7 +335,7 @@ public final class ArchivedProfileTest {
         List<String> all = pages("Overview", ArchivedProfile.Section.OVERVIEW);
         equal(VALID, new HashSet<>(all), "every valid post and comment, once");
         equal(80, all.size(), "80 items over the pages");
-        equal(List.of("Reddit shows nothing for u/" + USER + ". Showing copies from the Arctic Shift archive."), TOASTS,
+        equal(List.of(ArchivedProfile.SHOWING), TOASTS,
                 "message once, on the first page");
 
         TOASTS.clear();
@@ -396,7 +409,7 @@ public final class ArchivedProfileTest {
     // ---- Failures keep Reddit's answer ----
 
     private static void failures() {
-        String unreachable = "Reddit shows nothing for u/" + USER + ", and the Arctic Shift archive couldn't be reached.";
+        String unreachable = ArchivedProfile.UNAVAILABLE;
         Object[][] cases = {
             {"HTTP 503", json(503, "down")},
             {"HTTP 429", json(429, "{\"error\":\"Too many requests\"}")},
@@ -428,7 +441,7 @@ public final class ArchivedProfileTest {
         TOASTS.clear();
         NetworkResponse empty = reddit(HIDDEN);
         check(ArchivedProfile.response(OVERVIEW + "&after=" + after + "&limit=25", empty) == empty, "later page failure keeps Reddit's answer");
-        equal(List.of("Couldn't load more from the Arctic Shift archive."), TOASTS, "later page message");
+        equal(List.of(ArchivedProfile.NO_MORE), TOASTS, "later page message");
 
         // Nothing listening.
         answer = ARCHIVE;
