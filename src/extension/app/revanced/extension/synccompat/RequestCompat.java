@@ -67,10 +67,8 @@ public final class RequestCompat {
                     append(out, "depth", "10");
                     append(out, "always_show_media", "1");
                     append(out, "profile_img", "true");
-                    String sort = parameters.get("sort");
-                    if (sort != null && !sort.isEmpty() && !"suggested".equalsIgnoreCase(sort)) {
-                        append(out, "sort", "best".equalsIgnoreCase(sort) ? "confidence" : sort);
-                    }
+                    String sort = SuggestedCommentSort.requestSort(parameters.get("sort"), post);
+                    if (sort != null) append(out, "sort", sort);
                     return out.toString();
                 }
             } catch (Exception malformedUrl) {
@@ -88,8 +86,8 @@ public final class RequestCompat {
             String value = entry.getValue();
             if (key == null || value == null) continue;
             if ("sort".equals(key)) {
-                if ("suggested".equalsIgnoreCase(value)) continue;
-                if ("best".equalsIgnoreCase(value)) value = "confidence";
+                value = SuggestedCommentSort.requestSort(value, parameters.get("link_id"));
+                if (value == null) continue;
             }
             // Keep the full children list, including longer/new-format IDs.
             // Do not silently truncate children or mutate Sync's parameter map.

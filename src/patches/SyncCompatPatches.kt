@@ -3279,3 +3279,87 @@ val fixSyncImagePeek = bytecodePatch(
         """.trimIndent())
     }
 }
+
+private const val SUGGESTED_SORT = "Lapp/revanced/extension/synccompat/SuggestedCommentSort;"
+private const val COMMENTS_REQUEST = "Ly8/g;"
+private val COMMENTS_URL = listOf("Landroid/content/Context;", "Ljava/lang/String;", "Ljava/lang/String;",
+    "Ljava/lang/String;", "Ljava/lang/String;", "Z")
+
+val useSyncSubredditSuggestedCommentSort = bytecodePatch(
+    name = "Sync: use subreddit suggested comment sort",
+    description = "With the comment sort set to Suggested, load a post's comments in its subreddit's suggested sort " +
+        "(such as New) when the post has no suggested sort of its own, and show that sort in Sync's sort label and " +
+        "menu instead of Top. The subreddit's sort is looked up once from Reddit and kept for a few hours.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        fun mutable(type: String, source: String): MutableClassDef =
+            proxy(classes.singleOrNull { it.type == type && it.sourceFile == source } ?: throw PatchException(
+                "Expected Sync $source was not found. This patch targets build 23033 only.")).mutableClass
+        fun MutableMethod.code() = implementation!!.instructions
+        fun MutableMethod.hasStrings(vararg values: String) = values.all { v -> code().any { it.stringValue() == v } }
+
+        // OAuthCommentsRequest (y8.g) builds its URL once, in its constructor, with the static f(context,
+        // post, subreddit, comment, sort, flag): "<base>r/<subreddit>/comments/<post>[/_/<comment>].json?..."
+        // and "&sort=<sort>" unless the sort is "suggested". It inherits getUrl from Volley's Request.
+        val request = mutable(COMMENTS_REQUEST, "OAuthCommentsRequest.java")
+        if (request.methods.any { it.name == "getUrl" && it.parameterTypes.isEmpty() })
+            throw PatchException("$COMMENTS_REQUEST already overrides getUrl; select the supplied stock base APK.")
+        val build = request.methods.singleOrNull {
+            it.name == "f" && AccessFlags.STATIC.isSet(it.accessFlags) && it.returnType == "Ljava/lang/String;" &&
+                it.parameterTypes.map { p -> p.toString() } == COMMENTS_URL
+        } ?: throw PatchException("Unsupported Sync comments request URL builder. This patch targets build 23033 only.")
+        val constructor = request.methods.singleOrNull { it.name == "<init>" }
+        layout(request.superclass == "Lx8/a;" && constructor != null &&
+            build.hasStrings("r/", "comments/", "/_/", ".json", "suggested", "&sort=") &&
+            constructor.code().any { it.methodRef()?.let { m -> m.definingClass == COMMENTS_REQUEST && m.name == "f" } == true },
+            "Sync OAuthCommentsRequest")
+
+        // PostParserHelper.a (c9.c.a) reads a post's suggested sort as
+        //   const-string vS, "suggested_sort"; optString {vJ, vS}; move-result vR; c8.d.e {vR}; move-result vR
+        //   const-string vK, "suggested_sort"; ContentValues.put {vValues, vK, vR}
+        val parser = mutable("Lc9/c;", "PostParserHelper.java")
+        val parse = parser.methods.singleOrNull {
+            it.name == "a" && it.returnType == "V" && AccessFlags.STATIC.isSet(it.accessFlags) &&
+                it.parameterTypes.map { p -> p.toString() } == POST_PARSE
+        } ?: throw PatchException("Unsupported Sync post parser. This patch targets build 23033 only.")
+        val code = parse.code()
+        if (code.any { it.methodRef()?.definingClass == SUGGESTED_SORT })
+            throw PatchException("The subreddit suggested comment sort is already used.")
+        val read = code.singleIndex("post suggested sort read") {
+            code[it].stringValue() == "suggested_sort" &&
+                code.getOrNull(it + 1)?.methodRef()?.toString() == "$JSON_OBJECT->optString(Ljava/lang/String;)Ljava/lang/String;"
+        }
+        val get = code[read + 1] as FiveRegisterInstruction
+        val json = get.registerC
+        val value = code.getOrNull(read + 2)?.registerA()
+        val clean = code.getOrNull(read + 3) as? FiveRegisterInstruction
+        val store = read + 5
+        val put = code.getOrNull(store + 1) as? FiveRegisterInstruction
+        layout(get.registerCount == 2 && get.registerD == code[read].registerA() && value != null &&
+            code[read + 2].opcode == Opcode.MOVE_RESULT_OBJECT && clean != null &&
+            clean.methodRef()?.toString() == "Lc8/d;->e(Ljava/lang/String;)Ljava/lang/String;" &&
+            clean.registerCount == 1 && clean.registerC == value &&
+            code[read + 4].opcode == Opcode.MOVE_RESULT_OBJECT && code[read + 4].registerA() == value &&
+            code[store].stringValue() == "suggested_sort" && put != null &&
+            put.methodRef()?.toString() == "$CONTENT_VALUES->put(Ljava/lang/String;Ljava/lang/String;)V" &&
+            put.registerCount == 3 && put.registerD == code[store].registerA() && put.registerE == value &&
+            json < 16 && value < 16 && json != value &&
+            code.none { it is BuilderOffsetInstruction && it.target.location.index in (read + 1)..store },
+            "Sync post parser suggested sort")
+
+        // All layouts verified; edit.
+        request.addOverride("getUrl", "Ljava/lang/String;", 3, """
+            invoke-super {p0}, Lcom/android/volley/Request;->getUrl()Ljava/lang/String;
+            move-result-object v0
+            invoke-static {p0, v0}, $SUGGESTED_SORT->commentsUrl(Ljava/lang/Object;Ljava/lang/String;)Ljava/lang/String;
+            move-result-object v0
+            return-object v0
+        """.trimIndent())
+        parse.addInstructions(store, """
+            invoke-static {v$json, v$value}, $SUGGESTED_SORT->postSort(${JSON_OBJECT}Ljava/lang/String;)Ljava/lang/String;
+            move-result-object v$value
+        """.trimIndent())
+    }
+}
