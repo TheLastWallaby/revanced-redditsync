@@ -1866,7 +1866,10 @@ New since v0.7.6 (not in a release yet):
   post's own `suggested_sort`; Reddit keeps a subreddit's suggestion in the
   subreddit's about data (`suggested_comment_sort`), not on each post. For a
   post without its own, Sync labelled the sort **Top** and asked Reddit for the
-  comments without a sort, so the subreddit's suggestion was not used.
+  comments without a sort, so the subreddit's suggestion was not used. A
+  comment thread (a link to one comment, or "view full context") was worse:
+  Sync never asked for a sort there at all, so the thread always came back in
+  Reddit's default order whatever sort was shown.
 
   | Comment sort, post | Requested and shown |
   |---|---|
@@ -1874,7 +1877,8 @@ New since v0.7.6 (not in a release yet):
   | Suggested, post has none, subreddit suggests one | The subreddit's sort (was: no sort, labelled **Top**) |
   | Suggested, neither suggests one | Unchanged: no sort, labelled **Top** |
   | Any sort you pick yourself | Unchanged |
-  | A comment thread (a link to one comment) | Unchanged |
+  | A comment thread, Suggested | As for a post's comments above (was: no sort) |
+  | A comment thread, a sort you pick | That sort (was: no sort, Reddit's default order) |
 
   - **Lookup.** The subreddit's sort comes from Reddit's
     `/r/<subreddit>/about.json`, asked with Sync's own Authorization and
@@ -1896,19 +1900,23 @@ New since v0.7.6 (not in a release yet):
     in its subreddit's sort; if that post has a different suggested sort of its
     own, reopen it or pick the sort from the menu.
 
-  **How.** Two hooks: a `getUrl` override on Sync's comments request
-  (`OAuthCommentsRequest`, `y8.g`), which hands Volley's URL to
-  `SuggestedCommentSort.commentsUrl`, and one call in Sync's post parser
+  **How.** Three hooks: a call at the return of Sync's comments URL builder
+  (`OAuthCommentsRequest.f`, `y8.g.f`), which adds a chosen sort to a comment
+  thread's URL as Sync already does for a post's comments; a `getUrl` override
+  on the same request, which hands Volley's URL to
+  `SuggestedCommentSort.commentsUrl`; and one call in Sync's post parser
   (`PostParserHelper.a`, `c9.c.a`) between its `suggested_sort` read and
-  store. The patch checks Sync's URL builder and the parser's read, clean
-  (`c8.d.e`) and store sequence before editing either.
+  store. The patch checks Sync's URL builder (one return, its comment and sort
+  parameters only read) and the parser's read, clean (`c8.d.e`) and store
+  sequence before editing anything.
 
   `SuggestedCommentSortTest` checks against a loopback Reddit with test-only
-  tokens which URLs gain a sort, the headers sent, caching, failures (HTTP
+  tokens which URLs gain a sort (comment threads included), the headers sent, caching, failures (HTTP
   403/404/500, oversized, malformed, slow), cancelled requests, the main-thread
   rule, one lookup for concurrent requests, the parser hook and every load-more
-  route. `SuggestedCommentSortPatchTest` runs Sync's URL builder, the new
-  `getUrl` and the post parser before and after the patch: on hand-written
+  route. `SuggestedCommentSortPatchTest` runs Sync's URL builder (posts and
+  comment threads, Suggested and chosen sorts), the new `getUrl` and the post
+  parser before and after the patch: on hand-written
   models in CI, and on Sync's real methods with the stock APK locally.
   `PatchInteractionTest` applies all 33 patches to the stock APK in both name
   orders. Not checked on a phone or against Reddit's live API (the public API

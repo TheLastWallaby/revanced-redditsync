@@ -27,7 +27,7 @@ import org.json.JSONObject;
  * used. Reddit keeps that sort in the subreddit's {@code about} data
  * ({@code suggested_comment_sort}), not on each post.
  *
- * <p>The patch "Sync: use subreddit suggested comment sort" adds two hooks:
+ * <p>The patch "Sync: use subreddit suggested comment sort" adds three hooks:
  * <ul>
  * <li>{@link #commentsUrl}: Sync's comments request asks for its URL. For a post's comments with no
  *     {@code sort}, the post's own suggested sort is used if Sync parsed one; otherwise the
@@ -38,11 +38,14 @@ import org.json.JSONObject;
  * <li>{@link #postSort}: Sync's post parser ({@code PostParserHelper.a}, {@code c9.c.a}) reads a
  *     post's {@code suggested_sort}. A post without one gets its subreddit's known suggested sort,
  *     so Sync's sort label and sort menu show the sort the comments were loaded with.</li>
+ * <li>{@link #threadUrl}: Sync's URL builder. For a comment thread (a link to one comment) Sync
+ *     never asked for a sort; a chosen sort is now asked for, and "Suggested" is resolved as
+ *     above.</li>
  * </ul>
  * "Load more comments" requests made with the "Suggested" sort use the sort sent for that post
- * ({@link #requestSort}). Comment links (a single thread) and explicitly chosen sorts are left
- * alone. If the lookup fails, the request is unchanged and Reddit chooses as before. Never
- * throws; nothing is logged.
+ * ({@link #requestSort}). Explicitly chosen sorts of a post's comments are left alone. If the
+ * lookup fails, the request is unchanged and Reddit chooses as before. Never throws; nothing is
+ * logged.
  */
 public final class SuggestedCommentSort {
     interface Connections { HttpURLConnection open(String url) throws IOException; }
@@ -73,7 +76,7 @@ public final class SuggestedCommentSort {
     private static final Set<String> NOT_SUBREDDITS = new HashSet<>(Arrays.asList(
             "all", "popular", "random", "randnsfw", "myrandom", "friends", "mod"));
     private static final Pattern COMMENTS = Pattern.compile(
-            "/(?:r/([A-Za-z0-9_]{2,21})/)?comments/([a-z0-9]{1,13})\\.json");
+            "/(?:r/([A-Za-z0-9_]{2,21})/)?comments/([a-z0-9]{1,13})(?:/_/[a-z0-9]{1,13})?\\.json");
     private static final Pattern SUBREDDIT = Pattern.compile("[A-Za-z0-9_]{2,21}");
     private static final Pattern POST_ID = Pattern.compile("[a-z0-9]{1,13}");
 
@@ -156,6 +159,26 @@ public final class SuggestedCommentSort {
             if (sort == null || sort.isEmpty()) return url;
             sent.put(post, sort);
             return url + (url.indexOf('?') < 0 ? "?" : url.endsWith("?") || url.endsWith("&") ? "" : "&") + "sort=" + sort;
+        } catch (Throwable unexpected) {
+            return url;
+        }
+    }
+
+    /**
+     * Sync's comments URL builder hook ({@code y8.g.f}, at its return). For a comment thread
+     * ({@code /_/<comment>}) Sync never adds a sort, so a thread always came back in Reddit's
+     * default order whatever sort was chosen. A chosen sort is added here as Sync adds it for a
+     * post's comments; the "Suggested" sort (or none) is left to {@link #commentsUrl}.
+     */
+    public static String threadUrl(String url, String comment, String sort) {
+        try {
+            if (url == null || comment == null || comment.isEmpty() || sort == null || sort.isEmpty()
+                    || "suggested".equalsIgnoreCase(sort)) return url;
+            int query = url.indexOf('?');
+            if (query >= 0 && hasParameter(url.substring(query + 1), "sort")) return url;
+            String value = sort.toLowerCase(Locale.ENGLISH).replace("&", "");
+            if (!value.matches("[a-z0-9_]+")) return url;
+            return url + (query < 0 ? "?" : url.endsWith("?") || url.endsWith("&") ? "" : "&") + "sort=" + value;
         } catch (Throwable unexpected) {
             return url;
         }

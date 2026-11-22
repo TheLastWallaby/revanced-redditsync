@@ -104,13 +104,14 @@ public final class SuggestedCommentSortTest {
         try {
             sorts();
             urls();
+            threadUrls();
             lookups();
             failures();
             threads();
             parser();
             loadMore();
-            System.out.println("PASS: " + checks + " suggested comment sort checks (URLs, lookups, caching, failures, "
-                    + "threads, parser hook, load more)");
+            System.out.println("PASS: " + checks + " suggested comment sort checks (URLs, comment threads, lookups, "
+                    + "caching, failures, threads, parser hook, load more)");
         } finally {
             SuggestedCommentSort.connections = originalConnections;
             SuggestedCommentSort.mainThread = originalThread;
@@ -155,7 +156,9 @@ public final class SuggestedCommentSortTest {
         // Left alone.
         String[] unchanged = {
                 base + "&sort=top", base.replace("?", "?sort=old&"), base + "&SORT=top",
-                "https://oauth.reddit.com/r/AskNew/comments/abc12/_/c0ffee.json?always_show_media=1&context=100",
+                "https://oauth.reddit.com/r/AskNew/comments/abc12/_/c0ffee.json?context=100&sort=top",
+                "https://oauth.reddit.com/r/AskNew/comments/abc12/_/C0FFEE.json?context=100",
+                "https://oauth.reddit.com/r/AskNew/comments/abc12/_/.json?context=100",
                 base + "&comment=c0ffee",
                 "http://oauth.reddit.com/r/AskNew/comments/abc12.json?limit=1",
                 "https://evil.example/r/AskNew/comments/abc12.json?limit=1",
@@ -168,6 +171,8 @@ public final class SuggestedCommentSortTest {
                 url("popular", "p1"), url("all", "p2"), url("random", "p3"),
         };
         for (String url : unchanged) equal(url, sent(url), "unchanged: " + url);
+        String thread = "https://oauth.reddit.com/r/AskNew/comments/abc12/_/c0ffee.json?always_show_media=1&context=100";
+        equal(thread + "&sort=new", sent(thread), "comment thread with no sort: subreddit's sort");
         String malformed = "not a url at all %%%";
         equal(malformed, SuggestedCommentSort.commentsUrl(new CommentsRequest(base), malformed), "malformed URL unchanged");
         equal(null, SuggestedCommentSort.commentsUrl(null, null), "null URL");
@@ -177,6 +182,25 @@ public final class SuggestedCommentSortTest {
         String wwwSent = sent(www);
         equal(www + "?sort=qa", wwwSent, "URL without a query gains one; the about page's sort is normalized");
         equal("/r/AskQa/about.json?raw_json=1", LOOKUPS.get(1), "about page of the subreddit as written");
+    }
+
+    static void threadUrls() {
+        String thread = "https://oauth.reddit.com/r/AskNew/comments/abc12/_/c0ffee.json?always_show_media=1&context=100&limit=500";
+        String post = url("AskNew", "abc12");
+        equal(thread + "&sort=new", SuggestedCommentSort.threadUrl(thread, "c0ffee", "new"), "chosen sort added to a thread");
+        equal(thread + "&sort=top", SuggestedCommentSort.threadUrl(thread, "c0ffee", "Top"), "lower-cased as Sync does");
+        equal(thread + "&sort=qa", SuggestedCommentSort.threadUrl(thread, "c0ffee", "Q&A"), "ampersand removed as Sync does");
+        equal(thread, SuggestedCommentSort.threadUrl(thread, "c0ffee", "suggested"), "suggested left to the request");
+        equal(thread, SuggestedCommentSort.threadUrl(thread, "c0ffee", "SUGGESTED"), "suggested in any case");
+        equal(thread, SuggestedCommentSort.threadUrl(thread, "c0ffee", null), "no sort");
+        equal(thread, SuggestedCommentSort.threadUrl(thread, "c0ffee", ""), "empty sort");
+        equal(thread, SuggestedCommentSort.threadUrl(thread, "c0ffee", "new&x=1/"), "unsafe sort text not added");
+        equal(post, SuggestedCommentSort.threadUrl(post, null, "new"), "a post's comments: Sync adds the sort itself");
+        equal(post, SuggestedCommentSort.threadUrl(post, "", "new"), "empty comment: not a thread");
+        equal(thread + "&sort=old", SuggestedCommentSort.threadUrl(thread + "&sort=old", "c0ffee", "new"), "existing sort kept");
+        equal("https://x/comments/a/_/b.json?sort=new", SuggestedCommentSort.threadUrl("https://x/comments/a/_/b.json", "b", "new"),
+                "URL without a query gains one");
+        equal(null, SuggestedCommentSort.threadUrl(null, "c0ffee", "new"), "no URL");
     }
 
     static void lookups() {

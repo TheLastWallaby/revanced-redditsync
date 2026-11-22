@@ -116,7 +116,14 @@ public final class SuggestedCommentSortPatchTest {
     // ---- Hooks ----
 
     private static void hooks(BytecodePatchContext context, List<String> parserBefore, List<String> builderBefore) {
-        equal(builderBefore, keys(method(context, REQUEST, "f")), "URL builder unchanged");
+        List<String> builder = keys(method(context, REQUEST, "f"));
+        List<String> builderAdded = new ArrayList<>(builder);
+        for (String key : builderBefore) builderAdded.remove(key);
+        equal(List.of("INVOKE_STATIC:" + HELPER + "->threadUrl(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+                "MOVE_RESULT_OBJECT:"), builderAdded, "URL builder gains one call and its result");
+        equal(builderBefore.size() + 2, builder.size(), "nothing else changes in the URL builder");
+        equal("RETURN_OBJECT:", builder.get(builder.size() - 1), "URL builder still ends with its return");
+        check(builder.get(builder.size() - 3).contains("->threadUrl("), "the call sits right before the return");
         MutableMethod getUrl = method(context, REQUEST, "getUrl");
         check(getUrl != null && getUrl.getParameterTypes().isEmpty(), "getUrl override added");
         List<String> url = keys(getUrl);
@@ -197,12 +204,23 @@ public final class SuggestedCommentSortPatchTest {
             check(explicit.contains("&sort=" + sort), "Sync sends an explicit sort");
             equal(explicit, sent(patched, "abc12", "AskNew", null, sort), "explicit " + sort + " unchanged");
         }
+        // Comment threads: Sync never asked for a sort, whatever was chosen.
         String thread = syncUrl(stock, "abc12", "AskNew", "c0ffee", "suggested");
-        equal(thread, sent(patched, "abc12", "AskNew", "c0ffee", "suggested"), "comment thread unchanged");
+        check(thread.contains("/comments/abc12/_/c0ffee.json?") && !thread.contains("sort="), "stock thread has no sort: " + thread);
+        equal(thread, sent(stock, "abc12", "AskNew", "c0ffee", "suggested"), "stock thread sent as built");
+        equal(thread + "&sort=new", sent(patched, "abc12", "AskNew", "c0ffee", "suggested"), "suggested thread: subreddit's sort");
+        for (String sort : List.of("new", "top", "old", "controversial")) {
+            String stockThread = syncUrl(stock, "abc12", "AskNew", "c0ffee", sort);
+            check(!stockThread.contains("sort="), "stock thread ignores the chosen " + sort);
+            equal(stockThread + "&sort=" + sort, sent(patched, "abc12", "AskNew", "c0ffee", sort), "thread asks for the chosen " + sort);
+        }
         String plain = syncUrl(stock, "xyz9", "Plain", null, "suggested");
         equal(plain, sent(patched, "xyz9", "Plain", null, "suggested"), "subreddit with no suggested sort unchanged");
         equal(plain, sent(patched, "xyz9", "Plain", null, "suggested"), "no suggestion is remembered");
         equal(2, LOOKUPS.size(), "subreddit without a suggestion looked up once");
+        String plainThread = syncUrl(stock, "t9", "Plain", "beef1", "suggested");
+        equal(plainThread, sent(patched, "t9", "Plain", "beef1", "suggested"), "suggested thread, no suggestion: unchanged");
+        equal(2, LOOKUPS.size(), "thread reuses the known answer");
         String broken = syncUrl(stock, "q1", "Broken", null, "suggested");
         equal(broken, sent(patched, "q1", "Broken", null, "suggested"), "failed lookup leaves the URL");
         equal(3, LOOKUPS.size(), "failed lookup made once");

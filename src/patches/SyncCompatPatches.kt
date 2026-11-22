@@ -3289,7 +3289,8 @@ val useSyncSubredditSuggestedCommentSort = bytecodePatch(
     name = "Sync: use subreddit suggested comment sort",
     description = "With the comment sort set to Suggested, load a post's comments in its subreddit's suggested sort " +
         "(such as New) when the post has no suggested sort of its own, and show that sort in Sync's sort label and " +
-        "menu instead of Top. The subreddit's sort is looked up once from Reddit and kept for a few hours.",
+        "menu instead of Top. Comment threads (a link to one comment) now load in the chosen sort too, instead of " +
+        "always in Reddit's default order. The subreddit's sort is looked up once from Reddit and kept for a few hours.",
 ) {
     compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
     dependsOn(extensionPatch)
@@ -3302,7 +3303,8 @@ val useSyncSubredditSuggestedCommentSort = bytecodePatch(
 
         // OAuthCommentsRequest (y8.g) builds its URL once, in its constructor, with the static f(context,
         // post, subreddit, comment, sort, flag): "<base>r/<subreddit>/comments/<post>[/_/<comment>].json?..."
-        // and "&sort=<sort>" unless the sort is "suggested". It inherits getUrl from Volley's Request.
+        // and "&sort=<sort>" unless the sort is "suggested" or the URL is a comment thread, which never
+        // gets a sort. It inherits getUrl from Volley's Request.
         val request = mutable(COMMENTS_REQUEST, "OAuthCommentsRequest.java")
         if (request.methods.any { it.name == "getUrl" && it.parameterTypes.isEmpty() })
             throw PatchException("$COMMENTS_REQUEST already overrides getUrl; select the supplied stock base APK.")
@@ -3311,6 +3313,20 @@ val useSyncSubredditSuggestedCommentSort = bytecodePatch(
                 it.parameterTypes.map { p -> p.toString() } == COMMENTS_URL
         } ?: throw PatchException("Unsupported Sync comments request URL builder. This patch targets build 23033 only.")
         val constructor = request.methods.singleOrNull { it.name == "<init>" }
+        // f's single return hands back the finished URL. Its comment (p3) and sort (p4) parameters
+        // are only read, and nothing branches straight to the return, so a call just before it sees
+        // every URL f builds.
+        val urlCode = build.code()
+        val returns = urlCode.indices.filter { urlCode[it].opcode == Opcode.RETURN_OBJECT }
+        val urlParameters = build.implementation!!.registerCount - COMMENTS_URL.size
+        val comment = urlParameters + 3
+        val sort = urlParameters + 4
+        val built = returns.singleOrNull()?.let { urlCode[it].registerA() }
+        layout(returns.size == 1 && built != null && built < 16 && sort < 16 &&
+            urlCode.none { it is BuilderOffsetInstruction && it.target.location.index == returns.single() } &&
+            urlCode.none { i -> i.opcode.setsRegister() && i.registerA().let { it == comment || it == sort } } &&
+            urlCode.none { i -> i.opcode.setsWideRegister() && i.registerA().let { it == comment - 1 || it == sort - 1 } },
+            "Sync comments URL builder")
         layout(request.superclass == "Lx8/a;" && constructor != null &&
             build.hasStrings("r/", "comments/", "/_/", ".json", "suggested", "&sort=") &&
             constructor.code().any { it.methodRef()?.let { m -> m.definingClass == COMMENTS_REQUEST && m.name == "f" } == true },
@@ -3350,6 +3366,10 @@ val useSyncSubredditSuggestedCommentSort = bytecodePatch(
             "Sync post parser suggested sort")
 
         // All layouts verified; edit.
+        build.addInstructions(returns.single(), """
+            invoke-static {v$built, v$comment, v$sort}, $SUGGESTED_SORT->threadUrl(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+            move-result-object v$built
+        """.trimIndent())
         request.addOverride("getUrl", "Ljava/lang/String;", 3, """
             invoke-super {p0}, Lcom/android/volley/Request;->getUrl()Ljava/lang/String;
             move-result-object v0
