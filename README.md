@@ -1860,6 +1860,64 @@ New since v0.7.6 (not in a release yet):
   as removed was confirmed restorable end to end: the probe could not read
   Reddit's own view anonymously.
 
+- **Sync: show hidden profile history from Arctic Shift** (new,
+  [issue #115](https://github.com/TheLastWallaby/revanced-redditsync/issues/115)).
+  Since June 2025 Reddit lets users hide their posts and comments from their
+  profile. Their **Overview**, **Comments** and **Submitted** tabs in Sync then
+  show nothing, although the posts and comments are still public in the
+  communities where they were posted. Reddit's own workarounds (a wildcard in
+  the profile search, `author:` search) stopped working in early 2026.
+
+  Sync loads these tabs with `OAuthPostsRequest` (`y8.k0`) from
+  `user/<name>/<Section>.json`. When Reddit answers one of these three listings
+  with HTTP 200 and no items, the patch asks the
+  [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) archive for
+  that user's posts and comments and gives Sync's own parser an ordinary
+  listing of them instead: Submitted shows posts, Comments shows comments,
+  Overview both, newest first, 25 per page. The first page shows "Reddit shows
+  nothing for u/&lt;name&gt;. Showing copies from the Arctic Shift archive."
+  once per profile. Scrolling pages on as usual: each page's `after` is its
+  last item, whose time becomes the archive's `before` (remembered, or looked
+  up by ID after a restart); items from the same second are not skipped or
+  repeated.
+
+  **The items come from Arctic Shift, a third-party archive, not from Reddit.**
+  Scores and text are as archived; copies of items the author later deleted
+  still show; items deleted within minutes of posting may be missing. What is
+  sent: HTTPS `GET`s to
+  `https://arctic-shift.photon-reddit.com/api/{posts,comments}/search?author=<name>&limit=25&sort=desc`
+  (plus `&before=<unix time>` on later pages), and, to continue after a
+  restart, `/api/{posts,comments}/ids?ids=<id>&fields=id,created_utc`. The
+  username is checked to be 1 to 20 characters `A-Z a-z 0-9 _ -`. The requests
+  use a client of their own: no Reddit authorization, cookies or other Sync
+  headers, and no redirects; 10 s to connect or read, 15 s per request and
+  8 MiB per answer. Your IP address is visible to Arctic Shift, as to any
+  website.
+
+  Left as Reddit sent it: every other listing (subreddits, search, Upvoted,
+  Saved...), any profile listing with items (including a profile that hides
+  only some communities), error and non-JSON answers. The archive's order is
+  newest first whatever sort is chosen. If the archive can't be reached, Sync
+  shows its normal empty tab with "Reddit shows nothing for u/&lt;name&gt;, and
+  the Arctic Shift archive couldn't be reached."; on a later page, "Couldn't
+  load more from the Arctic Shift archive."
+
+  `ArchivedProfileTest` runs the helper against a loopback archive that
+  answers like Arctic Shift (author search with an exclusive `before`, ID
+  lookup): which URLs and answers are replaced, page order, paging through 80
+  items to the end without gaps or repeats (including a page boundary inside
+  one second and a restart), malformed, oversized, slow, redirected and failed
+  answers, and that no Authorization or Cookie header is sent.
+  `ArchivedProfilePatchTest` runs `OAuthPostsRequest` before and after the
+  patch: Sync's own URL builder makes the URLs the helper reads, and Sync's
+  own parser stores the archived posts and comments, keeps the archive's
+  `after` and ends the list the way Reddit's own last page does; other answers
+  parse exactly as before. It runs on hand-written models in CI and passed on
+  Sync's real methods locally (Sync's post parser itself is recorded, not run).
+  Not checked on a phone or with a signed-in Reddit account: that Reddit
+  answers a hidden profile with an empty listing, not an error, comes from
+  third-party reports.
+
 - **Sync: use subreddit suggested comment sort**, on by default. With the
   comment sort set to **Suggested**, a subreddit that suggests a sort (for
   example **New**) now gets its comments in that sort. Sync 23033 used only a
