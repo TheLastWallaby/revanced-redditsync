@@ -26,9 +26,9 @@ A source edit alone is not a completed fix.
 - Run: python3 build.py --bootstrap
   Run both locally before pushing whenever Java 17 and Python 3.12 are available;
   CI confirms a passing build rather than debugging one. On Windows use python
-  (Git Bash has no python3). VideoPreviewLoadingTest's placeholder-repair check
-  fails on Windows only, because File.renameTo cannot replace an existing file
-  there; Linux CI (like Android) is authoritative for that check.
+  (Git Bash has no python3) with PYTHONUTF8=1. VideoPreviewLoadingTest skips its
+  placeholder-repair check on Windows (prints SKIP), because File.renameTo cannot
+  replace an existing file there; Linux CI (like Android) is authoritative for it.
   The build installs the locked tools, executes Java *Test.java mains under tests/,
   compiles both DEX files, validates the RVP and loads it with ReVanced CLI.
   Confirm every intended suite actually ran. Package-declared suites must execute
@@ -78,8 +78,14 @@ A source edit alone is not a completed fix.
   Publish patch release on main with the matching v-prefixed tag. Existing tags
   and releases are immutable. Do not bump VERSION for an instructions-only change.
 - Manually run Build my Sync APK in TheLastWallaby/revanced-redditsync-personal
-  with that exact candidate tag. Its schedule follows stable releases only.
+  with that exact candidate tag. Its scheduled check is off in the deployed
+  builder to save Actions minutes, so stable releases are built manually too.
   A public RVP build is not proof that the private APK build passed.
+- Without Actions minutes, or to test open PRs together on the phone, build the
+  RVP and APK locally as in docs/AUTOMATION.md "Local builds without GitHub
+  Actions" (alpha version on an unpushed local branch, build_apk.py --no-publish,
+  same patch-result and verification checks). Keys, client IDs and APKs stay
+  outside the repository.
 - Check all selected patch results and the private verification report: base
   checksum, original signing identity, preserved classes and unchanged resources/
   manifest. Current APK verification does not itself prove each patch succeeded.

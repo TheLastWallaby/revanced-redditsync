@@ -96,6 +96,108 @@ holds no ReVanced patches (stock Sync), and disassembles every DEX file into the
 ignored `local-inspect/smali/` with the baksmali included in the pinned ReVanced
 CLI. The APK and its smali never leave that ignored directory.
 
+## Local builds without GitHub Actions
+
+Everything CI and the private builder do can run on the owner's machine, for
+example when Actions minutes run out. Public-repository CI on GitHub-hosted
+runners costs no minutes; the private builder does. Its scheduled check is off in
+the deployed copy, so it only runs when started manually.
+
+### Patch bundle (RVP)
+
+```sh
+python3 -m unittest discover -s tests -p 'test_*.py' -v
+python3 build.py --bootstrap
+```
+
+This is the same build CI runs: every Java suite, both DEX files, RVP validation
+and a ReVanced CLI load. The outputs are `output/patches.rvp`, the source ZIP,
+`SHA256SUMS` and `build-info.json`. On Windows use `python`, and in Git Bash set
+`PYTHONUTF8=1` (older test sources are not cp1252). `VideoPreviewLoadingTest`
+skips its placeholder-repair check on Windows, printing `SKIP on Windows`,
+because `File.renameTo` cannot replace a file there; Linux CI runs it.
+
+Patch suites also run on Sync's real methods when given the stock base from
+`scripts/inspect_base.py`, after a build (classpath as in `scripts/build_bundle.py`,
+with `build/tests` first):
+
+```sh
+java -cp "build/tests:build/stubs:build/extension:build/patches:build/test-resources:toolchain/volley.jar:toolchain/json.jar:toolchain/android.jar:toolchain/revanced-cli.jar" \
+  PatchInteractionTest local-inspect/inputs/base.apk
+```
+
+On Windows separate the classpath with `;`.
+
+### Testing unmerged pull requests together
+
+To put several open PRs on the phone in one install, without merging them:
+
+1. `git switch -c local/phone-test-alphaN origin/main`, then merge each PR
+   branch (`git merge --no-ff origin/<branch>`) and resolve conflicts.
+2. Set `VERSION` to an unused `X.Y.Z-alpha.N` and commit it on that branch. The
+   APK builder needs a clean tree and a tag-shaped version; `alpha` never
+   collides with a published `rc` or stable tag.
+3. Build the RVP as above, then the APK below.
+4. Never push this branch. Delete it once the PRs are merged.
+
+### Personal APK
+
+`private-builder/build_apk.py --no-publish` runs the private builder's own
+checks locally. It needs:
+
+- the stock base and `inputs.json` (from `scripts/inspect_base.py`, in the
+  ignored `local-inspect/inputs/`);
+- the owner's signing keystore, kept outside the repository in a private,
+  backed-up folder (`.gitignore` also rejects `*.keystore`);
+- the Reddit OAuth client ID for **Spoof client**, in `REDDIT_CLIENT_ID` (an
+  environment variable only, never a file in the repository);
+- keystore passwords in `KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD` only
+  if the key has non-default ones.
+
+```sh
+REDDIT_CLIENT_ID=... python3 private-builder/build_apk.py --no-publish \
+  --tools toolchain --local-bundle output --local-inputs local-inspect/inputs \
+  --local-keystore /private/path/sync.keystore --output /private/path/builds
+```
+
+It patches stock Sync with every default patch, **Spoof client** and the
+`enable` list from `inputs.json`, then fails unless every selected patch reports
+success. It then writes `verification.json`: the signature, the signer
+certificate matching `signer_sha256`, every original class preserved, and
+unchanged non-code entries. It prints
+`All N patches succeeded` and `Personal APK verified`. Check both, as for a
+private build. If the keystore's certificate is not the one in `inputs.json`
+(for example a new key), copy the inputs to a private temporary folder and set
+`signer_sha256` to the key's certificate SHA-256:
+
+```sh
+keytool -list -v -keystore /private/path/sync.keystore -storetype BKS -storepass "" \
+  -providerpath toolchain/revanced-cli.jar \
+  -providerclass org.bouncycastle.jce.provider.BouncyCastleProvider
+```
+
+Give the APK to the owner privately (their own cloud drive, for example); it is
+too large for most chat attachments. Never commit it or attach it to a public
+release.
+
+### Replacing the signing key
+
+Android only installs an update signed with the installed app's key. The key the
+private builder holds as `SIGNING_KEY_B64` cannot be read back from GitHub, so if
+no other copy exists, a new key means uninstalling Sync (losing its settings and
+login). Only do this on the owner's decision:
+
+1. Create the key by patching once with `--keystore` pointing to a file that does
+   not exist yet. ReVanced CLI then writes a BKS key (`CN=ReVanced`, alias
+   `ReVanced Key`, CLI default passwords). Store it privately and have the
+   owner back it up.
+2. Build and verify the APK with the new key as above. The owner uninstalls
+   Sync, installs it and signs in again.
+3. Only after the owner confirms the new APK is installed, update the private
+   builder: the `SIGNING_KEY_B64` secret (the keystore in base64) and
+   `signer_sha256` in the `build-inputs` release's `inputs.json`. Overwriting
+   the secret destroys the old key.
+
 ## One-time private builder setup
 
 The public repository never contains the base APK, signing key or account
