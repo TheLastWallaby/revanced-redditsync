@@ -3067,8 +3067,8 @@ private const val EDIT_TEXT_FIELD = "Lcom/laurencedawson/reddit_sync/ui/views/re
 val startSyncChatsWithoutSubject = bytecodePatch(
     name = "Sync: start chats without a subject",
     description = "Reddit delivers new messages as Reddit Chat messages. Sync's new-message editor no longer shows " +
-        "or requires a Subject when messaging a user; the subject Reddit's API still needs is made from the " +
-        "message's first line. Messages to a subreddit's moderators (r/name) keep the Subject field.",
+        "or requires a Subject when messaging a user; the subject Reddit's API still needs is an invisible " +
+        "character, so the chat shows only the message. Messages to a subreddit's moderators (r/name) keep the Subject field.",
 ) {
     compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
     dependsOn(extensionPatch)

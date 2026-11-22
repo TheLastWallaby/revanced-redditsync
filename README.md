@@ -2025,11 +2025,13 @@ New in [v0.7.7](#v077-hidden-profile-history-suggested-comment-sort-and-faster-l
   Help changelog, 7 August 2025), and Sync's inbox shows chats, but Sync's
   **Message** editor still asked for a **Subject** like an old private message
   and refused to send without one ("Enter a subject"). Sync sends new messages
-  with Reddit's `api/compose`, which still requires a subject.
+  with Reddit's `api/compose`, which still requires a subject, and Reddit's
+  chat shows that subject as its own line above `user: message` (checked on a
+  phone).
 
   | New message to | Subject field | Subject sent |
   |---|---|---|
-  | A user, Subject empty | Hidden | The message's first line with words in it, without Markdown heading or quote markers, at most 100 characters (cut at a word, ending in "…") |
+  | A user, Subject empty | Hidden | One zero-width space (U+200B): not blank to Reddit's check, which rejects only whitespace, and invisible in the chat |
   | A user, Subject already filled in (for example from a `message/compose?subject=` link) | Shown | As entered |
   | A subreddit's moderators (`r/name` or `/r/name`) | Shown and required, as in Sync | As entered |
 
@@ -2045,15 +2047,17 @@ New in [v0.7.7](#v077-hidden-profile-history-suggested-comment-sort-and-faster-l
   for the recipient, subject and message, the `OAuthMessageRequest` arguments
   and the Subject field's `setVisibility`) before editing either.
 
-  `ChatComposeTest` checks the subject rule (first line, blank lines, Markdown
-  markers, the 100-character limit including emoji, subreddit recipients,
-  entered subjects). `ChatComposePatchTest` runs Sync's send and setup methods
-  before and after the patch: on hand-written models in CI, and on Sync's real
-  methods with the stock APK locally. `PatchInteractionTest` applies all 35
-  patches to the stock APK in both name orders. **Needs a phone check:** that
-  the field hides and reappears, that Reddit accepts the message from Sync and
-  how the recipient's chat shows the subject (Reddit's chat may show it above
-  the message or drop it; this is not documented).
+  `ChatComposeTest` checks the subject rule (the chat subject for any message
+  to a user, that it is one non-whitespace, zero-width character, subreddit
+  recipients, entered and blank subjects, when the field is shown).
+  `ChatComposePatchTest` runs Sync's send and setup methods before and after
+  the patch: on hand-written models in CI, and on Sync's real methods with the
+  stock APK locally. `PatchInteractionTest` applies all 35 patches to the stock
+  APK in both name orders. **Needs a phone check:** that the field hides and
+  reappears, that Reddit accepts the zero-width subject from Sync (if Reddit
+  refuses it, Sync shows Reddit's error and keeps the text; the fallback would
+  be a short fixed word), and that the chat then shows only the message (possibly below an empty
+  line).
 
 
 Version 0.6 treats an ID as completed with no available comment only when both

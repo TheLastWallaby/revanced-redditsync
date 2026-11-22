@@ -3,10 +3,11 @@ import java.lang.reflect.Method;
 import java.util.Objects;
 
 /**
- * Checks ChatCompose's subject rule: which recipients keep Sync's Subject field, which subject is sent
- * for a message to a user, and that Reddit's 100-character limit is kept.
+ * Checks ChatCompose's subject rule: which recipients keep Sync's Subject field, and that a message to
+ * a user is sent with the invisible chat subject (Reddit's chat shows the subject above the message).
  */
 public final class ChatComposeTest {
+    private static final String CHAT = "​";
     private static int checks;
 
     private static void check(boolean condition, String message) {
@@ -27,29 +28,21 @@ public final class ChatComposeTest {
     }
 
     public static void main(String[] args) throws Throwable {
-        // Subject made from the first line with words in it.
-        equal("Hi there", ChatCompose.subject("alice", "", "Hi there\nSecond line"), "first line");
-        equal("Hi there", ChatCompose.subject("alice", null, "\r\n  \n  Hi   there  \r\nmore"), "blank lines and spacing skipped");
-        equal("Hi there", ChatCompose.subject("alice", "  ", "Hi there"), "blank subject replaced");
-        equal("Heading", ChatCompose.subject("alice", "", "## Heading\nbody"), "heading marker dropped");
-        equal("quoted text", ChatCompose.subject("alice", "", "> > quoted text"), "quote markers dropped");
-        equal("#1 question", ChatCompose.subject("alice", "", "#1 question"), "a hash that is not a heading is kept");
-        equal("Message", ChatCompose.subject("alice", "", "#\n>\n"), "no words: fallback subject");
-        equal("café 😀", ChatCompose.subject("alice", "", "café 😀\nx"), "non-ASCII kept");
+        // A chat to a user: the invisible subject, whatever the message says.
+        for (String text : new String[] {"Hi there\nSecond line", "\r\n  \n  Hi", "# Heading", "x".repeat(500), "😀"})
+            equal(CHAT, ChatCompose.subject("alice", "", text), "chat subject for a " + text.length() + "-character message");
+        equal(CHAT, ChatCompose.subject("alice", null, "Hi"), "no subject value");
+        equal(CHAT, ChatCompose.subject("alice", "  ", "Hi"), "blank subject replaced");
+        equal(CHAT, ChatCompose.subject("u/alice", "", "Hi"), "u/ recipient is a user");
+        equal(CHAT, ChatCompose.subject("rbikes", "", "Hi"), "a username starting with r is a user");
+        equal(CHAT, ChatCompose.subject("r_bikes", "", "Hi"), "a username starting with r_ is a user");
+        equal(CHAT, ChatCompose.subject(null, "", "Hi"), "no recipient yet: Sync asks for the recipient first anyway");
 
-        // Reddit's limit: at most 100 characters, cut at a word where possible, never inside a surrogate pair.
-        String words = "word ".repeat(60).trim();
-        String cut = ChatCompose.subject("alice", "", words);
-        check(cut.length() <= 100 && cut.endsWith("…") && !cut.contains(" …"), "cut at a word: " + cut);
-        check(words.startsWith(cut.substring(0, cut.length() - 1)), "cut keeps the start");
-        String oneWord = "x".repeat(250);
-        equal("x".repeat(99) + "…", ChatCompose.subject("alice", "", oneWord), "a long word is cut at 99");
-        String emoji = "😀".repeat(150);
-        String emojiCut = ChatCompose.subject("alice", "", emoji);
-        equal(100, emojiCut.codePointCount(0, emojiCut.length()), "100 characters, counted as code points");
-        check(emojiCut.endsWith("…") && Character.isLowSurrogate(emojiCut.charAt(emojiCut.length() - 2)), "cut after a whole emoji");
-        String exact = "y".repeat(100);
-        equal(exact, ChatCompose.subject("alice", "", exact), "exactly 100 characters kept whole");
+        // Reddit's blank-subject check rejects whitespace only; the chat subject is one invisible character.
+        char zeroWidth = CHAT.charAt(0);
+        check(CHAT.length() == 1 && !Character.isWhitespace(zeroWidth) && !Character.isSpaceChar(zeroWidth), "not whitespace");
+        check(!CHAT.trim().isEmpty() && !CHAT.strip().isEmpty(), "not blank after trimming");
+        equal((int) Character.FORMAT, Character.getType(zeroWidth), "a zero-width format character");
 
         // Unchanged: entered subjects, subreddit recipients, missing values.
         equal("Bike", ChatCompose.subject("alice", "Bike", "Hi"), "entered subject kept");
@@ -61,10 +54,6 @@ public final class ChatComposeTest {
         equal("", ChatCompose.subject("alice", "", ""), "no message: Sync's own check decides");
         equal(null, ChatCompose.subject("alice", null, null), "null message");
         equal("", ChatCompose.subject("alice", "", "   \n "), "blank message");
-        equal("Hi", ChatCompose.subject(null, "", "Hi"), "no recipient yet: Sync asks for the recipient first anyway");
-        equal("Hi", ChatCompose.subject("u/alice", "", "Hi"), "u/ recipient is a user");
-        equal("Hi", ChatCompose.subject("rbikes", "", "Hi"), "a username starting with r is a user");
-        equal("Hi", ChatCompose.subject("r_bikes", "", "Hi"), "a username starting with r_ is a user");
 
         // The Subject field is shown for subreddit recipients or when it already has text.
         check(!show("alice", ""), "hidden for a user");

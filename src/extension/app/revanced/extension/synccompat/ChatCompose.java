@@ -9,9 +9,13 @@ package app.revanced.extension.synccompat;
  * editor ({@code EditFragment}, mode 2) shows a Subject field and refuses to send without one
  * ("Enter a subject").
  *
+ * <p>Reddit's chat shows the subject as its own line above "user: message" (seen on a phone,
+ * 2026-11-22), so any visible subject is noise in the chat.
+ *
  * <ul>
- *   <li>To a user: the Subject field is hidden and the subject Reddit's API requires is made from
- *       the first line of the message, at most 100 characters (Reddit's limit).</li>
+ *   <li>To a user: the Subject field is hidden and the subject Reddit's API requires is a single
+ *       zero-width space (U+200B). Reddit's blank-subject check rejects only whitespace, which
+ *       U+200B is not, so the chat shows just the message.</li>
  *   <li>To a subreddit's moderators ({@code r/name} or {@code /r/name}, which Reddit delivers to
  *       modmail, where subjects are kept): the field stays and is still required, as in Sync.</li>
  *   <li>A subject already filled in (for example from a {@code message/compose?subject=} link) is
@@ -22,24 +26,22 @@ package app.revanced.extension.synccompat;
  * leaves Sync's own editor behaviour.
  */
 public final class ChatCompose {
-    /** Reddit's maximum subject length, in characters. */
-    static final int SUBJECT_LIMIT = 100;
-    /** Used if the message has no line with words in it. */
-    static final String FALLBACK_SUBJECT = "Message";
-    private static final String ELLIPSIS = "…";
+    /** The subject sent for a chat: a zero-width space, not blank to Reddit but invisible in the chat. */
+    static final String CHAT_SUBJECT = "​";
 
     private ChatCompose() {
     }
 
     /**
      * Sync's editor, just before it checks the subject: the subject to send. Unchanged for a
-     * subreddit recipient or a subject the user entered; otherwise made from the message.
+     * subreddit recipient, a subject the user entered or an empty message; otherwise the invisible
+     * chat subject.
      */
     public static String subject(String to, String subject, String text) {
         try {
             if (subject != null && !subject.trim().isEmpty()) return subject;
             if (isSubreddit(to) || text == null || text.trim().isEmpty()) return subject;
-            return fromMessage(text);
+            return CHAT_SUBJECT;
         } catch (RuntimeException unexpected) {
             return subject;
         }
@@ -56,23 +58,6 @@ public final class ChatCompose {
         String name = to.trim().toLowerCase(java.util.Locale.ROOT);
         if (name.startsWith("/")) name = name.substring(1);
         return name.startsWith("r/");
-    }
-
-    /** The first line with words in it, without Markdown heading/quote markers, at most 100 characters. */
-    static String fromMessage(String text) {
-        for (String line : text.split("\r\n|\r|\n")) {
-            String words = line.replaceFirst("^\\s*(?:(?:#{1,6}(?=\\s|$)|>)\\s*)*", "").replaceAll("\\s+", " ").trim();
-            if (!words.isEmpty()) return limit(words);
-        }
-        return FALLBACK_SUBJECT;
-    }
-
-    private static String limit(String words) {
-        if (words.codePointCount(0, words.length()) <= SUBJECT_LIMIT) return words;
-        String cut = words.substring(0, words.offsetByCodePoints(0, SUBJECT_LIMIT - 1));
-        int space = cut.lastIndexOf(' ');
-        if (space >= SUBJECT_LIMIT / 2) cut = cut.substring(0, space);
-        return cut.trim() + ELLIPSIS;
     }
 
     /**

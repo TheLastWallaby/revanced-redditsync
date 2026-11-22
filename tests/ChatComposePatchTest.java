@@ -20,8 +20,8 @@ import java.util.*;
  * hand-written model or, given a local stock Sync 23033 APK, on the real methods. Android and Sync's
  * app services are answered by the suite, which records what the editor does.
  *
- * A message to a user without a subject is sent with a subject made from its first line (Sync asked
- * for a subject); the Subject field is handed to ChatCompose.bind, which hides it on the phone.
+ * A message to a user without a subject is sent with the invisible chat subject, a zero-width space
+ * (Sync asked for a subject); the Subject field is handed to ChatCompose.bind, which hides it on the phone.
  * Everything else is exactly as before: entered subjects, subreddit recipients, a missing recipient,
  * an invalid message and replies.
  */
@@ -32,7 +32,8 @@ public final class ChatComposePatchTest {
     private static final String EDITOR_VIEW = "Lcom/laurencedawson/reddit_sync/ui/views/editor/EditorView;";
     private static final String SUBJECT_CALL = CHAT + "->subject(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;";
     private static final String BIND_CALL = CHAT + "->bind(Ljava/lang/Object;Ljava/lang/Object;)V";
-    private static final String TEXT = "Hi there, are you selling the bike?\n\nIt's the blue one.";
+    private static final String CHAT_SUBJECT = "​";
+    private static final String TEXT ="Hi there, are you selling the bike?\n\nIt's the blue one.";
     private static boolean real;
     private static int checks;
     /** What the editor did, in order. */
@@ -78,20 +79,15 @@ public final class ChatComposePatchTest {
     // ---- Send ----
 
     private static void send(BytecodePatchContext stock, BytecodePatchContext patched) {
-        // To a user without a subject: Sync refuses; the patch sends with the first line as subject.
+        // To a user without a subject: Sync refuses; the patch sends with the invisible chat subject.
         equal(List.of("error subject Enter a subject", "focus subject"), send(stock, "alice", "", TEXT, true),
                 "stock asks for a subject");
-        equal(List.of("progress Sending message", "request alice | Hi there, are you selling the bike? | " + TEXT, "send editor"),
-                send(patched, "alice", "", TEXT, true), "patched sends with the first line as subject");
-        equal(List.of("progress Sending message", "request u/alice | A heading | # A heading\nbody", "send editor"),
-                send(patched, "u/alice", "", "# A heading\nbody", true), "Markdown heading marker left out");
-        String longLine = "word ".repeat(40).trim();
-        List<String> sent = send(patched, "alice", "", longLine, true);
-        String subject = sent.get(1).split(" \\| ")[1];
-        check(subject.length() <= 100 && subject.endsWith("…") && longLine.startsWith(subject.substring(0, subject.length() - 1)),
-                "long first line shortened to Reddit's limit: " + subject);
+        equal(List.of("progress Sending message", "request alice | " + CHAT_SUBJECT + " | " + TEXT, "send editor"),
+                send(patched, "alice", "", TEXT, true), "patched sends with the chat subject");
+        equal(List.of("progress Sending message", "request u/alice | " + CHAT_SUBJECT + " | # A heading\nbody", "send editor"),
+                send(patched, "u/alice", "", "# A heading\nbody", true), "any message");
         // A blank subject (Sync would send the spaces) is replaced too.
-        equal(List.of("progress Sending message", "request alice | Hi there, are you selling the bike? | " + TEXT, "send editor"),
+        equal(List.of("progress Sending message", "request alice | " + CHAT_SUBJECT + " | " + TEXT, "send editor"),
                 send(patched, "alice", "   ", TEXT, true), "blank subject replaced");
 
         // Unchanged: an entered subject, subreddit recipients, no recipient, an invalid message.
