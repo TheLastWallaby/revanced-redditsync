@@ -2,11 +2,15 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.7.7",
       "tested_release": "0.7.7-alpha.2 (local build, not published)",
       "build": "Local build on 2026-11-22: main with PR #119 plus this PR (#120, shortened archived-profile messages) and a local VERSION commit, built with build.py and build_apk.py --no-publish and signed with the new key, installed over alpha.1. All 34 selected patches reported success and verification.json passed.",
       "overall": "passed: the owner replied \"Pass\" to the alpha.2 handoff, which asked to confirm the shortened message shows in full and, if possible, checks 2-8 of alpha.1; no individual results were given",
+      "promotion": "Stable v0.7.7 builds main: v0.7.7-rc.1 plus PRs #114, #116, #118, #119 and #120. Its runtime code is the code of the phone-tested 0.7.7-alpha.2 local build (which differed only in VERSION). The owner chose stable v0.7.7 over a new candidate after reporting \"Pass\"; candidate assets remain immutable.",
       "unverified": [
-        "individual results for checks 2-8 (Comments and Submitted tabs, paging past 25 items, opening archived items, unchanged normal profiles, subreddit suggested comment sort, thread sort, comments without a suggested sort)"
+        "individual results for checks 2-8 (Comments and Submitted tabs, paging past 25 items, opening archived items, unchanged normal profiles, subreddit suggested comment sort, thread sort, comments without a suggested sort)",
+        "ReVanced Manager import and one-pass patching of the published v0.7.7 RVP",
+        "v0.7.7-rc.1 on its own (never tested as a published candidate)"
       ]
     },
     {
