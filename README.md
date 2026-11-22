@@ -2053,11 +2053,12 @@ New in [v0.7.7](#v077-hidden-profile-history-suggested-comment-sort-and-faster-l
   `ChatComposePatchTest` runs Sync's send and setup methods before and after
   the patch: on hand-written models in CI, and on Sync's real methods with the
   stock APK locally. `PatchInteractionTest` applies all 35 patches to the stock
-  APK in both name orders. **Needs a phone check:** that the field hides and
-  reappears, that Reddit accepts the zero-width subject from Sync (if Reddit
-  refuses it, Sync shows Reddit's error and keeps the text; the fallback would
-  be a short fixed word), and that the chat then shows only the message (possibly below an empty
-  line).
+  APK in both name orders. On a phone (0.7.8-alpha.1) a message started from a
+  user's profile was sent with the zero-width subject. **Limit:** Reddit Chat
+  still shows such a message as `user: message`, not as a plain chat message;
+  that is how Reddit formats messages from `api/compose`, and Reddit's
+  documented API has no Chat endpoint. Not yet checked on a phone: the Subject
+  field for `r/` recipients and whether an empty line shows above the message.
 
 
 Version 0.6 treats an ID as completed with no available comment only when both
