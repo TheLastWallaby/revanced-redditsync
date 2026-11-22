@@ -2,6 +2,20 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "tested_release": "0.7.7-alpha.1 (local build, not published)",
+      "build": "Local build on 2026-11-22: main at that time (v0.7.7-rc.1 plus PR #114) with PRs #116 and #118 merged on an unpushed branch, built with build.py and private-builder/build_apk.py --no-publish, signed with a new key (the owner reinstalled Sync). All 34 selected patches reported success and verification.json passed.",
+      "results": {
+        "1": "partly passed, with a defect: on a profile that hides its history, archived comments loaded, but the first-page message was cut off after two lines (\"... Showing copies from the Arctic Shift a...\"). The messages were shortened in the follow-up PR.",
+        "2-8": "not reported individually"
+      },
+      "overall": "the owner replied \"Looks good, merge changes, clean up stale branches\" before reporting check 1; PRs #111, #116 and #118 were then merged",
+      "unverified": [
+        "checks 2-5 (Comments and Submitted tabs, paging past 25 items, opening archived items, unchanged normal profiles)",
+        "checks 6-8 (subreddit suggested comment sort, thread sort, unchanged comments without a suggested sort)",
+        "the shortened messages on a phone"
+      ]
+    },
+    {
       "stable": "v0.7.6",
       "tested_release": "v0.7.6-rc.1",
       "overall": "passed: the owner replied \"Looks good, promote\" to the rc.1 handoff; no individual results were given for the six numbered checks (Amazon product link opens and other links unchanged, image search opens Google Lens for i.redd.it, gallery and Imgur images, notification prompt shown once on Android 13+ and not after a denial, inbox notification after granting, no prompt with inbox checks Off, general regressions)",

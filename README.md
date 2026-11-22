@@ -1874,9 +1874,10 @@ New since v0.7.6 (not in a release yet):
   [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) archive for
   that user's posts and comments and gives Sync's own parser an ordinary
   listing of them instead: Submitted shows posts, Comments shows comments,
-  Overview both, newest first, 25 per page. The first page shows "Reddit shows
-  nothing for u/&lt;name&gt;. Showing copies from the Arctic Shift archive."
-  once per profile. Scrolling pages on as usual: each page's `after` is its
+  Overview both, newest first, 25 per page. The first page shows "Showing
+  archived history from Arctic Shift." once per profile. (Android 12 and later
+  cut a text toast after two lines, so the messages are short and name no
+  user; an earlier build's longer message was cut off on a phone.) Scrolling pages on as usual: each page's `after` is its
   last item, whose time becomes the archive's `before` (remembered, or looked
   up by ID after a restart); items from the same second are not skipped or
   repeated.
@@ -1898,9 +1899,8 @@ New since v0.7.6 (not in a release yet):
   Saved...), any profile listing with items (including a profile that hides
   only some communities), error and non-JSON answers. The archive's order is
   newest first whatever sort is chosen. If the archive can't be reached, Sync
-  shows its normal empty tab with "Reddit shows nothing for u/&lt;name&gt;, and
-  the Arctic Shift archive couldn't be reached."; on a later page, "Couldn't
-  load more from the Arctic Shift archive."
+  shows its normal empty tab with "Couldn't reach the Arctic Shift archive.";
+  on a later page, "Couldn't load more from Arctic Shift."
 
   `ArchivedProfileTest` runs the helper against a loopback archive that
   answers like Arctic Shift (author search with an exclusive `before`, ID
