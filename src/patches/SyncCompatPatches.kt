@@ -2268,6 +2268,108 @@ val restoreSyncCommentsFromArcticShift = bytecodePatch(
     }
 }
 
+private const val POST_SHEET = "Lcom/laurencedawson/reddit_sync/ui/fragment_dialogs/bottom/PostMoreBottomSheetFragment;"
+private const val MATERIAL_ROW = "Lcom/laurencedawson/reddit_sync/ui/views/core/MaterialRow;"
+private const val REDDIT_PROVIDER = "Lcom/laurencedawson/reddit_sync/provider/RedditProvider;"
+private const val POST_NOT_ARCHIVED = "This post isn't in the Arctic Shift archive."
+
+/** Sync members ArcticShiftRestore calls to add and run "Restore post"; each must exist, public, in the base. */
+private val POST_RESTORE_MEMBERS = mapOf(
+    MATERIAL_ROW to listOf("<init>(Landroid/content/Context;)V", "k(Ljava/lang/CharSequence;)V", "d(I)V"),
+    "Lcom/google/android/material/bottomsheet/BottomSheetDialogFragment;" to listOf("x3()V"),
+    "Ld7/f;" to listOf("r(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;"),
+    "Lwc/p;" to listOf("a(Ljava/lang/String;)Ljava/lang/String;"),
+    "Lc9/f;" to listOf("a(Ljava/lang/String;)Ljava/lang/String;"),
+)
+
+val restoreSyncPostsFromArcticShift = bytecodePatch(
+    name = "Sync: restore posts from Arctic Shift",
+    description = "Add \"Restore post\" to Sync's post options for every post whose author or text is [deleted] or [removed], " +
+        "or whose text is \"[ Removed by Reddit ]\", and fill in the author, title and text from the Arctic Shift archive, " +
+        "as Restore comment does for comments; show \"$POST_NOT_ARCHIVED\" when the archive has no copy. " +
+        "Only the post ID is sent, over HTTPS, without Reddit authorization or cookies; the restored text comes from that " +
+        "third-party archive.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        fun Instruction.fieldRef() = ((this as? ReferenceInstruction)?.reference as? FieldReference)?.toString()
+        fun Instruction.registers() = (this as? FiveRegisterInstruction)?.let {
+            listOf(it.registerC, it.registerD, it.registerE, it.registerF, it.registerG).take(it.registerCount)
+        }
+
+        // The archive client and the Sync members the helper calls for posts.
+        for ((type, members) in ARCHIVE_MEMBERS + POST_RESTORE_MEMBERS) {
+            val clazz = classes.singleOrNull { it.type == type }
+                ?: throw PatchException("Sync lacks $type. This patch targets Sync build 23033 only.")
+            val present = clazz.methods.filter { AccessFlags.PUBLIC.isSet(it.accessFlags) }
+                .map { "${it.name}(${it.parameterTypes.joinToString("")})${it.returnType}" }.toSet()
+            for (member in members) if (member !in present) {
+                throw PatchException("Sync lacks $type->$member. This patch targets Sync build 23033 only.")
+            }
+        }
+        val provider = classes.singleOrNull { it.type == REDDIT_PROVIDER && it.sourceFile == "RedditProvider.java" }
+        val row = classes.singleOrNull { it.type == MATERIAL_ROW && it.sourceFile == "MaterialRow.java" }
+        val post = classes.singleOrNull { it.type == SYNC_POST }
+        layout(provider != null && listOf("q", "B").all { name -> provider.fields.any {
+                it.name == name && it.type == "Landroid/net/Uri;" &&
+                    AccessFlags.PUBLIC.isSet(it.accessFlags) && AccessFlags.STATIC.isSet(it.accessFlags) } } &&
+            row?.superclass == "Landroid/widget/LinearLayout;" &&
+            post != null && listOf("U()Ljava/lang/String;", "e()Ljava/lang/String;", "N0()Ljava/lang/String;", "Y0()I").all { getter ->
+                post.methods.any { "${it.name}(${it.parameterTypes.joinToString("")})${it.returnType}" == getter } },
+            "Sync post restore members")
+
+        // PostMoreBottomSheetFragment.o2 builds the post options sheet: each MaterialRow is bound, then
+        // Share gets its more-button listener and o2 returns. "Restore post" is added there, above Share.
+        val sheetClass = classes.singleOrNull { it.type == POST_SHEET && it.sourceFile == "PostMoreBottomSheetFragment.java" }
+            ?: throw PatchException("Expected Sync PostMoreBottomSheetFragment.java was not found. This patch targets build 23033 only.")
+        val sheet = proxy(sheetClass).mutableClass
+        val built = sheet.methods.singleOrNull {
+            it.name == "o2" && it.parameterTypes == listOf("Landroid/view/View;", "Landroid/os/Bundle;") && it.returnType == "V"
+        } ?: throw PatchException("Unsupported Sync method $POST_SHEET->o2.")
+        val code = built.implementation!!.instructions
+        if (code.any { it.methodRef()?.definingClass == ARCHIVE_RESTORE })
+            throw PatchException("Posts are already restored from Arctic Shift.")
+        val end = code.lastIndex
+        val registers = built.implementation!!.registerCount
+        val self = registers - 3
+        // Sync ends: iget-object row, p0, mShare; new-instance + <init> of the listener; row.f(listener); return-void.
+        val listener = code.getOrNull(end - 1)
+        val share = code.getOrNull(end - 4)
+        layout(code.getOrNull(end)?.opcode == Opcode.RETURN_VOID &&
+            listener?.registers()?.firstOrNull() == share?.registerA() &&
+            code.getOrNull(end - 3)?.opcode == Opcode.NEW_INSTANCE &&
+            code.getOrNull(end - 2)?.methodRef()?.name == "<init>" &&
+            (end - 3 until end).none { n -> code[n].registerA() == share?.registerA() && code[n].opcode != Opcode.INVOKE_VIRTUAL } &&
+            code.count { it.opcode == Opcode.RETURN_VOID } == 1 &&
+            code.none { it is BuilderOffsetInstruction && it.target.location.instruction === code[end] } &&
+            !AccessFlags.STATIC.isSet(built.accessFlags) && registers <= 16 && self >= 6 &&
+            listener?.methodRef()?.toString() == "$MATERIAL_ROW->f(Landroid/view/View\$OnClickListener;)V" &&
+            share?.opcode == Opcode.IGET_OBJECT && share.fieldRef() == "$POST_SHEET->mShare:$MATERIAL_ROW" &&
+            (share as TwoRegisterInstruction).registerB == self &&
+            sheet.fields.any { it.name == "mShare" && it.type == MATERIAL_ROW } &&
+            sheet.fields.any { it.name == "P0" && it.type == SYNC_POST } &&
+            code.any { it.opcode == Opcode.IGET_OBJECT && it.fieldRef() == "$POST_SHEET->P0:$SYNC_POST" },
+            "Sync post options sheet")
+
+        // All layouts verified; edit. v0-v5 are free once o2 has finished.
+        built.addInstructions(end, """
+            move-object/from16 v0, p0
+            iget-object v1, p0, $POST_SHEET->mShare:$MATERIAL_ROW
+            iget-object v5, p0, $POST_SHEET->P0:$SYNC_POST
+            invoke-virtual {v5}, $SYNC_POST->U()Ljava/lang/String;
+            move-result-object v2
+            invoke-virtual {v5}, $SYNC_POST->e()Ljava/lang/String;
+            move-result-object v3
+            invoke-virtual {v5}, $SYNC_POST->N0()Ljava/lang/String;
+            move-result-object v4
+            invoke-virtual {v5}, $SYNC_POST->Y0()I
+            move-result v5
+            invoke-static/range {v0 .. v5}, $ARCHIVE_RESTORE->offerPost(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;I)V
+        """.trimIndent())
+    }
+}
+
 private const val ARCHIVED_PROFILE = "Lapp/revanced/extension/synccompat/ArchivedProfile;"
 private const val POSTS_REQUEST = "Ly8/k0;"
 private const val POSTS_HELPER = "Ld7/d;"

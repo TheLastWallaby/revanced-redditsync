@@ -2,6 +2,27 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "tested_release": "0.7.8-alpha.3 (local build, not published)",
+      "build": "Local build on 2026-11-22: main with PR #122 (Sync: start chats without a subject) and PR #123 (Sync: restore posts from Arctic Shift, commit 39da01f, which also restores the title) merged and a local VERSION commit on an unpushed branch, built with build.py and build_apk.py --no-publish and signed with the local key, installed over 0.7.8-alpha.2. All 36 selected patches reported success, including both new patches, and verification.json passed.",
+      "overall": "passed: the owner replied \"Looks good\" to the alpha.3 handoff, which asked to check that Restore post brings back the original title with the author and text, that the post list shows the restored title and preview, and the not-archived message. No individual results were given.",
+      "unverified": [
+        "individual results for the three numbered checks",
+        "the chat-subject checks still open from 0.7.8-alpha.1"
+      ]
+    },
+    {
+      "tested_release": "0.7.8-alpha.2 (local build, not published)",
+      "build": "Local build on 2026-11-22: main with PR #122 (Sync: start chats without a subject) and PR #123 (Sync: restore posts from Arctic Shift, commit 0be929a) merged and a local VERSION commit on an unpushed branch, built with build.py and build_apk.py --no-publish and signed with the local key, installed over 0.7.8-alpha.1. All 36 selected patches reported success, including both new patches, and verification.json passed.",
+      "overall": "partly passed: the owner replied \"Restoring post works, possible to restore title of post too?\". Restoring a deleted post brought back its text; the title stayed as Reddit shows it for a deleted post, which led to restoring the title as well. No individual results were given for the six numbered checks.",
+      "unverified": [
+        "the row's position and look, and that it is absent for ordinary posts",
+        "the post-list preview after a restore",
+        "the not-archived message for a post Arctic Shift lacks",
+        "Restore comment with this build",
+        "the chat-subject checks still open from 0.7.8-alpha.1"
+      ]
+    },
+    {
       "tested_release": "0.7.8-alpha.1 (local build, not published)",
       "build": "Local build on 2026-11-22: PR #122 (Sync: start chats without a subject, with the zero-width subject) and a local VERSION commit on an unpushed branch, built with build.py and build_apk.py --no-publish and signed with the local key. All 35 selected patches reported success, including Sync: start chats without a subject, and verification.json passed.",
       "overall": "passed with a display caveat: the owner replied \"Works, but looks odd. Username is included, instead of just message like a normal chat\". A new message started from a user's profile was sent; Reddit Chat shows it as \"user: message\" (Reddit's formatting of api/compose messages), not as a plain chat message. No individual results were given.",
