@@ -23,6 +23,17 @@
       ]
     },
     {
+      "tested_release": "0.7.8-alpha.1 (local build, not published)",
+      "build": "Local build on 2026-11-22: PR #122 (Sync: start chats without a subject, with the zero-width subject) and a local VERSION commit on an unpushed branch, built with build.py and build_apk.py --no-publish and signed with the local key. All 35 selected patches reported success, including Sync: start chats without a subject, and verification.json passed.",
+      "overall": "passed with a display caveat: the owner replied \"Works, but looks odd. Username is included, instead of just message like a normal chat\". A new message started from a user's profile was sent; Reddit Chat shows it as \"user: message\" (Reddit's formatting of api/compose messages), not as a plain chat message. No individual results were given.",
+      "earlier_finding": "Before this build, with stock Sync and a typed subject, the owner reported that Reddit Chat shows the api/compose subject as its own line above \"user: message\" (subject Hi, message Hi); this led to the zero-width subject.",
+      "unverified": [
+        "whether the zero-width subject leaves an empty line above the message",
+        "replies to an existing chat from Sync's inbox with this build",
+        "the Subject field reappearing for r/ recipients"
+      ]
+    },
+    {
       "stable": "v0.7.7",
       "tested_release": "0.7.7-alpha.2 (local build, not published)",
       "build": "Local build on 2026-11-22: main with PR #119 plus this PR (#120, shortened archived-profile messages) and a local VERSION commit, built with build.py and build_apk.py --no-publish and signed with the new key, installed over alpha.1. All 34 selected patches reported success and verification.json passed.",

@@ -2020,6 +2020,46 @@ New in [v0.7.7](#v077-hidden-profile-history-suggested-comment-sort-and-faster-l
   orders. Not checked on a phone or against Reddit's live API (the public API
   refused anonymous requests from the test machine).
 
+- **Sync: start chats without a subject** (new, not in a release yet), on by
+  default. Reddit now delivers a new message as a Reddit Chat message (Reddit
+  Help changelog, 7 August 2025), and Sync's inbox shows chats, but Sync's
+  **Message** editor still asked for a **Subject** like an old private message
+  and refused to send without one ("Enter a subject"). Sync sends new messages
+  with Reddit's `api/compose`, which still requires a subject, and Reddit's
+  chat shows that subject as its own line above `user: message` (checked on a
+  phone).
+
+  | New message to | Subject field | Subject sent |
+  |---|---|---|
+  | A user, Subject empty | Hidden | One zero-width space (U+200B): not blank to Reddit's check, which rejects only whitespace, and invisible in the chat |
+  | A user, Subject already filled in (for example from a `message/compose?subject=` link) | Shown | As entered |
+  | A subreddit's moderators (`r/name` or `/r/name`) | Shown and required, as in Sync | As entered |
+
+  The field reappears as soon as you type `r/` as the recipient. Replies to
+  messages, the inbox and the chat handoff are unchanged.
+
+  **How.** Two hooks in Sync's editor (`EditFragment`): in its send method
+  (`f4`), one call between Sync's read of the subject and its empty-subject
+  check supplies the subject (`ChatCompose.subject`); in its new-message setup
+  (`b4`), one call right after Sync shows the Subject field hands the recipient
+  and Subject fields to `ChatCompose.bind`, which hides the Subject field and
+  follows changes to the recipient. The patch checks both layouts (registers
+  for the recipient, subject and message, the `OAuthMessageRequest` arguments
+  and the Subject field's `setVisibility`) before editing either.
+
+  `ChatComposeTest` checks the subject rule (the chat subject for any message
+  to a user, that it is one non-whitespace, zero-width character, subreddit
+  recipients, entered and blank subjects, when the field is shown).
+  `ChatComposePatchTest` runs Sync's send and setup methods before and after
+  the patch: on hand-written models in CI, and on Sync's real methods with the
+  stock APK locally. `PatchInteractionTest` applies all 35 patches to the stock
+  APK in both name orders. On a phone (0.7.8-alpha.1) a message started from a
+  user's profile was sent with the zero-width subject. **Limit:** Reddit Chat
+  still shows such a message as `user: message`, not as a plain chat message;
+  that is how Reddit formats messages from `api/compose`, and Reddit's
+  documented API has no Chat endpoint. Not yet checked on a phone: the Subject
+  field for `r/` recipients and whether an empty line shows above the message.
+
 - **Sync: restore posts from Arctic Shift** (new, not in a release yet), on by
   default. **Restore comment** worked on comments but posts had nothing: Sync
   23033 never had a restore action for posts. Its post options sheet

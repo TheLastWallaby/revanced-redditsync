@@ -3163,6 +3163,102 @@ val handOffSyncRetiredMessaging = bytecodePatch(
     }
 }
 
+private const val CHAT_COMPOSE = "Lapp/revanced/extension/synccompat/ChatCompose;"
+private const val EDIT_TEXT_FIELD = "Lcom/laurencedawson/reddit_sync/ui/views/responsive/CustomEditText;"
+
+val startSyncChatsWithoutSubject = bytecodePatch(
+    name = "Sync: start chats without a subject",
+    description = "Reddit delivers new messages as Reddit Chat messages. Sync's new-message editor no longer shows " +
+        "or requires a Subject when messaging a user; the subject Reddit's API still needs is an invisible " +
+        "character, so the chat shows only the message. Messages to a subreddit's moderators (r/name) keep the Subject field.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(extensionPatch)
+    apply {
+        val editor = proxy(classes.singleOrNull { it.type == EDIT_FRAGMENT && it.sourceFile == "EditFragment.java" }
+            ?: throw PatchException("Expected Sync EditFragment.java was not found. This patch targets build 23033 only.")).mutableClass
+        fun method(name: String, parameters: List<String>) = editor.methods.singleOrNull {
+            it.name == name && it.returnType == "V" && it.parameterTypes.map { p -> p.toString() } == parameters
+        } ?: throw PatchException("Unsupported Sync method EditFragment->$name. This patch targets build 23033 only.")
+        fun Instruction.fieldName(): String? = (((this as? ReferenceInstruction)?.reference as? FieldReference)
+            ?.takeIf { it.definingClass == EDIT_FRAGMENT && it.type == EDIT_TEXT_FIELD })?.name
+        fun MutableMethod.targeted(index: Int): Boolean {
+            val target = implementation!!.instructions[index]
+            return implementation!!.instructions.any { it is BuilderOffsetInstruction && it.target.location.instruction === target } ||
+                implementation!!.tryBlocks.any { block -> block.exceptionHandlers.any { it.handler.location.instruction === target } }
+        }
+        fun writes(i: Instruction, register: Int) = i.opcode.setsRegister() && i.registerA()?.let {
+            it == register || (i.opcode.setsWideRegister() && it + 1 == register)
+        } == true
+        layout(editor.fields.any { it.name == "mUsernameInput" && it.type == EDIT_TEXT_FIELD } &&
+            editor.fields.any { it.name == "mSubjectInput" && it.type == EDIT_TEXT_FIELD }, "Sync message editor fields")
+
+        // Send (f4): reads the message (EditorView.e), the recipient and the subject, refuses an empty
+        // subject ("Enter a subject"), then builds OAuthMessageRequest (y8.z) with to, subject and text.
+        val send = method("f4", listOf("Ljava/lang/String;", "Ljava/lang/String;"))
+        val sendCode = send.implementation!!.instructions
+        if (sendCode.any { it.methodRef()?.definingClass == CHAT_COMPOSE }) throw PatchException("Chat compose is already installed.")
+        fun fieldText(field: String) = sendCode.singleIndex("$field text read") { i ->
+            sendCode[i].opcode == Opcode.IGET_OBJECT && sendCode[i].fieldName() == field &&
+                sendCode.getOrNull(i + 1)?.methodRef()?.toString() == "Landroid/widget/EditText;->getText()Landroid/text/Editable;" &&
+                sendCode.getOrNull(i + 2)?.opcode == Opcode.MOVE_RESULT_OBJECT &&
+                sendCode.getOrNull(i + 3)?.methodRef()?.toString() == "Ljava/lang/Object;->toString()Ljava/lang/String;" &&
+                sendCode.getOrNull(i + 4)?.opcode == Opcode.MOVE_RESULT_OBJECT
+        } + 4
+        val message = sendCode.singleIndex("message text read") {
+            sendCode[it].methodRef()?.toString() == "Lcom/laurencedawson/reddit_sync/ui/views/editor/EditorView;->e()Ljava/lang/String;"
+        } + 1
+        val recipient = fieldText("mUsernameInput")
+        val subject = fieldText("mSubjectInput")
+        val text = sendCode[message].registerA() ?: -1
+        val to = sendCode[recipient].registerA()!!
+        val subjectRegister = sendCode[subject].registerA()!!
+        val request = sendCode.singleIndex("message request") {
+            sendCode[it].methodRef()?.let { m -> m.definingClass == "Ly8/z;" && m.name == "<init>" } == true
+        }
+        val requestCall = sendCode[request] as? com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction
+        layout(sendCode[message].opcode == Opcode.MOVE_RESULT_OBJECT && message < recipient && recipient < subject &&
+            setOf(text, to, subjectRegister).size == 3 && listOf(text, to, subjectRegister).all { it in 0..15 } &&
+            (message + 1..subject).none { writes(sendCode[it], text) } && (recipient + 1..subject).none { writes(sendCode[it], to) } &&
+            sendCode.getOrNull(subject + 1)?.let {
+                it.methodRef()?.toString() == "Landroid/text/TextUtils;->isEmpty(Ljava/lang/CharSequence;)Z" &&
+                    (it as FiveRegisterInstruction).registerC == subjectRegister
+            } == true && !send.targeted(subject + 1) &&
+            requestCall != null && request > subject && requestCall.registerCount == 9 &&
+            requestCall.startRegister + 2 == to && requestCall.startRegister + 3 == subjectRegister &&
+            sendCode.any { it.stringValue() == "Enter a subject" } && sendCode.any { it.stringValue() == "Sending message" },
+            "Sync message editor send")
+
+        // New-message fields (b4, mode 2 without a parent message): shows the recipient and Subject
+        // fields with setVisibility(0), then fills a known recipient and focuses the message.
+        val fields = method("b4", emptyList())
+        val fieldsCode = fields.implementation!!.instructions
+        val shown = fieldsCode.singleIndex("Subject field shown") { i ->
+            i >= 1 && fieldsCode[i - 1].opcode == Opcode.IGET_OBJECT && fieldsCode[i - 1].fieldName() == "mSubjectInput" &&
+                fieldsCode[i].methodRef()?.toString() == "Landroid/widget/EditText;->setVisibility(I)V"
+        }
+        val show = fieldsCode[shown] as FiveRegisterInstruction
+        val zero = (shown - 1 downTo 0).firstOrNull { fieldsCode[it].opcode == Opcode.CONST_4 } ?: -1
+        layout(fields.implementation!!.registerCount <= 16 && show.registerCount == 2 && show.registerC == fieldsCode[shown - 1].registerA() &&
+            zero >= 0 && fieldsCode[zero].registerA() == show.registerD &&
+            (fieldsCode[zero] as NarrowLiteralInstruction).narrowLiteral == 0 &&
+            (zero + 1 until shown).none { writes(fieldsCode[it], show.registerD) } &&
+            fieldsCode.any { it.opcode == Opcode.IGET_OBJECT && it.fieldName() == "mUsernameInput" } &&
+            show.registerC != show.registerD && !fields.targeted(shown + 1), "Sync new-message fields")
+
+        // All layouts verified; edit.
+        send.addInstructions(subject + 1, """
+            invoke-static {v$to, v$subjectRegister, v$text}, $CHAT_COMPOSE->subject(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+            move-result-object v$subjectRegister
+        """.trimIndent())
+        fields.addInstructions(shown + 1, """
+            iget-object v${show.registerD}, p0, $EDIT_FRAGMENT->mUsernameInput:$EDIT_TEXT_FIELD
+            invoke-static {v${show.registerD}, v${show.registerC}}, $CHAT_COMPOSE->bind(Ljava/lang/Object;Ljava/lang/Object;)V
+            const/4 v${show.registerD}, 0x0
+        """.trimIndent())
+    }
+}
+
 private const val CUSTOM_URL_SPAN = "Lmb/d;"
 private const val AMAZON_REPORT = "Le7/e;"
 private const val AMAZON_REPORT_URL = "https://us-central1-ad-server-f1010.cloudfunctions.net/add"
