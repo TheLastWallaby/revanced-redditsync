@@ -26,7 +26,7 @@ import org.json.JSONObject;
  * answers, redirects and other statuses; comment ID validation; the exact request sent (no
  * Authorization or Cookie header); the adapted JSON handed to Sync's parser; and the messages shown.
  * Posts: which posts are offered "Restore post", post ID validation, the archived author and
- * selftext kept, Sync's list preview, the columns stored, the same HTTP outcomes and the tap.
+ * title and selftext kept, Sync's list preview, the columns stored, the same HTTP outcomes and the tap.
  */
 public final class ArcticShiftRestoreTest {
     private static int checks;
@@ -96,6 +96,7 @@ public final class ArcticShiftRestoreTest {
             for (String paragraph : raw.split("\n\n")) html.append(html.length() == 0 ? "" : "\n").append("<p>").append(paragraph).append("</p>");
             return html.toString();
         }
+        @Override public String title(String text) { return unescape(text) + "\r"; }
         @Override public String htmlText(String html) {
             return html.replaceAll("<[^>]+>", "").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&");
         }
@@ -405,7 +406,7 @@ public final class ArcticShiftRestoreTest {
         for (String bad : new String[] {null, "", "t3_", "t1_1abcdef", "1ABCDEF", "1abc def", "1abcdef&fields=all", "../1abcdef",
                 "1abcdef,abc", "zzzzzzzzzzzzzz", "T3_1abcdef", "1abcdef\n"})
             equal(null, ArcticShiftRestore.postId(bad), "rejected post ID " + bad);
-        equal("https://arctic-shift.photon-reddit.com/api/posts/ids?ids=1abcdef&fields=id,author,selftext,spoiler,link_flair_text",
+        equal("https://arctic-shift.photon-reddit.com/api/posts/ids?ids=1abcdef&fields=id,author,title,selftext,spoiler,link_flair_text",
                 ArcticShiftRestore.postUrl("1abcdef"), "the only post URL requested");
     }
 
@@ -425,6 +426,7 @@ public final class ArcticShiftRestoreTest {
                 + "{\"author\":\"someone\",\"id\":\"1abcdef\",\"selftext\":\"the text &amp; more\",\"spoiler\":false,\"extra\":1}]}");
         equal("someone", post.author, "archived author");
         equal("the text &amp; more", post.selftext, "archived selftext, as the archive escapes it");
+        equal(null, post.title, "no title field: no title");
         check(!post.spoiler, "not a spoiler");
 
         post = ArcticShiftRestore.adaptPost("1abcdef", "{\"data\":[{\"author\":\"someone\",\"id\":\"1abcdef\",\"selftext\":\"\"}]}");
@@ -443,6 +445,21 @@ public final class ArcticShiftRestoreTest {
         post = ArcticShiftRestore.adaptPost("1abcdef", "{\"data\":[{\"author\":\"someone\",\"id\":\"1abcdef\",\"selftext\":\"[ Removed by Reddit ]\"}]}");
         equal(null, post.selftext, "Reddit's notice is not stored");
 
+        // Titles: Reddit writes over a deleted post's title; the archive saved the original.
+        post = ArcticShiftRestore.adaptPost("1abcdef",
+                "{\"data\":[{\"author\":\"someone\",\"id\":\"1abcdef\",\"selftext\":\"t\",\"title\":\"What [deleted] means &amp; more\"}]}");
+        equal("What [deleted] means &amp; more", post.title, "archived title, as the archive escapes it");
+        for (String replaced : new String[] {"[deleted by user]", " [Deleted by user] ", "[deleted]", "[removed]", "[ Removed by moderator ]",
+                "[ Removed by Reddit ]", "", "  "}) {
+            post = ArcticShiftRestore.adaptPost("1abcdef", "{\"data\":[{\"author\":\"someone\",\"id\":\"1abcdef\",\"title\":"
+                    + JSONObject.quote(replaced) + "}]}");
+            equal(null, post.title, "a replaced or empty title is not stored: '" + replaced + "'");
+        }
+        post = ArcticShiftRestore.adaptPost("1abcdef", "{\"data\":[{\"author\":\"[deleted]\",\"id\":\"1abcdef\",\"title\":\"Only the title\",\"selftext\":\"\"}]}");
+        equal("Only the title", post.title, "a title alone is worth restoring");
+        equal("", post.selftext, "beside it, empty text replaces [deleted]");
+        equal(null, post.author, "the author stays out");
+
         check(ArcticShiftRestore.adaptPost("1abcdef", "{\"data\":[{\"author\":\"a\",\"id\":\"1abcdef\",\"selftext\":\"t\",\"spoiler\":true}]}").spoiler,
                 "spoiler flag");
         check(ArcticShiftRestore.adaptPost("1abcdef",
@@ -458,6 +475,7 @@ public final class ArcticShiftRestoreTest {
             "{\"data\":[{\"author\":\"a\",\"selftext\":\"t\"}]}",
             "{\"data\":[{\"author\":\"[deleted]\",\"id\":\"1abcdef\",\"selftext\":\"[deleted]\"}]}",
             "{\"data\":[{\"author\":\"[deleted]\",\"id\":\"1abcdef\",\"selftext\":\"\"}]}",
+            "{\"data\":[{\"author\":\"[deleted]\",\"id\":\"1abcdef\",\"selftext\":\"[deleted]\",\"title\":\"[deleted by user]\"}]}",
             "{\"data\":[{\"author\":null,\"id\":\"1abcdef\",\"selftext\":null}]}",
             "{\"data\":[{\"author\":7,\"id\":\"1abcdef\",\"selftext\":8}]}",
             "{\"data\":[{\"author\":\" \",\"id\":\"1abcdef\",\"selftext\":\"[removed]\"}]}",
@@ -483,18 +501,19 @@ public final class ArcticShiftRestoreTest {
 
     private static void postValues() {
         ArcticShiftRestore.platform = new FakeSync();
-        Map<String, String> values = ArcticShiftRestore.postValues(new ArcticShiftRestore.ArchivedPost("someone", "a &amp; b\n\nmore", false));
-        equal(List.of("author", "selftext_raw", "selftext_processed", "selftext_processed_preview"), new ArrayList<>(values.keySet()),
+        Map<String, String> values = ArcticShiftRestore.postValues(new ArcticShiftRestore.ArchivedPost("someone", "T &amp; t", "a &amp; b\n\nmore", false));
+        equal(List.of("author", "title", "selftext_raw", "selftext_processed", "selftext_processed_preview"), new ArrayList<>(values.keySet()),
                 "the columns Sync's post parser fills");
         equal("someone", values.get("author"), "author");
+        equal("T & t\r", values.get("title"), "title through Sync's title cleanup");
         equal("a & b\n\nmore", values.get("selftext_raw"), "raw text unescaped by Sync");
         equal("<p>a & b</p>\n<p>more</p>", values.get("selftext_processed"), "processed by Sync");
         equal("a & b\n…", values.get("selftext_processed_preview"), "list preview");
-        values = ArcticShiftRestore.postValues(new ArcticShiftRestore.ArchivedPost("someone", null, false));
+        values = ArcticShiftRestore.postValues(new ArcticShiftRestore.ArchivedPost("someone", null, null, false));
         equal(Map.of("author", "someone"), values, "author only");
-        values = ArcticShiftRestore.postValues(new ArcticShiftRestore.ArchivedPost(null, "text", false));
+        values = ArcticShiftRestore.postValues(new ArcticShiftRestore.ArchivedPost(null, null, "text", false));
         check(!values.containsKey("author") && "text".equals(values.get("selftext_raw")), "text only: " + values);
-        values = ArcticShiftRestore.postValues(new ArcticShiftRestore.ArchivedPost("someone", "", false));
+        values = ArcticShiftRestore.postValues(new ArcticShiftRestore.ArchivedPost("someone", null, "", false));
         equal("", values.get("selftext_raw"), "empty text replaces [deleted]");
         check(values.containsKey("selftext_processed_preview") && values.get("selftext_processed_preview") == null, "and clears the preview");
     }
@@ -503,17 +522,17 @@ public final class ArcticShiftRestoreTest {
         FakeSync sync = new FakeSync();
         ArcticShiftRestore.platform = sync;
         SEEN.clear();
-        answer = json(200, "{\"data\":[{\"author\":\"a\",\"id\":\"1abcdef\",\"selftext\":\"t\"}]}");
+        answer = json(200, "{\"data\":[{\"author\":\"a\",\"id\":\"1abcdef\",\"selftext\":\"t\",\"title\":\"T\"}]}");
         equal(ArcticShiftRestore.Outcome.RESTORED, ArcticShiftRestore.runPost("1abcdef", "1abcdef"), "post found");
         equal(1, SEEN.size(), "one request");
         Seen seen = SEEN.get(0);
         equal("GET", seen.method, "method");
         equal("/api/posts/ids", seen.path, "path");
-        equal("ids=1abcdef&fields=id,author,selftext,spoiler,link_flair_text", seen.query, "only the post ID and the fields used");
+        equal("ids=1abcdef&fields=id,author,title,selftext,spoiler,link_flair_text", seen.query, "only the post ID and the fields used");
         for (String name : seen.headers.keySet())
             check(List.of("accept", "user-agent", "host", "connection", "cache-control", "pragma", "accept-encoding").contains(name),
                     "no Authorization, Cookie or other header: " + name);
-        equal(List.of("1abcdef {author=a, selftext_raw=t, selftext_processed=<p>t</p>, selftext_processed_preview=t}"), sync.stored,
+        equal(List.of("1abcdef {author=a, title=T\r, selftext_raw=t, selftext_processed=<p>t</p>, selftext_processed_preview=t}"), sync.stored,
                 "stored in the post's own row");
     }
 

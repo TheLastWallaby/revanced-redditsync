@@ -2279,12 +2279,13 @@ private val POST_RESTORE_MEMBERS = mapOf(
     "Lcom/google/android/material/bottomsheet/BottomSheetDialogFragment;" to listOf("x3()V"),
     "Ld7/f;" to listOf("r(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;"),
     "Lwc/p;" to listOf("a(Ljava/lang/String;)Ljava/lang/String;"),
+    "Lc9/f;" to listOf("a(Ljava/lang/String;)Ljava/lang/String;"),
 )
 
 val restoreSyncPostsFromArcticShift = bytecodePatch(
     name = "Sync: restore posts from Arctic Shift",
     description = "Add \"Restore post\" to Sync's post options for every post whose author or text is [deleted] or [removed], " +
-        "or whose text is \"[ Removed by Reddit ]\", and fill in the author and text from the Arctic Shift archive, " +
+        "or whose text is \"[ Removed by Reddit ]\", and fill in the author, title and text from the Arctic Shift archive, " +
         "as Restore comment does for comments; show \"$POST_NOT_ARCHIVED\" when the archive has no copy. " +
         "Only the post ID is sent, over HTTPS, without Reddit authorization or cookies; the restored text comes from that " +
         "third-party archive.",

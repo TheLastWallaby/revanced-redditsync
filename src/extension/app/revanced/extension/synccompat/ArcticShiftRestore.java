@@ -45,10 +45,12 @@ import org.json.JSONObject;
  *
  * <p>Posts: Sync's post options sheet ({@code PostMoreBottomSheetFragment}) gets a "Restore post" row
  * for a post whose author or text is {@code [deleted]} or {@code [removed]}, or whose text is Reddit's
- * removal notice ({@link #offerPost}). Arctic Shift's {@code /api/posts/ids} supplies the author and
- * selftext, stored in the post's own row the way Sync's "Translate text" stores a translated post:
- * {@code selftext_raw} and {@code selftext_processed} through Sync's own text processing, plus the
- * list preview Sync's post parser derives from them ({@link #preview}) and the author.
+ * removal notice ({@link #offerPost}). Arctic Shift's {@code /api/posts/ids} supplies the author,
+ * title and selftext, stored in the post's own row the way Sync's "Translate text" stores a translated
+ * post: {@code selftext_raw} and {@code selftext_processed} through Sync's own text processing, plus
+ * the list preview Sync's post parser derives from them ({@link #preview}), the author, and the title
+ * through Sync's own title cleanup (Reddit replaces a deleted post's title, for example with
+ * {@code [deleted by user]}).
  *
  * <p>Only the validated base-36 comment or post ID is sent, over HTTPS to one fixed host, by a client
  * of its own: no Sync interceptors, cookies, Reddit authorization or redirects. Time and size are
@@ -81,6 +83,9 @@ public final class ArcticShiftRestore {
     /** "[ Removed by Reddit ]", and longer forms such as "[ Removed by Reddit in response to a copyright notice. ]". */
     private static final Pattern REMOVED_BY_REDDIT = Pattern.compile("\\[\\s*removed by reddit(?:\\s[^\\]]*)?\\]",
             Pattern.CASE_INSENSITIVE);
+    /** A title Reddit wrote over a deleted or removed post: "[deleted by user]", "[removed]", "[ Removed by moderator ]". */
+    private static final Pattern REPLACED_TITLE = Pattern.compile("\\[\\s*(?:deleted|removed)(?:\\s[^\\]]*)?\\]",
+            Pattern.CASE_INSENSITIVE);
 
     /** What happened to one restore; the message, if any, is what the user sees for a comment or a post. */
     enum Outcome {
@@ -92,12 +97,13 @@ public final class ArcticShiftRestore {
         Outcome(String message, String postMessage) { this.message = message; this.postMessage = postMessage; }
     }
 
-    /** A post's archived copy: the author and selftext worth storing (null when not), and Sync's spoiler test. */
+    /** A post's archived copy: the author, title and selftext worth storing (null when not), and Sync's spoiler test. */
     static final class ArchivedPost {
-        final String author, selftext;
+        final String author, title, selftext;
         final boolean spoiler;
-        ArchivedPost(String author, String selftext, boolean spoiler) {
+        ArchivedPost(String author, String title, String selftext, boolean spoiler) {
             this.author = author;
+            this.title = title;
             this.selftext = selftext;
             this.spoiler = spoiler;
         }
@@ -118,6 +124,8 @@ public final class ArcticShiftRestore {
         String unescape(String text);
         /** Sync's processing of raw text for display (d7.f.r). */
         String process(String raw);
+        /** Sync's cleanup of a post title before storing it (TitleParserHelper, c9.f.a). */
+        String title(String text);
         /** The plain text of HTML, as Sync's post parser reads it (Html.fromHtml without spans). */
         String htmlText(String html);
         /** Stores these columns in the row with Sync's ID and refreshes Sync's lists. */
@@ -226,7 +234,7 @@ public final class ArcticShiftRestore {
 
     /** The only URL this helper requests for a post. */
     static String postUrl(String id) {
-        return "https://" + HOST + POST_PATH + "?ids=" + id + "&fields=id,author,selftext,spoiler,link_flair_text";
+        return "https://" + HOST + POST_PATH + "?ids=" + id + "&fields=id,author,title,selftext,spoiler,link_flair_text";
     }
 
     static Outcome run(Object request, String id, String syncId) {
@@ -338,10 +346,11 @@ public final class ArcticShiftRestore {
     }
 
     /**
-     * The archived post's author and selftext worth storing, or null when the answer is malformed or
-     * has neither. An author that is itself {@code [deleted]} or {@code [removed]} is left out, as is
-     * selftext that is one of those or Reddit's notice. Empty selftext is kept only beside an archived
-     * author: the post had no text, which replaces Reddit's {@code [deleted]}.
+     * The archived post's author, title and selftext worth storing, or null when the answer is
+     * malformed or has none of them. An author that is itself {@code [deleted]} or {@code [removed]} is
+     * left out, as is a title Reddit replaced ({@code [deleted by user]} and the like) and selftext that
+     * is a marker or Reddit's notice. Empty selftext is kept only beside an archived author or title:
+     * the post had no text, which replaces Reddit's {@code [deleted]}.
      */
     static ArchivedPost adaptPost(String id, String text) {
         try {
@@ -350,18 +359,21 @@ public final class ArcticShiftRestore {
             for (int n = 0; n < data.length(); n++) {
                 JSONObject item = data.optJSONObject(n);
                 if (item == null || !id.equals(item.opt("id"))) continue;
-                Object author = item.opt("author"), selftext = item.opt("selftext");
+                Object author = item.opt("author"), title = item.opt("title"), selftext = item.opt("selftext");
                 String name = author instanceof String && !((String) author).trim().isEmpty() && !marker((String) author)
                         ? (String) author : null;
+                String heading = title instanceof String && !((String) title).trim().isEmpty()
+                        && !REPLACED_TITLE.matcher(((String) title).trim()).matches() && !removedByReddit((String) title)
+                        ? (String) title : null;
                 String body = selftext instanceof String && !marker((String) selftext) && !removedByReddit((String) selftext)
                         ? (String) selftext : null;
-                if (body != null && body.trim().isEmpty()) body = name == null ? null : "";
-                if (name == null && body == null) continue;
+                if (body != null && body.trim().isEmpty()) body = name == null && heading == null ? null : "";
+                if (name == null && heading == null && body == null) continue;
                 // As Sync's post parser decides: the spoiler flag, or a flair that mentions spoilers.
                 Object flair = item.opt("link_flair_text");
                 boolean spoiler = Boolean.TRUE.equals(item.opt("spoiler"))
                         || flair instanceof String && ((String) flair).toLowerCase(Locale.ROOT).contains("spoiler");
-                return new ArchivedPost(name, body, spoiler);
+                return new ArchivedPost(name, heading, body, spoiler);
             }
             return null;
         } catch (JSONException malformed) {
@@ -371,12 +383,13 @@ public final class ArcticShiftRestore {
 
     /**
      * The columns stored for an archived post, filled as Sync's post parser fills them: the author,
-     * {@code selftext_raw} unescaped, {@code selftext_processed} from Sync's processing and
-     * {@code selftext_processed_preview} for the post list.
+     * the title through Sync's title cleanup, {@code selftext_raw} unescaped, {@code selftext_processed}
+     * from Sync's processing and {@code selftext_processed_preview} for the post list.
      */
     static Map<String, String> postValues(ArchivedPost post) {
         Map<String, String> values = new LinkedHashMap<>();
         if (post.author != null) values.put("author", post.author);
+        if (post.title != null) values.put("title", platform.title(post.title));
         if (post.selftext != null) {
             String raw = platform.unescape(post.selftext);
             String processed = platform.process(raw);
@@ -482,6 +495,10 @@ public final class ArcticShiftRestore {
 
         @Override public String process(String raw) {
             return d7.f.r(null, raw);
+        }
+
+        @Override public String title(String text) {
+            return c9.f.a(text);
         }
 
         @Override public String htmlText(String html) {

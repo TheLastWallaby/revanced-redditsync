@@ -33,7 +33,7 @@ import okhttp3.OkHttpClient;
  * "Restore post" row is added above Share for a post whose author or text is [deleted] or [removed],
  * or whose text is Reddit's "[ Removed by Reddit ]" notice, never for an ordinary post or a comment.
  * Tapping it dismisses the sheet, sends only the post ID to a loopback Arctic Shift archive (no
- * Authorization or Cookie header), and stores the archived author and selftext in the post's own row,
+ * Authorization or Cookie header), and stores the archived author, title and selftext in the post's own row,
  * with Sync's processing and list preview; a post the archive lacks shows the message. Android and
  * app services are stand-ins that record what Sync and the helper asked for.
  */
@@ -43,7 +43,7 @@ public final class ArcticShiftPostRestorePatchTest {
     private static final String ROW = "Lcom/laurencedawson/reddit_sync/ui/views/core/MaterialRow;";
     private static final String MESSAGE = "This post isn't in the Arctic Shift archive.";
     private static final String NOTICE = "[ Removed by Reddit ]";
-    private static final String FIELDS = "&fields=id,author,selftext,spoiler,link_flair_text";
+    private static final String FIELDS = "&fields=id,author,title,selftext,spoiler,link_flair_text";
     /** App state the real sheet reads while binding rows; defaults stand in for it. */
     private static final List<String> DEFAULTED = List.of("Lbutterknife/ButterKnife;", "Landroidx/fragment/app/Fragment;",
             "Lcom/laurencedawson/reddit_sync/singleton/SettingsSingleton;", "Lcom/laurencedawson/reddit_sync/singleton/a;",
@@ -70,12 +70,12 @@ public final class ArcticShiftPostRestorePatchTest {
             Collections.sort(headers);
             ARCHIVE.add(exchange.getRequestURI().getRawPath() + "?" + query + " " + headers);
             String body = query != null && query.startsWith("ids=1abcdef&")
-                    ? "{\"data\":[{\"author\":\"someone\",\"id\":\"1abcdef\",\"link_flair_text\":null,"
+                    ? "{\"data\":[{\"author\":\"someone\",\"id\":\"1abcdef\",\"link_flair_text\":null,\"title\":\"Original &amp; title\","
                         + "\"selftext\":\"The archived &amp; original text\\n\\nSecond paragraph\",\"spoiler\":false}]}"
                     : query != null && query.startsWith("ids=1link&")
-                    ? "{\"data\":[{\"author\":\"poster\",\"id\":\"1link\",\"selftext\":\"\",\"spoiler\":false}]}"
+                    ? "{\"data\":[{\"author\":\"poster\",\"id\":\"1link\",\"selftext\":\"\",\"spoiler\":false,\"title\":\"A link\"}]}"
                     : query != null && query.startsWith("ids=1gone&")
-                    ? "{\"data\":[{\"author\":\"[deleted]\",\"id\":\"1gone\",\"selftext\":\"[deleted]\",\"spoiler\":false}]}"
+                    ? "{\"data\":[{\"author\":\"[deleted]\",\"id\":\"1gone\",\"selftext\":\"[deleted]\",\"spoiler\":false,\"title\":\"[deleted by user]\"}]}"
                     : "{\"data\":[]}";
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, bytes.length);
@@ -176,6 +176,7 @@ public final class ArcticShiftPostRestorePatchTest {
         String update = patched.updates.get(0);
         check(update.startsWith("1abcdef "), "the post's own row: " + update);
         check(update.contains("author=someone"), "author stored: " + update);
+        check(update.contains("title=Original & title\r"), "title stored through Sync's title cleanup: " + update);
         check(update.contains("selftext_raw=The archived & original text\n\nSecond paragraph"), "text unescaped by Sync: " + update);
         check(update.contains("selftext_processed=<p>The archived & original text</p>\n<p>Second paragraph</p>"),
                 "text processed by Sync: " + update);
@@ -186,6 +187,7 @@ public final class ArcticShiftPostRestorePatchTest {
         events = patched.restore("1link", "[deleted]", "");
         equal(1, patched.updates.size(), "link post stored once: " + patched.updates);
         check(patched.updates.get(0).contains("author=poster"), "link post author: " + patched.updates.get(0));
+        check(patched.updates.get(0).contains("title=A link\r"), "link post title: " + patched.updates.get(0));
         check(patched.updates.get(0).contains("selftext_raw= "), "empty text kept empty: " + patched.updates.get(0));
 
         // Not archived, or archived only after it was deleted: the message, nothing stored.
@@ -245,6 +247,7 @@ public final class ArcticShiftPostRestorePatchTest {
                         for (String paragraph : ((String) args[0]).split("\n\n")) html.add("<p>" + paragraph + "</p>");
                         return html.toString();
                     }
+                    case "title": return ((String) args[0]).replace("&amp;", "&") + "\r";
                     case "htmlText": return ((String) args[0]).replaceAll("<[^>]+>", "");
                     case "store": {
                         StringJoiner joiner = new StringJoiner(" ", args[0] + " ", "");

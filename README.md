@@ -2034,7 +2034,7 @@ New in [v0.7.7](#v077-hidden-profile-history-suggested-comment-sort-and-faster-l
   [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) archive for the
   post. **The restored author and text come from Arctic Shift, a third-party
   archive of Reddit, not from Reddit.** What is sent: one HTTPS `GET` to
-  `https://arctic-shift.photon-reddit.com/api/posts/ids?ids=<id>&fields=id,author,selftext,spoiler,link_flair_text`,
+  `https://arctic-shift.photon-reddit.com/api/posts/ids?ids=<id>&fields=id,author,title,selftext,spoiler,link_flair_text`,
   where `<id>` is the post's base-36 ID (1 to 13 characters `0-9a-z`; a `t3_`
   prefix is removed; anything else is never sent), with the same client, headers
   and limits as Restore comment: no Reddit authorization, cookies or tokens, and
@@ -2042,14 +2042,19 @@ New in [v0.7.7](#v077-hidden-profile-history-suggested-comment-sort-and-faster-l
 
   | Archive answer | Result |
   |---|---|
-  | The post, with its author and text | Author and text stored in the post's row, as Sync's own **Translate text** stores a post (`TranslateAsyncAlertDialogBottomSheet`): `selftext_raw` (Sync's unescaping, `WebsafeUtils`), `selftext_processed` (Sync's processing, `d7.f.r`), the post-list preview Sync's post parser derives from it (first paragraph, tables and spoilers hidden), and `author`; Sync's lists and the open thread refresh |
+  | The post, with its author, title and text | Author, title and text stored in the post's row, as Sync's own **Translate text** stores a post (`TranslateAsyncAlertDialogBottomSheet`): `selftext_raw` (Sync's unescaping, `WebsafeUtils`), `selftext_processed` (Sync's processing, `d7.f.r`), the post-list preview Sync's post parser derives from it (first paragraph, tables and spoilers hidden), `author`, and `title` through Sync's own title cleanup (`TitleParserHelper`, `c9.f.a`); Sync's lists and the open thread refresh |
   | A link or image post (no text) | The author is restored; the text stays empty |
   | Saved only after it was deleted (`[deleted]`/`[removed]` or Reddit's notice), empty `data`, HTTP 404, malformed or over 256 KiB | "This post isn't in the Arctic Shift archive." |
   | Other HTTP status, redirect, no connection, too slow | "Couldn't reach the Arctic Shift archive. Try again later." |
 
-  Titles, links and media are not changed (Reddit keeps them for deleted
-  posts). Comments shown in the post sheet never get the row; they keep
-  **Restore comment**.
+  The title comes back too: Reddit replaces a deleted post's title (for
+  example with `[deleted by user]`), and an archived title that is itself such
+  a replacement is not stored. Links and media are not changed. Comments shown
+  in the post sheet never get the row; they keep **Restore comment**.
+
+  Phone check (0.7.8-alpha.2, a local build with PR #122): the owner reported
+  that restoring a post works, and asked for the title as well, which was then
+  added.
 
   **How.** One call at the end of the sheet's `o2`, after Sync has bound every
   row and Share's listener, hands the sheet, its Share row and the post's ID,
@@ -2058,11 +2063,13 @@ New in [v0.7.7](#v077-hidden-profile-history-suggested-comment-sort-and-faster-l
   icon above Share. The patch checks the sheet's layout (its one `return-void`,
   Share's listener just before it, free registers) and that every Sync member the
   helper uses exists and is public (`MaterialRow`, `BottomSheetDialogFragment.x3`,
-  `d7.f.r`, `WebsafeUtils.a`, `RedditProvider.q`/`B`) before editing.
+  `d7.f.r`, `WebsafeUtils.a`, `TitleParserHelper.a`, `RedditProvider.q`/`B`)
+  before editing.
 
   `ArcticShiftRestoreTest` covers which posts are offered the row, post ID
-  validation, the archived author and text kept (empty text, archived as
-  deleted, Reddit's notice, spoiler flag and flair), the list preview, the
+  validation, the archived author, title and text kept (empty text, archived as
+  deleted, replaced titles such as `[deleted by user]`, Reddit's notice, spoiler
+  flag and flair), the list preview, the
   columns stored, the request (path, fields, no Authorization or Cookie header)
   and the outcomes against a loopback archive. `ArcticShiftPostRestorePatchTest`
   builds the sheet before and after the patch (Sync's own rows unchanged; the
