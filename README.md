@@ -59,6 +59,37 @@ maintainers yet; the tested route is ReVanced CLI (see
 
 The rest of this page is version history and technical detail.
 
+## v0.7.8 chats without a subject and restoring deleted posts
+
+The [v0.7.8 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.8)
+builds `main` with two new patches. Apply it to **stock** Sync and check all
+patch results (36 with Use /user/ endpoint).
+
+It wasn't published as a candidate first. The owner tested local builds of the
+same code on a phone (see
+[Local builds without GitHub Actions](docs/AUTOMATION.md#local-builds-without-github-actions)):
+
+- 0.7.8-alpha.1 (chat subject): a new message was sent; Reddit Chat shows it as
+  `user: message`, which is how Reddit formats messages sent this way.
+- 0.7.8-alpha.2 (both patches): restoring a deleted post worked; the owner
+  asked for the title too.
+- 0.7.8-alpha.3, with the title restored: the owner reported "Looks good" and
+  authorized stable publication.
+
+Only overall results were given. See `validation-phone-tests.json`.
+
+It adds two selectable patches, on by default, described under
+[Included patches](#included-patches--cumulative-v078):
+
+- **Sync: restore posts from Arctic Shift**: **Restore comment** worked on
+  comments, but Sync had no restore action for posts. A deleted or removed
+  post's options (⋯ or long-press) now offer **Restore post**, which fills in
+  the author, title and text from the Arctic Shift archive. **They come from
+  that third-party archive, not from Reddit.**
+- **Sync: start chats without a subject**: Sync's new-message editor no longer
+  asks for a Subject when messaging a user (Reddit delivers new messages as
+  chats); messages to a subreddit's moderators keep it.
+
 ## v0.7.7 hidden profile history, suggested comment sort and faster load more (issues #113, #115)
 
 The [v0.7.7 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.7)
@@ -79,7 +110,7 @@ the same code on a phone (0.7.7-alpha.1 and alpha.2, see
 Only overall results were given. See `validation-phone-tests.json`.
 
 It adds two selectable patches, on by default, described under
-[Included patches](#included-patches--cumulative-v077):
+[Included patches](#included-patches--cumulative-v078):
 
 - **Sync: show hidden profile history from Arctic Shift**
   ([issue #115](https://github.com/TheLastWallaby/revanced-redditsync/issues/115)):
@@ -115,7 +146,7 @@ general regressions). The image peek fix was not in a published candidate, and
 the build used to test it was not stated. See `validation-phone-tests.json`.
 
 It adds four selectable patches, on by default, described under
-[Included patches](#included-patches--cumulative-v077):
+[Included patches](#included-patches--cumulative-v078):
 
 - **Sync: don't report Amazon links**
   ([issue #101](https://github.com/TheLastWallaby/revanced-redditsync/issues/101)):
@@ -152,7 +183,7 @@ promotion. Comment replies from the inbox, mark read, a new private message and
 moderator mail were not reported. See `validation-phone-tests.json`.
 
 It adds two selectable patches, on by default, described under
-[Included patches](#included-patches--cumulative-v077):
+[Included patches](#included-patches--cumulative-v078):
 
 - **Sync: show poll options**
   ([issue #9](https://github.com/TheLastWallaby/revanced-redditsync/issues/9)):
@@ -178,7 +209,7 @@ The owner asked for stable promotion of rc.1 without reporting results for its
 seven numbered phone checks, so none are recorded. See `validation-phone-tests.json`.
 
 It adds one selectable patch, on by default, described under
-[Included patches](#included-patches--cumulative-v077):
+[Included patches](#included-patches--cumulative-v078):
 
 - **Sync: open YouTube in the YouTube app**
   ([issue #60](https://github.com/TheLastWallaby/revanced-redditsync/issues/60)):
@@ -209,7 +240,7 @@ is sent with an empty `text` next to `richtext_json`, as Infinity for Reddit doe
 (rc.1 left `text` out).
 
 It adds one selectable patch, described under
-[Included patches](#included-patches--cumulative-v077):
+[Included patches](#included-patches--cumulative-v078):
 
 - **Sync: upload images to Reddit**
   ([issue #53](https://github.com/TheLastWallaby/revanced-redditsync/issues/53)):
@@ -237,7 +268,7 @@ no install can turn it on any more. Since rc.2 the entry is shown for every
 `[deleted]` or `[removed]` comment.
 
 It adds two selectable patches, described under
-[Included patches](#included-patches--cumulative-v077):
+[Included patches](#included-patches--cumulative-v078):
 
 - **Sync: restore comments from Arctic Shift**
   ([issue #52](https://github.com/TheLastWallaby/revanced-redditsync/issues/52)):
@@ -263,7 +294,7 @@ publication; only an overall result was given for the five numbered checks
 regressions). See `validation-phone-tests.json`.
 
 It adds three selectable patches, described under
-[Included patches](#included-patches--cumulative-v077):
+[Included patches](#included-patches--cumulative-v078):
 
 - **Sync: skip retired media hosts**
   ([issue #57](https://github.com/TheLastWallaby/revanced-redditsync/issues/57)):
@@ -309,7 +340,7 @@ code 23033) is patched in one pass:
 | Use /user/ endpoint | off | Uses `/user/` instead of `/u/` for profile requests |
 
 The eighth, an on-by-default API fix for a third-party video host, is listed
-under [Included patches](#included-patches--cumulative-v077).
+under [Included patches](#included-patches--cumulative-v078).
 
 **Spoof client options.** `OAuth client ID` (required), `Redirect URI` (default
 Sync's `http://redditsync/auth`; must match your Reddit app) and `User-Agent`
@@ -404,7 +435,7 @@ does not change; v0.6.14 above addresses it. See
 `validation-phone-tests.json`.
 
 It adds a selectable token-refresh patch, listed under
-[Included patches](#included-patches--cumulative-v077), for
+[Included patches](#included-patches--cumulative-v078), for
 [issue #49](https://github.com/TheLastWallaby/revanced-redditsync/issues/49):
 a third-party video played in the feed preview, but full screen showed a
 connection error.
@@ -1072,11 +1103,12 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Stable v0.7.7 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.7)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.7/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.7/sync-gallery-comments-compat-v0.7.7-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.7/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.7/build-info.json)
+- [Stable v0.7.8 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.8)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.8/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.8/sync-gallery-comments-compat-v0.7.8-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.8/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.8/build-info.json)
+- [Previous stable v0.7.7](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.7)
 - [Archived v0.7.7-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.7-rc.1)
 - [Previous stable v0.7.6](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.6)
 - [Archived v0.7.6-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.6-rc.1)
@@ -1134,7 +1166,7 @@ Releases up to v0.6.14 instead needed two passes: the official ReVanced Sync
 patches first, then this bundle on that output
 ([issue #70](https://github.com/TheLastWallaby/revanced-redditsync/issues/70)).
 
-## Included patches — cumulative v0.7.7
+## Included patches — cumulative v0.7.8
 
 Official ReVanced Sync patches, ported for build 23033 (see
 [v0.7.0](#v070-one-pass-patching-from-stock-sync-issue-70)): **Spoof client**,
@@ -2020,7 +2052,9 @@ New in [v0.7.7](#v077-hidden-profile-history-suggested-comment-sort-and-faster-l
   orders. Not checked on a phone or against Reddit's live API (the public API
   refused anonymous requests from the test machine).
 
-- **Sync: start chats without a subject** (new, not in a release yet), on by
+New in [v0.7.8](#v078-chats-without-a-subject-and-restoring-deleted-posts):
+
+- **Sync: start chats without a subject**, on by
   default. Reddit now delivers a new message as a Reddit Chat message (Reddit
   Help changelog, 7 August 2025), and Sync's inbox shows chats, but Sync's
   **Message** editor still asked for a **Subject** like an old private message
@@ -2060,7 +2094,7 @@ New in [v0.7.7](#v077-hidden-profile-history-suggested-comment-sort-and-faster-l
   documented API has no Chat endpoint. Not yet checked on a phone: the Subject
   field for `r/` recipients and whether an empty line shows above the message.
 
-- **Sync: restore posts from Arctic Shift** (new, not in a release yet), on by
+- **Sync: restore posts from Arctic Shift**, on by
   default. **Restore comment** worked on comments but posts had nothing: Sync
   23033 never had a restore action for posts. Its post options sheet
   (`PostMoreBottomSheetFragment`, opened from a post's ⋯ or by long-pressing it
@@ -2162,7 +2196,7 @@ java -jar revanced-cli-6.0.0-all.jar patch \
   -p output/patches.rvp -b \
   -O "OAuth client ID=your-reddit-client-id" -e "Spoof client" \
   --keystore your-signing-key.keystore \
-  -o Sync-v23.06.30-compat-v0.7.7.apk \
+  -o Sync-v23.06.30-compat-v0.7.8.apk \
   Sync-v23.06.30-stock.apk
 ```
 
@@ -2326,6 +2360,9 @@ Stable v0.7.7 builds `main` after the owner tested local builds of the same
 code on a phone (0.7.7-alpha.1, then alpha.2 with the shortened archive
 messages), reported "Pass" and authorized publication; it had no published
 candidate after v0.7.7-rc.1, and only overall results were given.
+Stable v0.7.8 builds `main` after the owner tested local builds of the same
+code on a phone (0.7.8-alpha.1 to alpha.3), reported "Looks good" and authorized
+publication; it had no published candidate, and only overall results were given.
 These are checks of the supplied cases, not exhaustive Android/live Reddit tests.
 This standalone bundle does not represent a full upstream Gradle build.
 
