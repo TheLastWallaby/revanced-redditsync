@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-22T21:00:33",
-  "description": "## What's Changed\n* Show loaded comments sooner on a load-more tap by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/112\n* Offer Restore comment for comments Reddit removed by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/114\n* Cut Actions artifact storage by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/111\n* Show hidden profile history from Arctic Shift by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/116\n* Use the subreddit's suggested comment sort by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/118\n* Document local builds without GitHub Actions by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/119\n* Shorten the archived profile messages to fit a toast by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/120\n* Prepare stable v0.7.7 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/121\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.7.6...v0.7.7",
-  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.7/patches.rvp",
+  "created_at": "2026-11-23T03:31:47",
+  "description": "## What's Changed\n* Start chats without a subject by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/122\n* Restore deleted posts from Arctic Shift by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/123\n* Prepare stable v0.7.8 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/124\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.7.7...v0.7.8",
+  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.8/patches.rvp",
   "signature_download_url": "N/A",
-  "version": "v0.7.7"
+  "version": "v0.7.8"
 }
