@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-23T03:31:47",
-  "description": "## What's Changed\n* Start chats without a subject by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/122\n* Restore deleted posts from Arctic Shift by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/123\n* Prepare stable v0.7.8 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/124\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.7.7...v0.7.8",
-  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.8/patches.rvp",
+  "created_at": "2026-11-25T03:09:14",
+  "description": "## What's Changed\n* Show profile history from Arctic Shift on demand by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/125\n* Prepare stable v0.7.9 by @TheLastWallaby in https://github.com/TheLastWallaby/revanced-redditsync/pull/126\n\n\n**Full Changelog**: https://github.com/TheLastWallaby/revanced-redditsync/compare/v0.7.8...v0.7.9",
+  "download_url": "https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.9/patches.rvp",
   "signature_download_url": "N/A",
-  "version": "v0.7.8"
+  "version": "v0.7.9"
 }
