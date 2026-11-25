@@ -40,6 +40,12 @@ import org.json.JSONObject;
  * page instead, as an ordinary Reddit listing that Sync's own parser reads. Every other answer is
  * returned unchanged.
  *
+ * <p>A profile can also hide only some of its posts and comments (those in chosen communities), so its
+ * listings are not empty. The profile section sheet ({@code t9.l1}) then offers {@link #SHOW_ARCHIVE}:
+ * {@link #archiveRow} names the row and {@link #section} turns the archive on or off for that user and
+ * reloads the section shown. While it is on, every Overview, Comments and Submitted answer for that user
+ * is replaced by the archive's, whatever Reddit sent. It lasts until it is turned off or Sync restarts.
+ *
  * <p>Pages hold {@link #PAGE} items, newest first (Overview merges posts and comments). Their
  * {@code after} is the last item's fullname, so Sync pages as usual; the item's {@code created_utc}
  * is remembered, or looked up by ID, and becomes the archive's exclusive {@code before}.
@@ -55,6 +61,11 @@ public final class ArchivedProfile {
     public static final String SHOWING = "Showing archived history from Arctic Shift.";
     public static final String UNAVAILABLE = "Couldn't reach the Arctic Shift archive.";
     public static final String NO_MORE = "Couldn't load more from Arctic Shift.";
+    public static final String NOTHING = "Arctic Shift has nothing for this profile.";
+    public static final String SHOWING_REDDIT = "Showing this profile from Reddit.";
+    /** The profile sheet's row: the archive is off for the user, or on. */
+    public static final String SHOW_ARCHIVE = "Show Arctic Shift archive";
+    public static final String SHOW_REDDIT = "Show Reddit's profile";
     static final int MAX_MESSAGE = 45;
 
     static final String HOST = "arctic-shift.photon-reddit.com";
@@ -75,12 +86,18 @@ public final class ArchivedProfile {
 
     private static final Pattern PROFILE = Pattern.compile("/user/([A-Za-z0-9_-]{1,20})/(overview|comments|submitted)(?:\\.json)?/?",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern ANY_SECTION = Pattern.compile("/user/([A-Za-z0-9_-]{1,20})/([A-Za-z]+)(?:\\.json)?/?",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern USER = Pattern.compile("[A-Za-z0-9_-]{1,20}");
     private static final Pattern FULLNAME = Pattern.compile("(t[13])_([0-9a-z]{1,13})");
     private static final Pattern ID = Pattern.compile("[0-9a-z]{1,13}");
 
     interface Platform {
         /** Shows a short message on Sync's main thread. */
         void toast(String message);
+
+        /** Sync's drawable for the archive row, or 0. */
+        default int icon() { return 0; }
     }
 
     static Platform platform = new AndroidPlatform();
@@ -90,8 +107,21 @@ public final class ArchivedProfile {
     private static final Map<String, Long> CREATED = Collections.synchronizedMap(new LinkedHashMap<String, Long>(64, 0.75f, true) {
         @Override protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) { return size() > REMEMBERED; }
     });
+    /**
+     * For a page's last item: the items from its second served up to that page while scrolling, so the
+     * next page neither repeats nor skips items of that second, however often the profile is reloaded.
+     */
+    private static final Map<String, Set<String>> SERVED = Collections.synchronizedMap(new LinkedHashMap<String, Set<String>>(64, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<String, Set<String>> eldest) { return size() > REMEMBERED; }
+    });
     /** Usernames whose archive message was already shown in this process. */
     private static final Set<String> ANNOUNCED = Collections.synchronizedSet(new HashSet<String>());
+    /** Usernames whose profile is shown from the archive on request, whatever Reddit answers. */
+    private static final Set<String> ARCHIVED = Collections.synchronizedSet(new HashSet<String>());
+    /** The profile section Sync last loaded for each username, reloaded when the archive is toggled. */
+    private static final Map<String, Section> SHOWN = Collections.synchronizedMap(new LinkedHashMap<String, Section>(16, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<String, Section> eldest) { return size() > REMEMBERED; }
+    });
 
     private ArchivedProfile() {}
 
@@ -110,25 +140,114 @@ public final class ArchivedProfile {
     /**
      * Called at the start of OAuthPostsRequest.parseNetworkResponse on Volley's network thread, with
      * the request's URL and Reddit's answer. Returns the answer Sync parses: Reddit's own, or an
-     * archived page when Reddit's profile listing is empty. Never throws.
+     * archived page when Reddit's profile listing is empty or the archive was asked for. Never throws.
      */
     public static NetworkResponse response(String url, NetworkResponse reddit) {
         try {
+            remember(url);
             Listing listing = listing(url);
-            if (listing == null || reddit == null || reddit.statusCode != 200 || !empty(reddit.data)) return reddit;
+            if (listing == null || reddit == null || reddit.statusCode != 200) return reddit;
+            boolean requested = ARCHIVED.contains(listing.user.toLowerCase(Locale.ROOT));
+            if (!requested && !empty(reddit.data)) return reddit;
             byte[] page;
             try {
                 page = page(listing);
             } catch (IOException | RuntimeException unreachable) {
                 platform.toast(listing.after == null ? UNAVAILABLE : NO_MORE);
-                return reddit;
+                // A later page of a requested archive ends the list rather than go on with Reddit's items.
+                return requested && listing.after != null ? nothing(reddit) : reddit;
             }
-            if (page == null) return reddit;
+            if (page == null) {
+                if (!requested) return reddit;
+                if (listing.after == null) platform.toast(NOTHING);
+                return nothing(reddit);
+            }
             if (listing.after == null && ANNOUNCED.add(listing.user.toLowerCase(Locale.ROOT)))
                 platform.toast(SHOWING);
             return new NetworkResponse(200, page, false, reddit.networkTimeMs, reddit.allHeaders);
         } catch (Exception | LinkageError failed) {
             return reddit;
+        }
+    }
+
+    /** An empty listing, which Sync reads like Reddit's own last page. */
+    private static NetworkResponse nothing(NetworkResponse reddit) {
+        byte[] empty = "{\"kind\":\"Listing\",\"data\":{\"after\":null,\"before\":null,\"dist\":0,\"children\":[]}}"
+                .getBytes(StandardCharsets.UTF_8);
+        return new NetworkResponse(200, empty, false, reddit.networkTimeMs, reddit.allHeaders);
+    }
+
+    /** Remembers which profile section Sync loads for a user, from any Reddit profile listing URL. */
+    private static void remember(String url) {
+        if (url == null) return;
+        try {
+            URI parsed = new URI(url);
+            String host = parsed.getHost(), path = parsed.getRawPath();
+            if (host == null || path == null) return;
+            host = host.toLowerCase(Locale.ROOT);
+            if (!host.equals("reddit.com") && !host.endsWith(".reddit.com")) return;
+            Matcher profile = ANY_SECTION.matcher(path);
+            if (!profile.matches()) return;
+            Section section = Section.OVERVIEW;
+            // Other sections (Upvoted, Saved...) have no archive; Overview is reloaded instead.
+            for (Section known : Section.values()) if (known.name().equalsIgnoreCase(profile.group(2))) section = known;
+            SHOWN.put(profile.group(1).toLowerCase(Locale.ROOT), section);
+        } catch (URISyntaxException invalid) {
+            // Not a URL the helper reads.
+        }
+    }
+
+    /**
+     * Called at the end of the profile section sheet's items (ProfileSectionSelectionDialogBottomSheet
+     * A4) with the profile's username: the archive row's title, or null to add no row.
+     */
+    public static String archiveRow(String user) {
+        try {
+            if (user == null || !USER.matcher(user.trim()).matches()) return null;
+            return ARCHIVED.contains(user.trim().toLowerCase(Locale.ROOT)) ? SHOW_REDDIT : SHOW_ARCHIVE;
+        } catch (Exception | LinkageError failed) {
+            return null;
+        }
+    }
+
+    /** Whether the archive row is highlighted, as Sync highlights a chosen item: the archive is on. */
+    public static boolean archiveShown(String title) {
+        return SHOW_REDDIT.equals(title);
+    }
+
+    /** Sync's restore icon for the archive row, or 0 for none. */
+    public static int archiveIcon() {
+        try {
+            return platform.icon();
+        } catch (Exception | LinkageError failed) {
+            return 0;
+        }
+    }
+
+    /**
+     * Called when an item of the profile section sheet is chosen (ProfileSectionSelectionDialogBottomSheet
+     * r0) with the profile's username and the item's title, before Sync opens that section. A section
+     * comes back unchanged. The archive row turns the archive on or off for the user and returns the
+     * section Sync last loaded for them, so Sync loads it again. Never throws.
+     */
+    public static String section(String user, String title) {
+        boolean row = SHOW_ARCHIVE.equals(title) || SHOW_REDDIT.equals(title);
+        if (!row) return title;
+        try {
+            if (user == null || !USER.matcher(user.trim()).matches()) return "Overview";
+            String key = user.trim().toLowerCase(Locale.ROOT);
+            if (SHOW_ARCHIVE.equals(title)) {
+                ARCHIVED.add(key);
+                // The first archived page says again where its items come from.
+                ANNOUNCED.remove(key);
+            } else if (ARCHIVED.remove(key)) {
+                platform.toast(SHOWING_REDDIT);
+            }
+            Section shown = SHOWN.get(key);
+            String name = (shown == null ? Section.OVERVIEW : shown).name();
+            return name.charAt(0) + name.substring(1).toLowerCase(Locale.ROOT);
+        } catch (Exception | LinkageError failed) {
+            return "Overview";
         }
     }
 
@@ -194,10 +313,16 @@ public final class ArchivedProfile {
             boundary = created(listing.after);
             if (boundary == null) return null;
         }
+        Set<String> served = new HashSet<>();
+        if (listing.after != null) {
+            served.add(listing.after);
+            Set<String> earlier = SERVED.get(listing.after);
+            if (earlier != null) served.addAll(earlier);
+        }
         List<Item> items = new ArrayList<>();
         boolean more = false;
-        if (listing.section != Section.COMMENTS) more |= search(POSTS, "t3", listing, boundary, items);
-        if (listing.section != Section.SUBMITTED) more |= search(COMMENTS, "t1", listing, boundary, items);
+        if (listing.section != Section.COMMENTS) more |= search(POSTS, "t3", listing, boundary, served, items);
+        if (listing.section != Section.SUBMITTED) more |= search(COMMENTS, "t1", listing, boundary, served, items);
         Collections.sort(items, (a, b) -> Long.compare(b.created, a.created));
         List<Item> page = new ArrayList<>();
         Set<String> seen = new HashSet<>();
@@ -206,6 +331,11 @@ public final class ArchivedProfile {
             if (seen.add(item.fullname)) page.add(item);
         }
         if (page.isEmpty()) return null;
+        Item last = page.get(page.size() - 1);
+        Set<String> tied = new HashSet<>();
+        if (boundary != null && last.created == boundary) tied.addAll(served);
+        for (Item item : page) if (item.created == last.created) tied.add(item.fullname);
+        SERVED.put(last.fullname, tied);
         try {
             JSONArray children = new JSONArray();
             for (Item item : page) {
@@ -223,9 +353,10 @@ public final class ArchivedProfile {
     /**
      * Adds the author's archived items older than the previous page's last item; true when the archive
      * returned a full page. Items from the same second as that item are asked for too, and kept unless
-     * an earlier page served them.
+     * an earlier page of this scroll served them.
      */
-    private static boolean search(String path, String kind, Listing listing, Long boundary, List<Item> items) throws IOException {
+    private static boolean search(String path, String kind, Listing listing, Long boundary, Set<String> served, List<Item> items)
+            throws IOException {
         String user = listing.user;
         String url = "https://" + HOST + path + "?author=" + user + "&limit=" + PAGE + "&sort=desc"
                 + (boundary == null ? "" : "&before=" + (boundary + 1));
@@ -239,8 +370,7 @@ public final class ArchivedProfile {
                     || !(author instanceof String) || !user.equalsIgnoreCase((String) author)) continue;
             if (boundary != null) {
                 String fullname = kind + "_" + id;
-                if (created > boundary || created == boundary
-                        && (fullname.equals(listing.after) || CREATED.containsKey(fullname))) continue;
+                if (created > boundary || created == boundary && served.contains(fullname)) continue;
             }
             if (kind.equals("t3") ? !(item.opt("title") instanceof String)
                     : !(item.opt("body") instanceof String) || !(item.opt("link_id") instanceof String)) continue;
@@ -335,7 +465,10 @@ public final class ArchivedProfile {
     static void reset() {
         client = null;
         CREATED.clear();
+        SERVED.clear();
         ANNOUNCED.clear();
+        ARCHIVED.clear();
+        SHOWN.clear();
     }
 
     static final class AndroidPlatform implements Platform {
@@ -346,6 +479,12 @@ public final class ArchivedProfile {
             if (context == null) return;
             if (main == null) main = new android.os.Handler(android.os.Looper.getMainLooper());
             main.post(() -> android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show());
+        }
+
+        @Override public int icon() {
+            android.content.Context context = Utils.getContext();
+            if (context == null) return 0;
+            return context.getResources().getIdentifier("outline_restore_24", "drawable", context.getPackageName());
         }
     }
 }
