@@ -115,6 +115,7 @@ public final class ArchivedProfilePatchTest {
             urls(stock, patched);
             unchanged(stock, patched);
             hidden(stock, patched);
+            requested(stock, patched);
             rejections(source, scratch);
 
             System.out.println("PASS: " + checks + " archived profile patch checks (empty profile listings filled from the archive and "
@@ -372,6 +373,40 @@ public final class ArchivedProfilePatchTest {
             equal(down ? 1 : 0, patched.toasts.size(), "message only when the archive is down: " + patched.toasts);
         }
         archiveDown = false;
+    }
+
+    /**
+     * The archive turned on for a profile that hides only some items (the on-demand patch's profile
+     * sheet row): Reddit's visible items are replaced by the archived page, which Sync's parser reads.
+     */
+    private static void requested(Sync stock, Sync patched) throws ReflectiveOperationException {
+        setPlatform(patched);
+        Class<?> helper = Class.forName("app.revanced.extension.synccompat.ArchivedProfile");
+        Method section = helper.getMethod("section", String.class, String.class);
+        ARCHIVE.clear();
+        stock.parse(PROFILE, 200, VISIBLE);
+        equal(List.of("3:live1", "1:live2"), stock.parsed, "stock shows Reddit's visible items");
+        patched.parse(PROFILE, 200, VISIBLE);
+        equal(stock.parsed, patched.parsed, "archive off: Reddit's visible items");
+        check(ARCHIVE.isEmpty(), "archive off: not asked");
+
+        equal("Overview", section.invoke(null, USER, "Show Arctic Shift archive"), "the row reloads Overview");
+        DexRunner.SyncObject paging = patched.parse(PROFILE, 200, VISIBLE);
+        check(patched.parsed.size() == 25 && patched.parsed.get(0).equals("3:p00") && patched.parsed.contains("1:c2")
+                && !patched.parsed.contains("3:live1"), "archive on: Sync parses the archived page instead: " + patched.parsed);
+        equal("t3_p23", paging.fields.get("a"), "Sync keeps the archive's after");
+        equal(2, ARCHIVE.size(), "posts and comments asked: " + ARCHIVE);
+        equal(List.of("Showing archived history from Arctic Shift."), patched.toasts, "where the items come from");
+
+        String next = patched.url("user###Overview###" + USER + "###null", "new", "t3_p23");
+        patched.parse(next, 200, VISIBLE);
+        equal(List.of("3:p24", "3:p25", "3:p26", "3:p27", "3:p28", "3:p29"), patched.parsed, "archive on: the next page too");
+
+        section.invoke(null, USER, "Show Reddit's profile");
+        ARCHIVE.clear();
+        patched.parse(PROFILE, 200, VISIBLE);
+        equal(stock.parsed, patched.parsed, "archive off again: Reddit's visible items");
+        check(ARCHIVE.isEmpty(), "archive off again: not asked");
     }
 
     /** The paging state Sync left, without u, the milliseconds its own parsing took. */

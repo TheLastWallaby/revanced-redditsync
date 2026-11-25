@@ -1969,7 +1969,9 @@ New in [v0.7.7](#v077-hidden-profile-history-suggested-comment-sort-and-faster-l
 
   Left as Reddit sent it: every other listing (subreddits, search, Upvoted,
   Saved...), any profile listing with items (including a profile that hides
-  only some communities), error and non-JSON answers. The archive's order is
+  only some communities; **Sync: show profile history from Arctic Shift on
+  demand** below shows those from the archive when asked), error and non-JSON
+  answers. The archive's order is
   newest first whatever sort is chosen. If the archive can't be reached, Sync
   shows its normal empty tab with "Couldn't reach the Arctic Shift archive.";
   on a later page, "Couldn't load more from Arctic Shift."
@@ -1989,6 +1991,72 @@ New in [v0.7.7](#v077-hidden-profile-history-suggested-comment-sort-and-faster-l
   Not checked on a phone or with a signed-in Reddit account: that Reddit
   answers a hidden profile with an empty listing, not an error, comes from
   third-party reports.
+
+- **Sync: show profile history from Arctic Shift on demand** (new, not in a
+  release yet), on by default; needs **Sync: show hidden profile history from
+  Arctic Shift**. That patch only steps in when Reddit shows a profile tab with
+  nothing at all. Reddit also lets users hide only some of their posts and
+  comments (for example everything in chosen communities), and then the tabs
+  show the rest and nothing says items are missing.
+
+  A profile's section menu (the **Overview** / **Comments** / **Submitted** chip
+  on a profile, `ProfileSectionSelectionDialogBottomSheet`) now ends with
+  **Show Arctic Shift archive**, with Sync's restore icon. Choosing it closes
+  the menu and reloads the section you were on (Overview if you were on
+  Upvoted, Saved or another section the archive doesn't have). From then on,
+  that user's Overview, Comments and Submitted come from the
+  [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) archive even
+  when Reddit lists items, so the hidden ones appear among them, newest first,
+  25 per page, exactly as for an empty profile; the first page shows "Showing
+  archived history from Arctic Shift." The row then reads **Show Reddit's
+  profile**, highlighted like a chosen section; choosing it reloads the section
+  from Reddit and shows "Showing this profile from Reddit." The choice is per
+  user and lasts until it is turned off or Sync is closed.
+
+  **The items come from Arctic Shift, a third-party archive, not from Reddit.**
+  Scores, text and awards are as archived, not live; items newer than the
+  archive's last crawl are missing; copies of items the author deleted still
+  show. What is sent is the same as for an empty profile: the username, and
+  when scrolling a timestamp or one item ID, over HTTPS without Reddit
+  authorization or cookies. Reddit's own listing is still requested and then
+  set aside.
+
+  | While the archive is on | Result |
+  |---|---|
+  | The archive has items | The archived page replaces Reddit's, whatever Reddit sent |
+  | The archive has nothing for the user | An empty list and "Arctic Shift has nothing for this profile." |
+  | The archive can't be reached, first page | Reddit's own page and "Couldn't reach the Arctic Shift archive." |
+  | The archive can't be reached, later page | The list ends there ("Couldn't load more from Arctic Shift."), with no Reddit items mixed in |
+  | Other users, other sections, error answers | Unchanged |
+
+  **How.** `A4` builds the menu's items; its single `return-void` (which Sync's
+  own-profile branch also jumps to) becomes a call to
+  `ArchivedProfile.archiveRow` with the sheet's username, which adds the row
+  through Sync's own `t4` when the name is a valid username (1 to 20
+  characters `A-Z a-z 0-9 _ -`). `r0` posts the chosen item's title as the
+  section to open; the patch passes that title through
+  `ArchivedProfile.section` first, which returns a section unchanged and, for
+  the archive row, turns the archive on or off and returns the section Sync
+  last loaded for that user. Sync then posts its usual section event and
+  closes the menu. The listing replacement is the hidden-profile patch's
+  `ArchivedProfile.response`, which now also replaces listings with items for
+  a user the archive was turned on for.
+
+  `ArchivedProfileTest` covers the row's title, highlight and icon, sections
+  passing through unchanged, which section is reloaded, paging all three
+  sections through the archive while Reddit answers with items, other users
+  and sections left alone, the archive having nothing or being down on the
+  first and later pages, turning it off, and a restart forgetting the choice.
+  `ArchivedProfileOnDemandPatchTest` runs the menu before and after the patch:
+  Sync's sections listed exactly as before with the row added after them on
+  someone else's profile and on your own, sections posting the same event as
+  stock, and the row toggling the archive and reloading the right section; on
+  hand-written models in CI, and on Sync's real methods with the stock APK
+  locally. `ArchivedProfilePatchTest` checks that with the archive on, Sync's
+  own parser stores the archived page instead of Reddit's visible items, pages
+  on, and returns to Reddit's items when it is turned off. **Needs a phone
+  check:** the row's look and position, that the list reloads, and a profile
+  that really hides some communities.
 
 - **Sync: use subreddit suggested comment sort**, on by default. With the
   comment sort set to **Suggested**, a subreddit that suggests a sort (for

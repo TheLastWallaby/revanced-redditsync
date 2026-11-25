@@ -2452,6 +2452,115 @@ val showHiddenSyncProfilesFromArcticShift = bytecodePatch(
     }
 }
 
+private const val PROFILE_SHEET = "Lt9/l1;"
+private const val SELECTION_SHEET = "Lcom/laurencedawson/reddit_sync/ui/fragment_dialogs/bottom/material_dialogs/base/AbstractSelectionDialogBottomSheet;"
+private const val SHEET_USER = "Ls9/f;->Y3()Ljava/lang/String;"
+private const val PROFILE_LISTING = "Ld7/d;->g(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;"
+
+val showSyncProfilesFromArcticShiftOnDemand = bytecodePatch(
+    name = "Sync: show profile history from Arctic Shift on demand",
+    description = "Add \"Show Arctic Shift archive\" to a profile's section menu (Overview, Comments, Submitted...). It shows " +
+        "that user's Overview, Comments and Submitted from the Arctic Shift archive even when Reddit lists some items, " +
+        "so posts and comments the user hid from their profile (for example from chosen communities) appear; " +
+        "\"Show Reddit's profile\" turns it off. Only the username (and, when scrolling, a timestamp or one ID) is sent, " +
+        "as for empty profiles; the archived copies come from that third-party archive, not from Reddit.",
+) {
+    compatibleWith("com.laurencedawson.reddit_sync"("v23.06.30-13:39"))
+    dependsOn(showHiddenSyncProfilesFromArcticShift)
+    apply {
+        fun Instruction.fieldRef() = ((this as? ReferenceInstruction)?.reference as? FieldReference)?.toString()
+        fun Instruction.registers() = (this as? FiveRegisterInstruction)?.let {
+            listOf(it.registerC, it.registerD, it.registerE, it.registerF, it.registerG).take(it.registerCount)
+        }
+        fun signatures(type: String) = (classes.singleOrNull { it.type == type }
+            ?: throw PatchException("Sync lacks $type. This patch targets Sync build 23033 only."))
+            .let { clazz -> clazz.methods.map { "${it.name}(${it.parameterTypes.joinToString("")})${it.returnType}" to it.accessFlags } +
+                clazz.fields.map { "${it.name}:${it.type}" to it.accessFlags } }
+        fun need(type: String, member: String, static: Boolean = false) {
+            val flags = signatures(type).firstOrNull { it.first == member }?.second
+            if (flags == null || !AccessFlags.PUBLIC.isSet(flags) || AccessFlags.STATIC.isSet(flags) != static)
+                throw PatchException("Sync lacks $type->$member. This patch targets Sync build 23033 only.")
+        }
+        // The section sheet's item: a title (b), an icon (a) and Sync's highlight for the chosen item (q).
+        need(SELECTION_ITEM, "<init>(Ljava/lang/String;)V")
+        need(SELECTION_ITEM, "a:I")
+        need(SELECTION_ITEM, "b:Ljava/lang/String;")
+        need(SELECTION_ITEM, "q:Z")
+        need(SELECTION_SHEET, "t4($SELECTION_ITEM)$SELECTION_ITEM")
+        need("Ls9/f;", "Y3()Ljava/lang/String;")
+
+        // ProfileSectionSelectionDialogBottomSheet: A4 lists Overview, Comments, Submitted (and, on your own
+        // profile, more); r0 posts the chosen section for the profile's user and closes the sheet.
+        val found = classes.singleOrNull { it.type == PROFILE_SHEET && it.sourceFile == "ProfileSectionSelectionDialogBottomSheet.java" }
+            ?: throw PatchException("Expected Sync ProfileSectionSelectionDialogBottomSheet.java was not found. This patch targets build 23033 only.")
+        val sheet = proxy(found).mutableClass
+        fun method(name: String, parameters: List<String>): MutableMethod =
+            sheet.methods.singleOrNull { it.name == name && it.parameterTypes == parameters && it.returnType == "V" }
+                ?: throw PatchException("Unsupported Sync method $PROFILE_SHEET->$name.")
+        val items = method("A4", listOf())
+        val chosen = method("r0", listOf(SELECTION_ITEM))
+        if ((items.implementation!!.instructions + chosen.implementation!!.instructions)
+                .any { it.methodRef()?.definingClass == ARCHIVED_PROFILE })
+            throw PatchException("Profiles already offer the Arctic Shift archive.")
+
+        val list = items.implementation!!.instructions
+        val end = list.lastIndex
+        layout(sheet.superclass == SELECTION_SHEET && !AccessFlags.STATIC.isSet(items.accessFlags) &&
+            items.implementation!!.registerCount >= 3 && list.getOrNull(end)?.opcode == Opcode.RETURN_VOID &&
+            list.count { it.opcode == Opcode.RETURN_VOID } == 1 && list.none { it.opcode == Opcode.THROW } &&
+            items.implementation!!.tryBlocks.isEmpty() &&
+            listOf("Overview", "Comments", "Submitted").all { name -> list.any { it.stringValue() == name } } &&
+            list.any { it.methodRef()?.toString() == "$SELECTION_SHEET->t4($SELECTION_ITEM)$SELECTION_ITEM" } &&
+            list.any { it.methodRef()?.toString() == SHEET_USER },
+            "Sync profile section list")
+
+        // r0: user = Y3(); title = item.b; Sync posts SubredditSelectedEvent(d7.d.g(user, title)).
+        val code = chosen.implementation!!.instructions
+        val read = code.indexOfFirst { it.opcode == Opcode.IGET_OBJECT && it.fieldRef() == "$SELECTION_ITEM->b:Ljava/lang/String;" }
+        val title = code.getOrNull(read)?.registerA()
+        val listing = code.getOrNull(read + 1)
+        val user = listing?.registers()?.firstOrNull()
+        val userSet = (0 until read).lastOrNull { n -> code[n].registerA() == user }
+        layout(read > 0 && code.count { it.fieldRef() == "$SELECTION_ITEM->b:Ljava/lang/String;" } == 1 &&
+            !AccessFlags.STATIC.isSet(chosen.accessFlags) &&
+            listing?.opcode == Opcode.INVOKE_STATIC && listing.methodRef()?.toString() == PROFILE_LISTING &&
+            listing.registers() == listOf(user, title) && user != null && title != null && user < 16 && title < 16 &&
+            userSet != null && userSet > 0 && code[userSet].opcode == Opcode.MOVE_RESULT_OBJECT &&
+            code[userSet - 1].methodRef()?.toString() == SHEET_USER &&
+            code.none { it is BuilderOffsetInstruction && it.target.location.index in read + 1..read + 1 } &&
+            chosen.implementation!!.tryBlocks.isEmpty() &&
+            code.any { it.methodRef()?.toString() == SHEET_DISMISS },
+            "Sync profile section choice")
+
+        // All layouts verified; edit. A4's only return-void becomes the archive row, then the return, so
+        // Sync's branch past the own-profile sections (Upvoted, Saved...) reaches the row too.
+        items.replaceInstruction(end, "invoke-virtual {p0}, $SHEET_USER")
+        items.addInstructions(end + 1, """
+            move-result-object v0
+            invoke-static {v0}, $ARCHIVED_PROFILE->archiveRow(Ljava/lang/String;)Ljava/lang/String;
+            move-result-object v0
+            if-eqz v0, :done
+            new-instance v1, $SELECTION_ITEM
+            invoke-direct {v1, v0}, $SELECTION_ITEM-><init>(Ljava/lang/String;)V
+            invoke-static {v0}, $ARCHIVED_PROFILE->archiveShown(Ljava/lang/String;)Z
+            move-result v0
+            iput-boolean v0, v1, $SELECTION_ITEM->q:Z
+            invoke-static {}, $ARCHIVED_PROFILE->archiveIcon()I
+            move-result v0
+            iput v0, v1, $SELECTION_ITEM->a:I
+            invoke-virtual {p0, v1}, $SELECTION_SHEET->t4($SELECTION_ITEM)$SELECTION_ITEM
+            :done
+            return-void
+        """.trimIndent())
+        // The chosen title passes through the helper: a section unchanged, the archive row toggled and
+        // replaced by the section to reload.
+        chosen.addInstructions(read + 1, """
+            invoke-static {v$user, v$title}, $ARCHIVED_PROFILE->section(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+            move-result-object v$title
+        """.trimIndent())
+    }
+}
+
 private const val DOWNLOAD_MANIFEST = "Lapp/revanced/extension/synccompat/VideoDownloadManifest;"
 private const val DOWNLOAD_PORT = "Lapp/revanced/extension/syncforreddit/FixRedditVideoDownloadPatch;"
 private const val VIDEO_REQUEST = "Lr8/g;"

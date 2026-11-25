@@ -105,6 +105,7 @@ public final class ArchivedProfileTest {
             restart();
             failures();
             limits();
+            onDemand();
         } finally {
             archive.stop(0);
             other.stop(0);
@@ -187,11 +188,13 @@ public final class ArchivedProfileTest {
     // ---- Messages fit a two-line toast ----
 
     private static void messages() {
-        for (String message : List.of(ArchivedProfile.SHOWING, ArchivedProfile.UNAVAILABLE, ArchivedProfile.NO_MORE)) {
+        for (String message : List.of(ArchivedProfile.SHOWING, ArchivedProfile.UNAVAILABLE, ArchivedProfile.NO_MORE,
+                ArchivedProfile.NOTHING, ArchivedProfile.SHOWING_REDDIT)) {
             // Android 12+ cuts a text toast after two lines; a username would make the length unbounded.
             check(message.length() <= ArchivedProfile.MAX_MESSAGE, "message fits two toast lines: " + message.length() + " " + message);
             check(!message.contains("u/"), "message names no user: " + message);
-            check(message.contains("Arctic Shift"), "message names the archive: " + message);
+            check(message.contains(message == ArchivedProfile.SHOWING_REDDIT ? "Reddit" : "Arctic Shift"),
+                    "message names the source: " + message);
         }
         check(ArchivedProfile.MAX_MESSAGE <= 45, "limit stays within two lines on a narrow phone");
     }
@@ -264,6 +267,11 @@ public final class ArchivedProfileTest {
 
     /** Pages through a section; returns the fullnames in order and checks each page and request. */
     private static List<String> pages(String section, ArchivedProfile.Section expected) {
+        return pages(section, expected, HIDDEN);
+    }
+
+    /** Pages through a section with this Reddit answer for every page. */
+    private static List<String> pages(String section, ArchivedProfile.Section expected, String redditBody) {
         List<String> all = new ArrayList<>();
         String after = null;
         long last = Long.MAX_VALUE;
@@ -271,7 +279,7 @@ public final class ArchivedProfileTest {
             String url = "https://oauth.reddit.com/user/" + USER + "/" + section + ".json?sort=new"
                     + (after == null ? "" : "&after=" + after + "&limit=25");
             SEEN.clear();
-            NetworkResponse reddit = reddit(HIDDEN);
+            NetworkResponse reddit = reddit(redditBody);
             NetworkResponse result = ArchivedProfile.response(url, reddit);
             if (result == reddit) {
                 check(after != null, section + ": first page archived");
@@ -339,7 +347,8 @@ public final class ArchivedProfileTest {
                 "message once, on the first page");
 
         TOASTS.clear();
-        pages("overview", ArchivedProfile.Section.OVERVIEW);
+        // Scrolling the same profile again (a reload) skips nothing from a second split by a page.
+        equal(all, pages("overview", ArchivedProfile.Section.OVERVIEW), "a second scroll serves the same items");
         check(TOASTS.isEmpty(), "message only once per profile: " + TOASTS);
     }
 
@@ -508,5 +517,134 @@ public final class ArchivedProfileTest {
             ArchivedProfile.CALL_TIMEOUT_MS = call;
             ArchivedProfile.reset();
         }
+    }
+
+    // ---- The archive on request, for a profile that hides only some items ----
+
+    private static void onDemand() {
+        answer = ARCHIVE;
+        ArchivedProfile.reset();
+        TOASTS.clear();
+        SEEN.clear();
+        String other = "https://oauth.reddit.com/user/someone/overview.json?sort=new";
+        String upvoted = "https://oauth.reddit.com/user/" + USER + "/upvoted.json?sort=new";
+
+        // The sheet's row: titled by state, only for a valid username.
+        equal(ArchivedProfile.SHOW_ARCHIVE, ArchivedProfile.archiveRow(USER), "row offers the archive");
+        equal(ArchivedProfile.SHOW_ARCHIVE, ArchivedProfile.archiveRow(" " + USER + " "), "Sync's username trimmed");
+        for (String user : new String[] {null, "", "has space", "a/b", "x".repeat(21), "u/" + USER, "名前"})
+            equal(null, ArchivedProfile.archiveRow(user), "no row for username " + user);
+        check(!ArchivedProfile.archiveShown(ArchivedProfile.SHOW_ARCHIVE), "row not highlighted while off");
+        check(!ArchivedProfile.archiveShown(null), "no title, not highlighted");
+        equal(0, ArchivedProfile.archiveIcon(), "no icon without Sync's drawable");
+        ArchivedProfile.Platform saved = ArchivedProfile.platform;
+        ArchivedProfile.platform = new ArchivedProfile.Platform() {
+            @Override public void toast(String message) { TOASTS.add(message); }
+            @Override public int icon() { return 0x7f080123; }
+        };
+        equal(0x7f080123, ArchivedProfile.archiveIcon(), "Sync's restore drawable");
+        ArchivedProfile.platform = new ArchivedProfile.Platform() {
+            @Override public void toast(String message) { TOASTS.add(message); }
+            @Override public int icon() { throw new IllegalStateException("no resources"); }
+        };
+        equal(0, ArchivedProfile.archiveIcon(), "a failing lookup shows no icon");
+        ArchivedProfile.platform = saved;
+
+        // Sync's own sections pass through and change nothing.
+        for (String title : new String[] {"Overview", "Comments", "Submitted", "Upvoted", "Saved", null, ""})
+            equal(title, ArchivedProfile.section(USER, title), "section " + title + " unchanged");
+        equal(ArchivedProfile.SHOW_ARCHIVE, ArchivedProfile.archiveRow(USER), "still off");
+
+        // Off: a profile with items is Reddit's, as before.
+        NetworkResponse visible = reddit(VISIBLE);
+        check(ArchivedProfile.response(OVERVIEW, visible) == visible, "off: Reddit's items");
+        // The empty-profile message was already shown once for this user.
+        check(ArchivedProfile.response(OVERVIEW, reddit(HIDDEN)) != null, "empty profile archived");
+        equal(List.of(ArchivedProfile.SHOWING), TOASTS, "first automatic message");
+        TOASTS.clear();
+
+        // The section Sync last loaded is the one reloaded; another section reloads Overview.
+        ArchivedProfile.response("https://oauth.reddit.com/user/" + USER.toLowerCase() + "/comments.json?sort=new&limit=25", reddit(VISIBLE));
+        SEEN.clear();
+        equal("Comments", ArchivedProfile.section(USER, ArchivedProfile.SHOW_ARCHIVE), "turned on: Comments reloaded");
+        check(SEEN.isEmpty(), "turning it on asks the archive nothing by itself: " + SEEN);
+        check(TOASTS.isEmpty(), "no message until the archived page loads: " + TOASTS);
+        equal(ArchivedProfile.SHOW_REDDIT, ArchivedProfile.archiveRow(USER.toUpperCase()), "row offers Reddit, any case");
+        check(ArchivedProfile.archiveShown(ArchivedProfile.archiveRow(USER)), "row highlighted while on");
+        ArchivedProfile.response(upvoted, reddit(VISIBLE));
+        equal("Overview", ArchivedProfile.section(USER, ArchivedProfile.SHOW_ARCHIVE), "from Upvoted: Overview");
+        ArchivedProfile.response("https://oauth.reddit.com/user/" + USER + "/Submitted?sort=new", reddit(VISIBLE));
+        equal("Submitted", ArchivedProfile.section(USER, ArchivedProfile.SHOW_ARCHIVE), "Submitted remembered");
+        ArchivedProfile.response("https://evil.example/user/" + USER + "/comments.json", reddit(VISIBLE));
+        equal("Submitted", ArchivedProfile.section(USER, ArchivedProfile.SHOW_ARCHIVE), "other hosts ignored");
+        equal("Overview", ArchivedProfile.section(null, ArchivedProfile.SHOW_ARCHIVE), "no username: Overview, nothing turned on");
+        equal("Overview", ArchivedProfile.section("bad name", ArchivedProfile.SHOW_REDDIT), "invalid username: Overview");
+        TOASTS.clear();
+
+        // On: every page of the three sections comes from the archive, though Reddit had items.
+        List<String> all = pages("Overview", ArchivedProfile.Section.OVERVIEW, VISIBLE);
+        equal(VALID, new HashSet<>(all), "on: every archived post and comment, including ones Reddit hides");
+        equal(List.of(ArchivedProfile.SHOWING), TOASTS, "the message again after turning it on, once");
+        TOASTS.clear();
+        equal(40, pages("Comments", ArchivedProfile.Section.COMMENTS, VISIBLE).size(), "on: archived comments");
+        equal(40, pages("Submitted", ArchivedProfile.Section.SUBMITTED, VISIBLE).size(), "on: archived posts");
+        equal(80, pages("Overview", ArchivedProfile.Section.OVERVIEW, HIDDEN).size(), "on: an empty answer too");
+        check(TOASTS.isEmpty(), "message once per turning on: " + TOASTS);
+
+        // Left alone while on: other users, other sections, errors.
+        SEEN.clear();
+        NetworkResponse someone = reddit(VISIBLE), liked = reddit(VISIBLE);
+        check(ArchivedProfile.response(other, someone) == someone, "another user's profile is Reddit's");
+        check(ArchivedProfile.response(upvoted, liked) == liked, "Upvoted is Reddit's");
+        NetworkResponse error = new NetworkResponse(500, VISIBLE.getBytes(StandardCharsets.UTF_8), false, 1, List.of());
+        check(ArchivedProfile.response(OVERVIEW, error) == error, "non-200 unchanged");
+        check(SEEN.isEmpty(), "the archive is not asked for them: " + SEEN);
+
+        // On, but the archive has nothing: an empty list, not Reddit's partial one.
+        equal("Overview", ArchivedProfile.section("nobody", ArchivedProfile.SHOW_ARCHIVE), "turned on for an unknown user");
+        TOASTS.clear();
+        NetworkResponse none = ArchivedProfile.response("https://oauth.reddit.com/user/nobody/overview.json?sort=new", reddit(VISIBLE));
+        equal(0, listing(none).getJSONArray("children").length(), "nothing archived: empty list");
+        equal(JSONObject.NULL, listing(none).get("after"), "and the list ends");
+        equal(1234L, none.networkTimeMs, "Reddit's network time kept");
+        equal(List.of(ArchivedProfile.NOTHING), TOASTS, "says the archive has nothing");
+        TOASTS.clear();
+        none = ArchivedProfile.response("https://oauth.reddit.com/user/nobody/overview.json?sort=new&after=t3_zzzz&limit=25", reddit(VISIBLE));
+        equal(0, listing(none).getJSONArray("children").length(), "an undatable later page ends the list");
+        check(TOASTS.isEmpty(), "no message on a later page: " + TOASTS);
+
+        // On, but the archive is down: the first page keeps Reddit's answer, a later page ends the list.
+        String after = listing(ArchivedProfile.response(OVERVIEW, reddit(VISIBLE))).getString("after");
+        answer = json(503, "down");
+        TOASTS.clear();
+        NetworkResponse first = reddit(VISIBLE);
+        check(ArchivedProfile.response(OVERVIEW, first) == first, "archive down: Reddit's first page");
+        equal(List.of(ArchivedProfile.UNAVAILABLE), TOASTS, "archive down message");
+        TOASTS.clear();
+        NetworkResponse later = ArchivedProfile.response(OVERVIEW + "&after=" + after + "&limit=25", reddit(VISIBLE));
+        equal(0, listing(later).getJSONArray("children").length(), "archive down later: list ends, no Reddit items mixed in");
+        equal(List.of(ArchivedProfile.NO_MORE), TOASTS, "later page message");
+        answer = ARCHIVE;
+
+        // Off again: Reddit's profile, the section reloaded, a message; turning off twice says nothing.
+        TOASTS.clear();
+        ArchivedProfile.response("https://oauth.reddit.com/user/" + USER + "/comments.json?sort=new", reddit(VISIBLE));
+        equal("Comments", ArchivedProfile.section(USER, ArchivedProfile.SHOW_REDDIT), "turned off: Comments reloaded");
+        equal(List.of(ArchivedProfile.SHOWING_REDDIT), TOASTS, "says Reddit's profile is back");
+        equal(ArchivedProfile.SHOW_ARCHIVE, ArchivedProfile.archiveRow(USER), "row offers the archive again");
+        TOASTS.clear();
+        ArchivedProfile.section(USER, ArchivedProfile.SHOW_REDDIT);
+        check(TOASTS.isEmpty(), "already off: no message: " + TOASTS);
+        SEEN.clear();
+        visible = reddit(VISIBLE);
+        check(ArchivedProfile.response(OVERVIEW, visible) == visible, "off: Reddit's items again");
+        check(SEEN.isEmpty(), "off: archive not asked: " + SEEN);
+        check(ArchivedProfile.response(OVERVIEW, reddit(HIDDEN)) != null && SEEN.size() == 2, "off: an empty profile still archived");
+
+        ArchivedProfile.section(USER, ArchivedProfile.SHOW_ARCHIVE);
+        ArchivedProfile.reset();
+        equal(ArchivedProfile.SHOW_ARCHIVE, ArchivedProfile.archiveRow(USER), "a restart forgets the choice");
+        visible = reddit(VISIBLE);
+        check(ArchivedProfile.response(OVERVIEW, visible) == visible, "after a restart: Reddit's items");
     }
 }
