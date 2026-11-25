@@ -2,12 +2,14 @@
   "evidence_type": "tester-reported phone checks in the release handoff; not automated Android testing",
   "releases": [
     {
+      "stable": "v0.7.9",
       "tested_release": "0.7.9-alpha.1 (local build, not published)",
       "build": "Local build on 2026-11-24: PR #125 (Sync: show profile history from Arctic Shift on demand, commit a79e247) and a local VERSION commit on an unpushed branch, built with build.py and build_apk.py --no-publish and signed with the local key, installed over v0.7.8. All 37 selected patches reported success, including the new patch, and verification.json passed.",
       "overall": "passed: the owner replied \"Looks good\" to the alpha.1 handoff, which asked about the Show Arctic Shift archive row's position and look, the reload and message, hidden posts appearing while scrolling, Comments and Submitted from the archive, turning it off with Show Reddit's profile, the row on the owner's own profile, and a fully hidden profile still filling in. No individual results were given.",
       "unverified": [
         "individual results for the seven numbered checks"
-      ]
+      ],
+      "promotion": "Stable v0.7.9 builds main: v0.7.8 plus PR #125 (Sync: show profile history from Arctic Shift on demand). Its runtime code is the code of the phone-tested 0.7.9-alpha.1 local build (which differed only in VERSION and the phone-result record). The owner replied \"Yes\" to \"Publish stable v0.7.9?\"."
     },
     {
       "stable": "v0.7.8",

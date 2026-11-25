@@ -59,6 +59,32 @@ maintainers yet; the tested route is ReVanced CLI (see
 
 The rest of this page is version history and technical detail.
 
+## v0.7.9 profile history from Arctic Shift on demand
+
+The [v0.7.9 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.9)
+builds `main` with one new patch. Apply it to **stock** Sync and check all
+patch results (37 with Use /user/ endpoint).
+
+It wasn't published as a candidate first. The owner tested a local build of
+the same code on a phone (0.7.9-alpha.1, see
+[Local builds without GitHub Actions](docs/AUTOMATION.md#local-builds-without-github-actions)),
+reported "Looks good" and authorized stable publication. Only an overall
+result was given. See `validation-phone-tests.json`.
+
+It adds one selectable patch, on by default, described under
+[Included patches](#included-patches--cumulative-v079):
+
+- **Sync: show profile history from Arctic Shift on demand**: the
+  hidden-profile patch only stepped in when a profile tab was completely
+  empty, so profiles that hide only some of their posts and comments (for
+  example everything in chosen communities) kept those hidden. A profile's
+  section menu now ends with **Show Arctic Shift archive**, which reloads that
+  user's Overview, Comments and Submitted from the archive even when Reddit
+  lists items; **Show Reddit's profile** switches back. **The items come from
+  that third-party archive, not from Reddit.** It also fixes an item that
+  shared a second with a page boundary being skipped when a profile was
+  scrolled a second time in one session.
+
 ## v0.7.8 chats without a subject and restoring deleted posts
 
 The [v0.7.8 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.8)
@@ -79,7 +105,7 @@ same code on a phone (see
 Only overall results were given. See `validation-phone-tests.json`.
 
 It adds two selectable patches, on by default, described under
-[Included patches](#included-patches--cumulative-v078):
+[Included patches](#included-patches--cumulative-v079):
 
 - **Sync: restore posts from Arctic Shift**: **Restore comment** worked on
   comments, but Sync had no restore action for posts. A deleted or removed
@@ -110,7 +136,7 @@ the same code on a phone (0.7.7-alpha.1 and alpha.2, see
 Only overall results were given. See `validation-phone-tests.json`.
 
 It adds two selectable patches, on by default, described under
-[Included patches](#included-patches--cumulative-v078):
+[Included patches](#included-patches--cumulative-v079):
 
 - **Sync: show hidden profile history from Arctic Shift**
   ([issue #115](https://github.com/TheLastWallaby/revanced-redditsync/issues/115)):
@@ -146,7 +172,7 @@ general regressions). The image peek fix was not in a published candidate, and
 the build used to test it was not stated. See `validation-phone-tests.json`.
 
 It adds four selectable patches, on by default, described under
-[Included patches](#included-patches--cumulative-v078):
+[Included patches](#included-patches--cumulative-v079):
 
 - **Sync: don't report Amazon links**
   ([issue #101](https://github.com/TheLastWallaby/revanced-redditsync/issues/101)):
@@ -183,7 +209,7 @@ promotion. Comment replies from the inbox, mark read, a new private message and
 moderator mail were not reported. See `validation-phone-tests.json`.
 
 It adds two selectable patches, on by default, described under
-[Included patches](#included-patches--cumulative-v078):
+[Included patches](#included-patches--cumulative-v079):
 
 - **Sync: show poll options**
   ([issue #9](https://github.com/TheLastWallaby/revanced-redditsync/issues/9)):
@@ -209,7 +235,7 @@ The owner asked for stable promotion of rc.1 without reporting results for its
 seven numbered phone checks, so none are recorded. See `validation-phone-tests.json`.
 
 It adds one selectable patch, on by default, described under
-[Included patches](#included-patches--cumulative-v078):
+[Included patches](#included-patches--cumulative-v079):
 
 - **Sync: open YouTube in the YouTube app**
   ([issue #60](https://github.com/TheLastWallaby/revanced-redditsync/issues/60)):
@@ -240,7 +266,7 @@ is sent with an empty `text` next to `richtext_json`, as Infinity for Reddit doe
 (rc.1 left `text` out).
 
 It adds one selectable patch, described under
-[Included patches](#included-patches--cumulative-v078):
+[Included patches](#included-patches--cumulative-v079):
 
 - **Sync: upload images to Reddit**
   ([issue #53](https://github.com/TheLastWallaby/revanced-redditsync/issues/53)):
@@ -268,7 +294,7 @@ no install can turn it on any more. Since rc.2 the entry is shown for every
 `[deleted]` or `[removed]` comment.
 
 It adds two selectable patches, described under
-[Included patches](#included-patches--cumulative-v078):
+[Included patches](#included-patches--cumulative-v079):
 
 - **Sync: restore comments from Arctic Shift**
   ([issue #52](https://github.com/TheLastWallaby/revanced-redditsync/issues/52)):
@@ -294,7 +320,7 @@ publication; only an overall result was given for the five numbered checks
 regressions). See `validation-phone-tests.json`.
 
 It adds three selectable patches, described under
-[Included patches](#included-patches--cumulative-v078):
+[Included patches](#included-patches--cumulative-v079):
 
 - **Sync: skip retired media hosts**
   ([issue #57](https://github.com/TheLastWallaby/revanced-redditsync/issues/57)):
@@ -340,7 +366,7 @@ code 23033) is patched in one pass:
 | Use /user/ endpoint | off | Uses `/user/` instead of `/u/` for profile requests |
 
 The eighth, an on-by-default API fix for a third-party video host, is listed
-under [Included patches](#included-patches--cumulative-v078).
+under [Included patches](#included-patches--cumulative-v079).
 
 **Spoof client options.** `OAuth client ID` (required), `Redirect URI` (default
 Sync's `http://redditsync/auth`; must match your Reddit app) and `User-Agent`
@@ -435,7 +461,7 @@ does not change; v0.6.14 above addresses it. See
 `validation-phone-tests.json`.
 
 It adds a selectable token-refresh patch, listed under
-[Included patches](#included-patches--cumulative-v078), for
+[Included patches](#included-patches--cumulative-v079), for
 [issue #49](https://github.com/TheLastWallaby/revanced-redditsync/issues/49):
 a third-party video played in the feed preview, but full screen showed a
 connection error.
@@ -1103,11 +1129,12 @@ must also show success for every selected patch.
 
 ## Downloads
 
-- [Stable v0.7.8 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.8)
-- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.8/patches.rvp)
-- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.8/sync-gallery-comments-compat-v0.7.8-source.zip)
-- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.8/SHA256SUMS)
-- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.8/build-info.json)
+- [Stable v0.7.9 release](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.9)
+- [Download patches.rvp](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.9/patches.rvp)
+- [Source ZIP](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.9/sync-gallery-comments-compat-v0.7.9-source.zip)
+- [SHA256SUMS](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.9/SHA256SUMS)
+- [build-info.json](https://github.com/TheLastWallaby/revanced-redditsync/releases/download/v0.7.9/build-info.json)
+- [Previous stable v0.7.8](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.8)
 - [Previous stable v0.7.7](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.7)
 - [Archived v0.7.7-rc.1 candidate](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.7-rc.1)
 - [Previous stable v0.7.6](https://github.com/TheLastWallaby/revanced-redditsync/releases/tag/v0.7.6)
@@ -1166,7 +1193,7 @@ Releases up to v0.6.14 instead needed two passes: the official ReVanced Sync
 patches first, then this bundle on that output
 ([issue #70](https://github.com/TheLastWallaby/revanced-redditsync/issues/70)).
 
-## Included patches — cumulative v0.7.8
+## Included patches — cumulative v0.7.9
 
 Official ReVanced Sync patches, ported for build 23033 (see
 [v0.7.0](#v070-one-pass-patching-from-stock-sync-issue-70)): **Spoof client**,
@@ -1992,72 +2019,6 @@ New in [v0.7.7](#v077-hidden-profile-history-suggested-comment-sort-and-faster-l
   answers a hidden profile with an empty listing, not an error, comes from
   third-party reports.
 
-- **Sync: show profile history from Arctic Shift on demand** (new, not in a
-  release yet), on by default; needs **Sync: show hidden profile history from
-  Arctic Shift**. That patch only steps in when Reddit shows a profile tab with
-  nothing at all. Reddit also lets users hide only some of their posts and
-  comments (for example everything in chosen communities), and then the tabs
-  show the rest and nothing says items are missing.
-
-  A profile's section menu (the **Overview** / **Comments** / **Submitted** chip
-  on a profile, `ProfileSectionSelectionDialogBottomSheet`) now ends with
-  **Show Arctic Shift archive**, with Sync's restore icon. Choosing it closes
-  the menu and reloads the section you were on (Overview if you were on
-  Upvoted, Saved or another section the archive doesn't have). From then on,
-  that user's Overview, Comments and Submitted come from the
-  [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) archive even
-  when Reddit lists items, so the hidden ones appear among them, newest first,
-  25 per page, exactly as for an empty profile; the first page shows "Showing
-  archived history from Arctic Shift." The row then reads **Show Reddit's
-  profile**, highlighted like a chosen section; choosing it reloads the section
-  from Reddit and shows "Showing this profile from Reddit." The choice is per
-  user and lasts until it is turned off or Sync is closed.
-
-  **The items come from Arctic Shift, a third-party archive, not from Reddit.**
-  Scores, text and awards are as archived, not live; items newer than the
-  archive's last crawl are missing; copies of items the author deleted still
-  show. What is sent is the same as for an empty profile: the username, and
-  when scrolling a timestamp or one item ID, over HTTPS without Reddit
-  authorization or cookies. Reddit's own listing is still requested and then
-  set aside.
-
-  | While the archive is on | Result |
-  |---|---|
-  | The archive has items | The archived page replaces Reddit's, whatever Reddit sent |
-  | The archive has nothing for the user | An empty list and "Arctic Shift has nothing for this profile." |
-  | The archive can't be reached, first page | Reddit's own page and "Couldn't reach the Arctic Shift archive." |
-  | The archive can't be reached, later page | The list ends there ("Couldn't load more from Arctic Shift."), with no Reddit items mixed in |
-  | Other users, other sections, error answers | Unchanged |
-
-  **How.** `A4` builds the menu's items; its single `return-void` (which Sync's
-  own-profile branch also jumps to) becomes a call to
-  `ArchivedProfile.archiveRow` with the sheet's username, which adds the row
-  through Sync's own `t4` when the name is a valid username (1 to 20
-  characters `A-Z a-z 0-9 _ -`). `r0` posts the chosen item's title as the
-  section to open; the patch passes that title through
-  `ArchivedProfile.section` first, which returns a section unchanged and, for
-  the archive row, turns the archive on or off and returns the section Sync
-  last loaded for that user. Sync then posts its usual section event and
-  closes the menu. The listing replacement is the hidden-profile patch's
-  `ArchivedProfile.response`, which now also replaces listings with items for
-  a user the archive was turned on for.
-
-  `ArchivedProfileTest` covers the row's title, highlight and icon, sections
-  passing through unchanged, which section is reloaded, paging all three
-  sections through the archive while Reddit answers with items, other users
-  and sections left alone, the archive having nothing or being down on the
-  first and later pages, turning it off, and a restart forgetting the choice.
-  `ArchivedProfileOnDemandPatchTest` runs the menu before and after the patch:
-  Sync's sections listed exactly as before with the row added after them on
-  someone else's profile and on your own, sections posting the same event as
-  stock, and the row toggling the archive and reloading the right section; on
-  hand-written models in CI, and on Sync's real methods with the stock APK
-  locally. `ArchivedProfilePatchTest` checks that with the archive on, Sync's
-  own parser stores the archived page instead of Reddit's visible items, pages
-  on, and returns to Reddit's items when it is turned off. **Needs a phone
-  check:** the row's look and position, that the list reloads, and a profile
-  that really hides some communities.
-
 - **Sync: use subreddit suggested comment sort**, on by default. With the
   comment sort set to **Suggested**, a subreddit that suggests a sort (for
   example **New**) now gets its comments in that sort. Sync 23033 used only a
@@ -2224,6 +2185,74 @@ New in [v0.7.8](#v078-chats-without-a-subject-and-restoring-deleted-posts):
   answers for posts.
 
 
+New in [v0.7.9](#v079-profile-history-from-arctic-shift-on-demand):
+
+- **Sync: show profile history from Arctic Shift on demand**, on by default;
+  needs **Sync: show hidden profile history from
+  Arctic Shift**. That patch only steps in when Reddit shows a profile tab with
+  nothing at all. Reddit also lets users hide only some of their posts and
+  comments (for example everything in chosen communities), and then the tabs
+  show the rest and nothing says items are missing.
+
+  A profile's section menu (the **Overview** / **Comments** / **Submitted** chip
+  on a profile, `ProfileSectionSelectionDialogBottomSheet`) now ends with
+  **Show Arctic Shift archive**, with Sync's restore icon. Choosing it closes
+  the menu and reloads the section you were on (Overview if you were on
+  Upvoted, Saved or another section the archive doesn't have). From then on,
+  that user's Overview, Comments and Submitted come from the
+  [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) archive even
+  when Reddit lists items, so the hidden ones appear among them, newest first,
+  25 per page, exactly as for an empty profile; the first page shows "Showing
+  archived history from Arctic Shift." The row then reads **Show Reddit's
+  profile**, highlighted like a chosen section; choosing it reloads the section
+  from Reddit and shows "Showing this profile from Reddit." The choice is per
+  user and lasts until it is turned off or Sync is closed.
+
+  **The items come from Arctic Shift, a third-party archive, not from Reddit.**
+  Scores, text and awards are as archived, not live; items newer than the
+  archive's last crawl are missing; copies of items the author deleted still
+  show. What is sent is the same as for an empty profile: the username, and
+  when scrolling a timestamp or one item ID, over HTTPS without Reddit
+  authorization or cookies. Reddit's own listing is still requested and then
+  set aside.
+
+  | While the archive is on | Result |
+  |---|---|
+  | The archive has items | The archived page replaces Reddit's, whatever Reddit sent |
+  | The archive has nothing for the user | An empty list and "Arctic Shift has nothing for this profile." |
+  | The archive can't be reached, first page | Reddit's own page and "Couldn't reach the Arctic Shift archive." |
+  | The archive can't be reached, later page | The list ends there ("Couldn't load more from Arctic Shift."), with no Reddit items mixed in |
+  | Other users, other sections, error answers | Unchanged |
+
+  **How.** `A4` builds the menu's items; its single `return-void` (which Sync's
+  own-profile branch also jumps to) becomes a call to
+  `ArchivedProfile.archiveRow` with the sheet's username, which adds the row
+  through Sync's own `t4` when the name is a valid username (1 to 20
+  characters `A-Z a-z 0-9 _ -`). `r0` posts the chosen item's title as the
+  section to open; the patch passes that title through
+  `ArchivedProfile.section` first, which returns a section unchanged and, for
+  the archive row, turns the archive on or off and returns the section Sync
+  last loaded for that user. Sync then posts its usual section event and
+  closes the menu. The listing replacement is the hidden-profile patch's
+  `ArchivedProfile.response`, which now also replaces listings with items for
+  a user the archive was turned on for.
+
+  `ArchivedProfileTest` covers the row's title, highlight and icon, sections
+  passing through unchanged, which section is reloaded, paging all three
+  sections through the archive while Reddit answers with items, other users
+  and sections left alone, the archive having nothing or being down on the
+  first and later pages, turning it off, and a restart forgetting the choice.
+  `ArchivedProfileOnDemandPatchTest` runs the menu before and after the patch:
+  Sync's sections listed exactly as before with the row added after them on
+  someone else's profile and on your own, sections posting the same event as
+  stock, and the row toggling the archive and reloading the right section; on
+  hand-written models in CI, and on Sync's real methods with the stock APK
+  locally. `ArchivedProfilePatchTest` checks that with the archive on, Sync's
+  own parser stores the archived page instead of Reddit's visible items, pages
+  on, and returns to Reddit's items when it is turned off. The owner
+  tested a local build (0.7.9-alpha.1) on a phone and reported "Looks good";
+  no per-check results were given.
+
 Version 0.6 treats an ID as completed with no available comment only when both
 routes return HTTP 200, identify the expected post, and contain genuinely empty
 comment listings. A more marker, unrelated comment, wrong post, unknown shape,
@@ -2264,7 +2293,7 @@ java -jar revanced-cli-6.0.0-all.jar patch \
   -p output/patches.rvp -b \
   -O "OAuth client ID=your-reddit-client-id" -e "Spoof client" \
   --keystore your-signing-key.keystore \
-  -o Sync-v23.06.30-compat-v0.7.8.apk \
+  -o Sync-v23.06.30-compat-v0.7.9.apk \
   Sync-v23.06.30-stock.apk
 ```
 
@@ -2431,6 +2460,9 @@ candidate after v0.7.7-rc.1, and only overall results were given.
 Stable v0.7.8 builds `main` after the owner tested local builds of the same
 code on a phone (0.7.8-alpha.1 to alpha.3), reported "Looks good" and authorized
 publication; it had no published candidate, and only overall results were given.
+Stable v0.7.9 builds `main` after the owner tested a local build of the same
+code on a phone (0.7.9-alpha.1), reported "Looks good" and authorized
+publication; it had no published candidate, and only an overall result was given.
 These are checks of the supplied cases, not exhaustive Android/live Reddit tests.
 This standalone bundle does not represent a full upstream Gradle build.
 
